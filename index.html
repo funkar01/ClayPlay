@@ -38,6 +38,21 @@
             <div class="stage" id="stage">
               <div class="stage-grain"></div>
               <div class="stage-label"><span class="live-dot"></span><span id="stage-caption">YOUR HAND WILL APPEAR HERE</span></div>
+              <div class="axis-gizmo" role="img" aria-label="Scene axes: X points right, Y points up, Z points toward you">
+                <svg viewBox="0 0 76 76" aria-hidden="true">
+                  <circle class="gizmo-face" cx="38" cy="38" r="35"></circle>
+                  <path class="gizmo-axis gizmo-x" d="M24 45H57"></path>
+                  <path class="gizmo-axis gizmo-y" d="M24 45V13"></path>
+                  <path class="gizmo-axis gizmo-z" d="M24 45L9 57"></path>
+                  <path class="gizmo-tip gizmo-x-tip" d="M57 45l-5-3v6z"></path>
+                  <path class="gizmo-tip gizmo-y-tip" d="M24 13l-3 5h6z"></path>
+                  <path class="gizmo-tip gizmo-z-tip" d="M9 57l2-6 4 4z"></path>
+                  <circle class="gizmo-origin" cx="24" cy="45" r="3.2"></circle>
+                  <text class="gizmo-label gizmo-label-x" x="61" y="48">X</text>
+                  <text class="gizmo-label gizmo-label-y" x="21" y="10">Y</text>
+                  <text class="gizmo-label gizmo-label-z" x="3" y="68">Z</text>
+                </svg>
+              </div>
               <div class="stage-scene" id="three-scene" aria-label="Three dimensional hand tracking view">
                 <button class="clay-reset" id="clay-reset" type="button" hidden>Reset clay <span>↺</span></button>
                 <div class="scene-placeholder is-hidden" id="scene-placeholder">

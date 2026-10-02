@@ -84,9 +84,9 @@ Sub goals:
 
 Sub goals:
 - Add a clay sphere with a soft, appealing material.
-- Map the hand’s movement to a visible interaction point on the clay.
+- Build a lightweight palm-and-finger surface that follows the tracked landmarks.
 - Detect a pinch with separate start and release thresholds to prevent flicker.
-- Pull nearby clay vertices while pinching.
+- Deform a soft strip along the finger paths while pinching and moving.
 - Show a visible cue when the pinch is active.
 - Add a reset button in case the clay gets misshapen.
 
@@ -98,19 +98,24 @@ Sub goals:
 
 - Added a soft terracotta icosphere to the studio and kept it visible before camera setup.
 - Added thumb-to-index pinch detection normalized by palm width, with separate pinch and release thresholds to reduce flicker.
-- Maps the pinch point onto the front of the clay and pulls a local patch with a smooth falloff while the pinch moves.
+- Maps the finger paths onto the visible front of the clay and pulls a local strip with a smooth falloff while the pinch moves.
 - Added an active pinch cue, first-use shaping prompts, and a reset control.
-- Mouse mode now supports click-and-drag sculpting through the same deformation path, so the interaction can be explored without a camera.
+- Added a live hand surface made from a palm patch and articulated finger segments driven by the tracked landmarks.
+- Pinching now lets the tracked finger paths shape a soft strip of clay along their movement; mouse click-and-drag uses the same path model.
 - Merged the icosphere vertices so the surface stays smoothly shaded after deformation; softened the hand overlay so it does not obscure the clay.
-- Confirmed the production bundle builds. Webcam pinch recognition and the feel of the deformation still need a hands-on try before this milestone is complete.
+- Confirmed the production bundle builds and the hand surface appears over the clay in mouse mode. Webcam alignment, pinch recognition, and deformation feel still need a hands-on try before this milestone is complete.
 
 **Feedback to collect on the first try**
 
-1. Is it clear where to put your hand and when the pinch is active?
-2. Does the clay start moving at the right point, or does it feel offset from your fingers?
-3. Does the pull feel too weak, too strong, too lumpy, or too slow?
-4. Does releasing reliably stop the deformation?
-5. Does reset behave as expected?
+1. Does the 3D hand read as a hand shaping clay, and does it line up with your live hand?
+2. Is it clear where to put your hand and when the pinch is active?
+3. Does the clay change along the finger paths, or does it still feel like a single-point tool?
+4. Does the pull feel too weak, too strong, too lumpy, or too slow?
+5. Does releasing reliably stop the deformation, and does reset behave as expected?
+
+**Design direction — landmark-driven hand surface**
+
+Use the tracked hand as a visible, lightweight contact surface: a palm patch plus articulated finger forms, updated from the 21 landmarks. During an intentional pinch, use the finger paths as soft deformation strokes so the clay follows the curves of the fingers. This is an inferred hand surface, not a detailed scan of finger flesh; tune contact width and depth from webcam trials and keep the response forgiving.
 
 ### Milestone 3 — Make the sculpting feel good
 
@@ -216,7 +221,7 @@ We’ll keep a short running list of observations and decisions so feedback turn
 
 ## Current next target
 
-Try Milestone 2 in mouse mode first with click-and-drag, then set up the camera and try pinching over the clay. Share what feels satisfying, confusing, weak, or unreliable; we’ll tune pinch thresholds, cursor alignment, and pull strength from that feedback. Milestone 1’s hand detection still needs confirmation in ordinary indoor light as part of the webcam try.
+Try the hand surface in mouse mode first, then set up the camera and bring your tracked fingertips over the clay before pinching and tracing a small curve. Share whether the virtual hand lines up, whether the clay follows the finger paths, and what feels weak, strong, confusing, or unreliable. Milestone 1’s hand detection still needs confirmation in ordinary indoor light as part of the webcam try.
 
 ## Discussion log
 
@@ -251,4 +256,23 @@ Try Milestone 2 in mouse mode first with click-and-drag, then set up the camera 
 - Added pinch hysteresis using a normalized distance between thumb and index, relative to palm width.
 - Connected mouse click-and-drag to the same sculpting path for camera-free iteration.
 - Confirmed a mouse drag deforms the clay and exposes reset; merged geometry vertices to keep shading smooth after a pull.
-- Production build succeeds. The next step is hands-on feedback on alignment, gesture reliability, and deformation feel; webcam behavior has not yet been confirmed in a real session.
+- Prototyped a palm patch and articulated finger surface from the hand landmarks; pinch movement now deforms clay along the finger paths.
+- Corrected the hand-ready tip so it no longer says “Bring your hand back” while a hand is detected.
+- Production build succeeds. The next step is hands-on feedback on hand alignment, curve contact, pinch reliability, and deformation feel; webcam behavior has not yet been confirmed in a real session.
+
+### 2026-10-02 — Landmark-driven hand surface idea
+
+- Based on the webcam view, proposed replacing the detached landmark skeleton with a visible palm-and-finger surface that reads as a hand shaping clay.
+- Chose to use finger paths as the deformation brush during pinch so the clay responds along the curves of the fingers.
+- Recorded the technical limit: the tracker supplies landmark points, so the hand surface is inferred and needs calibration from real webcam use.
+
+### 2026-10-02 — XYZ orientation gizmo
+
+- Added a compact, labeled X-Y-Z orientation marker in the studio’s upper-left corner, below the stage caption.
+- Matched axis colors to the warm interface and kept the marker decorative so it does not intercept sculpting input.
+
+### 2026-10-02 — Flip the modeled hand along Z
+
+- Interpreted the request as reversing depth for the 3D hand and fingers while preserving screen-space X/Y mapping and the mirrored webcam preview.
+- Inverted the Z mapping used by the rendered hand surface. Clay contact and deformation remain mapped from the same X/Y finger paths.
+- The visible depth orientation needs confirmation in a live webcam session.

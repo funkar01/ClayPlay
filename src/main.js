@@ -44,7 +44,7 @@ let retryTimer;
 let mouseMode = false;
 let mousePinching = false;
 let pinchActive = false;
-let previousSculptPoint = null;
+let previousFingerPaths = null;
 let lastPinchHint = false;
 
 const sceneHost = document.querySelector('#three-scene');
@@ -95,80 +95,165 @@ function resetClay() {
   clayPositions.needsUpdate = true;
   clayGeometry.computeVertexNormals();
   pinchActive = false;
-  previousSculptPoint = null;
+  mousePinching = false;
+  previousFingerPaths = null;
   resetButton.hidden = true;
   if (lastPinchHint) setPrompt('Fresh clay, ready to shape.', 'Pinch the clay, then pull. Release your fingers to let it settle.', 'success');
 }
 
-function deformClay(point, isPinching) {
-  if (!isPinching) {
-    previousSculptPoint = null;
-    return;
-  }
-  const localPoint = clay.worldToLocal(point.clone());
-  const radialSquared = localPoint.x * localPoint.x + localPoint.y * localPoint.y;
-  if (radialSquared > clayRadius * clayRadius * 0.96) {
-    previousSculptPoint = localPoint;
-    return;
-  }
-  const surfaceZ = Math.sqrt(Math.max(0, clayRadius * clayRadius - radialSquared));
-  localPoint.z = surfaceZ;
-  if (!previousSculptPoint) {
-    previousSculptPoint = localPoint;
-    return;
-  }
-  const movement = localPoint.clone().sub(previousSculptPoint);
-  const planarMotion = Math.hypot(movement.x, movement.y);
-  if (planarMotion < 0.003) {
-    previousSculptPoint = localPoint;
-    return;
-  }
-  movement.x = THREE.MathUtils.clamp(movement.x, -0.15, 0.15);
-  movement.y = THREE.MathUtils.clamp(movement.y, -0.15, 0.15);
-  movement.z = Math.min(0.16, planarMotion * 0.48);
-  const brushRadius = 0.62;
-  const cursorX = localPoint.x;
-  const cursorY = localPoint.y;
-  for (let index = 0; index < clayPositions.count; index += 1) {
-    const x = clayPositions.getX(index);
-    const y = clayPositions.getY(index);
-    const z = clayPositions.getZ(index);
-    if (z < -0.05) continue;
-    const distance = Math.hypot(x - cursorX, y - cursorY);
-    if (distance >= brushRadius) continue;
-    const t = distance / brushRadius;
-    const falloff = (1 - t * t) ** 2;
-    clayPositions.setXYZ(index, x + movement.x * falloff, y + movement.y * falloff, z + movement.z * falloff);
-  }
-  clayPositions.needsUpdate = true;
-  clayGeometry.computeVertexNormals();
-  previousSculptPoint = localPoint;
-  resetButton.hidden = false;
+const fingerChains = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16], [17, 18, 19, 20]];
+const handModel = new THREE.Group();
+handModel.position.z = 1.3;
+const handSkin = new THREE.MeshStandardMaterial({ color: '#d9a17f', roughness: 0.72 });
+const palmSkin = new THREE.MeshStandardMaterial({ color: '#e1b08f', roughness: 0.7, side: THREE.DoubleSide, transparent: true, opacity: 0.92 });
+const handBoneGeometry = new THREE.CylinderGeometry(1, 0.94, 1, 12, 1);
+const handJointGeometry = new THREE.SphereGeometry(1, 14, 10);
+const handBones = [];
+const handJoints = [];
+const handSegments = [];
+
+fingerChains.forEach((chain, fingerIndex) => {
+  chain.slice(0, -1).forEach((start, segmentIndex) => {
+    const end = chain[segmentIndex + 1];
+    const bone = new THREE.Mesh(handBoneGeometry, handSkin);
+    handModel.add(bone);
+    handBones.push({ mesh: bone, start, end, fingerIndex, segmentIndex });
+    handSegments.push([start, end, fingerIndex, segmentIndex]);
+  });
+});
+
+for (let index = 0; index < 21; index += 1) {
+  const joint = new THREE.Mesh(handJointGeometry, handSkin);
+  handModel.add(joint);
+  handJoints.push(joint);
 }
 
-const pointsGeometry = new THREE.BufferGeometry();
-const pointsPositions = new Float32Array(21 * 3);
-pointsGeometry.setAttribute('position', new THREE.BufferAttribute(pointsPositions, 3));
-const pointsMaterial = new THREE.PointsMaterial({ color: '#ba6649', size: 0.11, sizeAttenuation: true, transparent: true, opacity: 0.92 });
-const pointsMesh = new THREE.Points(pointsGeometry, pointsMaterial);
-pointsMesh.visible = false;
-scene.add(pointsMesh);
+const palmPerimeter = [0, 1, 5, 9, 13, 17];
+const palmGeometry = new THREE.BufferGeometry();
+palmGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(7 * 3), 3));
+const palmIndices = [];
+for (let index = 0; index < palmPerimeter.length; index += 1) {
+  palmIndices.push(0, index + 1, ((index + 1) % palmPerimeter.length) + 1);
+}
+palmGeometry.setIndex(palmIndices);
+const palmSurface = new THREE.Mesh(palmGeometry, palmSkin);
+handModel.add(palmSurface);
+handModel.visible = false;
+scene.add(handModel);
 
-const linePositions = new Float32Array(connectionLines.length * 2 * 3);
-const linesGeometry = new THREE.BufferGeometry();
-linesGeometry.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
-const linesMaterial = new THREE.LineBasicMaterial({ color: '#9f5038', transparent: true, opacity: 0.48 });
-const linesMesh = new THREE.LineSegments(linesGeometry, linesMaterial);
-linesMesh.visible = false;
-scene.add(linesMesh);
+const boneAxis = new THREE.Vector3(0, 1, 0);
+function updateHandSurface(mappedPoints) {
+  const handPoints = mappedPoints.map(({ x, y, z }) => new THREE.Vector3(x, y, z));
+  const palmWidth = Math.max(0.25, handPoints[5].distanceTo(handPoints[17]));
+  for (const { mesh, start, end, fingerIndex, segmentIndex } of handBones) {
+    const from = handPoints[start];
+    const to = handPoints[end];
+    const direction = to.clone().sub(from);
+    const radiusScale = fingerIndex === 0 ? 0.105 : 0.082;
+    const segmentScale = segmentIndex === 0 ? 1.2 : segmentIndex === 2 ? 0.82 : 1;
+    const radius = palmWidth * radiusScale * segmentScale;
+    mesh.position.copy(from).add(to).multiplyScalar(0.5);
+    mesh.quaternion.setFromUnitVectors(boneAxis, direction.clone().normalize());
+    mesh.scale.set(radius, Math.max(0.04, direction.length()), radius);
+  }
+  handJoints.forEach((joint, index) => {
+    const baseRadius = index === 0 ? 0.12 : palmWidth * (index === 4 || index === 8 || index === 12 || index === 16 || index === 20 ? 0.095 : 0.105);
+    joint.position.copy(handPoints[index]);
+    joint.scale.setScalar(baseRadius);
+  });
+  const palmPositions = palmGeometry.attributes.position;
+  const center = new THREE.Vector3();
+  palmPerimeter.forEach((landmarkIndex) => center.add(handPoints[landmarkIndex]));
+  center.multiplyScalar(1 / palmPerimeter.length);
+  palmPositions.setXYZ(0, center.x, center.y, center.z);
+  palmPerimeter.forEach((landmarkIndex, index) => {
+    const point = handPoints[landmarkIndex];
+    palmPositions.setXYZ(index + 1, point.x, point.y, point.z);
+  });
+  palmPositions.needsUpdate = true;
+  palmGeometry.computeVertexNormals();
+  handModel.visible = true;
+}
 
-const palmGlow = new THREE.Mesh(
-  new THREE.SphereGeometry(0.44, 32, 24),
-  new THREE.MeshPhysicalMaterial({ color: '#d99774', roughness: 0.48, metalness: 0, clearcoat: 0.2, transparent: true, opacity: 0.12 })
-);
-palmGlow.scale.set(0.85, 1, 0.55);
-palmGlow.visible = false;
-scene.add(palmGlow);
+function makeFingerPaths(mappedPoints) {
+  return fingerChains.map((chain) => chain.map((landmarkIndex) => {
+    const local = clay.worldToLocal(new THREE.Vector3(mappedPoints[landmarkIndex].x, mappedPoints[landmarkIndex].y, 0));
+    const distanceSquared = local.x * local.x + local.y * local.y;
+    local.z = Math.sqrt(Math.max(0, clayRadius * clayRadius - Math.min(distanceSquared, clayRadius * clayRadius)));
+    return local;
+  }));
+}
+
+function deformAlongFingerPaths(mappedPoints, isPinching) {
+  if (!isPinching) {
+    previousFingerPaths = null;
+    return;
+  }
+  const currentPaths = makeFingerPaths(mappedPoints);
+  if (!previousFingerPaths) {
+    previousFingerPaths = currentPaths;
+    return;
+  }
+
+  const accumulated = new Float32Array(clayPositions.count * 3);
+  const weights = new Float32Array(clayPositions.count);
+  for (let fingerIndex = 0; fingerIndex < currentPaths.length; fingerIndex += 1) {
+    const current = currentPaths[fingerIndex];
+    const previous = previousFingerPaths[fingerIndex];
+    const radius = fingerIndex < 2 ? 0.17 : 0.14;
+    for (let segmentIndex = 0; segmentIndex < current.length - 1; segmentIndex += 1) {
+      const from = current[segmentIndex];
+      const to = current[segmentIndex + 1];
+      const priorFrom = previous[segmentIndex];
+      const priorTo = previous[segmentIndex + 1];
+      const dxFrom = from.x - priorFrom.x;
+      const dyFrom = from.y - priorFrom.y;
+      const dxTo = to.x - priorTo.x;
+      const dyTo = to.y - priorTo.y;
+      const motion = Math.hypot(dxFrom, dyFrom, dxTo, dyTo);
+      if (motion < 0.004) continue;
+
+      const segmentX = to.x - from.x;
+      const segmentY = to.y - from.y;
+      const segmentLengthSquared = segmentX * segmentX + segmentY * segmentY || 1;
+      for (let vertexIndex = 0; vertexIndex < clayPositions.count; vertexIndex += 1) {
+        const vertexX = clayPositions.getX(vertexIndex);
+        const vertexY = clayPositions.getY(vertexIndex);
+        if (clayPositions.getZ(vertexIndex) < -0.02) continue;
+        const along = THREE.MathUtils.clamp(((vertexX - from.x) * segmentX + (vertexY - from.y) * segmentY) / segmentLengthSquared, 0, 1);
+        const nearestX = from.x + segmentX * along;
+        const nearestY = from.y + segmentY * along;
+        const distance = Math.hypot(vertexX - nearestX, vertexY - nearestY);
+        if (distance >= radius) continue;
+        const falloff = (1 - (distance / radius) ** 2) ** 2;
+        const deltaX = THREE.MathUtils.clamp(THREE.MathUtils.lerp(dxFrom, dxTo, along) * 0.82, -0.075, 0.075);
+        const deltaY = THREE.MathUtils.clamp(THREE.MathUtils.lerp(dyFrom, dyTo, along) * 0.82, -0.075, 0.075);
+        const weightIndex = vertexIndex;
+        accumulated[weightIndex * 3] += deltaX * falloff;
+        accumulated[weightIndex * 3 + 1] += deltaY * falloff;
+        accumulated[weightIndex * 3 + 2] += Math.min(0.055, Math.hypot(deltaX, deltaY) * 0.45) * falloff;
+        weights[weightIndex] += falloff;
+      }
+    }
+  }
+
+  let changed = false;
+  for (let vertexIndex = 0; vertexIndex < clayPositions.count; vertexIndex += 1) {
+    const weight = weights[vertexIndex];
+    if (!weight) continue;
+    const x = clayPositions.getX(vertexIndex) + accumulated[vertexIndex * 3] / weight;
+    const y = clayPositions.getY(vertexIndex) + accumulated[vertexIndex * 3 + 1] / weight;
+    const z = clayPositions.getZ(vertexIndex) + accumulated[vertexIndex * 3 + 2] / weight;
+    clayPositions.setXYZ(vertexIndex, x, y, z);
+    changed = true;
+  }
+  if (changed) {
+    clayPositions.needsUpdate = true;
+    clayGeometry.computeVertexNormals();
+    resetButton.hidden = false;
+  }
+  previousFingerPaths = currentPaths;
+}
 
 const floor = new THREE.Mesh(
   new THREE.CircleGeometry(2.2, 64),
@@ -263,25 +348,10 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null) {
   const pointAt = (point) => ({
     x: (0.5 - point.x) * scaleX,
     y: (0.5 - point.y) * scaleY,
-    z: -point.z * 2.3,
+    z: point.z * 2.3,
   });
-  smoothedPoints.forEach((point, index) => {
-    const mapped = pointAt(point);
-    pointsPositions[index * 3] = mapped.x;
-    pointsPositions[index * 3 + 1] = mapped.y;
-    pointsPositions[index * 3 + 2] = mapped.z;
-  });
-  pointsGeometry.attributes.position.needsUpdate = true;
-  connectionLines.forEach(([start, end], index) => {
-    linePositions.set(pointsPositions.subarray(start * 3, start * 3 + 3), index * 6);
-    linePositions.set(pointsPositions.subarray(end * 3, end * 3 + 3), index * 6 + 3);
-  });
-  linesGeometry.attributes.position.needsUpdate = true;
-  const palm = pointAt(smoothedPoints[0]);
-  palmGlow.position.set(palm.x, palm.y, palm.z - 0.4);
-  palmGlow.visible = true;
-  pointsMesh.visible = true;
-  linesMesh.visible = true;
+  const mappedPoints = smoothedPoints.map(pointAt);
+  updateHandSurface(mappedPoints);
   scenePlaceholder.classList.add('is-hidden');
   const pinchDistance = Math.hypot(smoothedPoints[4].x - smoothedPoints[8].x, smoothedPoints[4].y - smoothedPoints[8].y);
   const palmWidth = Math.max(0.04, Math.hypot(smoothedPoints[5].x - smoothedPoints[17].x, smoothedPoints[5].y - smoothedPoints[17].y));
@@ -291,15 +361,16 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null) {
   else if (!pinchActive && pinchRatio < 0.34) pinchActive = true;
   else if (pinchActive && pinchRatio > 0.48) pinchActive = false;
 
-  const thumb = pointAt(smoothedPoints[4]);
-  const index = pointAt(smoothedPoints[8]);
+  const thumb = mappedPoints[4];
+  const index = mappedPoints[8];
   const sculptPoint = new THREE.Vector3((thumb.x + index.x) / 2, (thumb.y + index.y) / 2, 0);
   const insideClay = Math.hypot(sculptPoint.x - clayCenter.x, sculptPoint.y - clayCenter.y) < clayRadius * 1.08;
-  pinchCue.position.set(sculptPoint.x, sculptPoint.y, 1.42);
+  const cueLocal = clay.worldToLocal(sculptPoint.clone());
+  cueLocal.z = Math.sqrt(Math.max(0, clayRadius * clayRadius - Math.min(cueLocal.x * cueLocal.x + cueLocal.y * cueLocal.y, clayRadius * clayRadius))) + 0.1;
+  pinchCue.position.copy(clay.localToWorld(cueLocal));
   pinchCue.visible = pinchActive;
   pinchCue.scale.setScalar(pinchActive ? 1.12 : 0.8);
-  if (pinchActive && insideClay) deformClay(sculptPoint, true);
-  else deformClay(sculptPoint, false);
+  deformAlongFingerPaths(mappedPoints, pinchActive && insideClay);
   if (pinchActive !== wasPinching) {
     lastPinchHint = true;
     if (pinchActive) {
@@ -320,6 +391,8 @@ function showTracking(landmarks, now) {
   wasTracking = true;
   setStatus('ready', 'HAND DETECTED');
   landmarkCount.textContent = '21 LANDMARKS · 1 HAND';
+  tipHeading.textContent = 'Hand in view';
+  tipCopy.textContent = 'Bring your fingertips over the clay, pinch gently, then trace a small curve.';
   if (!lastPinchHint && !pinchActive) {
     setPrompt('Pinch the clay, then pull.', 'Bring thumb and index finger together over the clay, then move your hand gently.', 'success');
     stageCaption.textContent = 'HAND TRACKED · PINCH TO SHAPE';
@@ -334,15 +407,13 @@ function showNoHand(now) {
   if (!noHandSince) noHandSince = now;
   clearPreview();
   pinchActive = false;
-  previousSculptPoint = null;
+  previousFingerPaths = null;
   pinchCue.visible = false;
   landmarkCount.textContent = '21 LANDMARKS · WAITING';
   const lost = wasTracking && now - lastHandAt > 900;
   const needsHint = now - noHandSince > 2800;
   if (lost) {
-    pointsMesh.visible = false;
-    linesMesh.visible = false;
-    palmGlow.visible = false;
+    handModel.visible = false;
     scenePlaceholder.classList.remove('is-hidden');
     smoothedPoints = null;
     setStatus('searching', 'LOOKING FOR HAND');
@@ -479,9 +550,8 @@ function stopCamera(resetLandmarker = true) {
   if (resetLandmarker) {
     setStatus('idle', 'NOT CONNECTED');
     scenePlaceholder.classList.remove('is-hidden');
-    pointsMesh.visible = false;
-    linesMesh.visible = false;
-    palmGlow.visible = false;
+    handModel.visible = false;
+    previousFingerPaths = null;
     smoothedPoints = null;
     window.lastSmoothTime = 0;
     landmarkCount.textContent = '21 LANDMARKS · WAITING';
@@ -510,9 +580,8 @@ mouseButton.addEventListener('click', () => {
     stageCaption.textContent = 'YOUR HAND WILL APPEAR HERE';
     sceneHint.innerHTML = '<span class="hint-icon">↗</span> Keep your hand inside the frame';
     scenePlaceholder.classList.remove('is-hidden');
-    pointsMesh.visible = false;
-    linesMesh.visible = false;
-    palmGlow.visible = false;
+    handModel.visible = false;
+    previousFingerPaths = null;
     document.querySelector('#session-label').textContent = 'YOUR FIRST SESSION';
     mouseButton.textContent = 'Preview with mouse';
     return;
@@ -521,9 +590,10 @@ mouseButton.addEventListener('click', () => {
   mouseMode = true;
   setStatus('ready', 'MOUSE SCULPTING');
   landmarkCount.textContent = '21 LANDMARKS · MOUSE';
-  stageCaption.textContent = 'MOUSE PREVIEW · MOVE YOUR POINTER';
-  sceneHint.innerHTML = '<span class="hint-icon">✦</span> Move your pointer to move the hand';
-  setPrompt('Mouse sculpting is ready.', 'Click and drag across the clay to pinch and pull. Release to stop.', 'success');
+  scenePlaceholder.classList.add('is-hidden');
+  stageCaption.textContent = 'MOUSE SCULPTING · DRAG TO SHAPE';
+  sceneHint.innerHTML = '<span class="hint-icon">✦</span> Move over the clay, then click and drag';
+  setPrompt('Mouse sculpting is ready.', 'Move over the clay, then click and drag to shape it. Release to stop.', 'success');
   stageCaption.textContent = 'CLICK AND DRAG TO SHAPE';
   sceneHint.innerHTML = '<span class="hint-icon">✦</span> Click and drag the clay';
   tipHeading.textContent = 'Camera optional';
@@ -578,7 +648,11 @@ sceneHost.addEventListener('pointerup', (event) => {
   updateThreeSkeleton(landmarks, performance.now(), false);
 });
 
-resetButton.addEventListener('click', resetClay);
+resetButton.addEventListener('pointerdown', (event) => event.stopPropagation());
+resetButton.addEventListener('click', (event) => {
+  event.stopPropagation();
+  resetClay();
+});
 
 window.addEventListener('beforeunload', () => {
   stopCamera();
