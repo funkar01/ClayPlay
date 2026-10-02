@@ -348,7 +348,8 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null) {
   const pointAt = (point) => ({
     x: (0.5 - point.x) * scaleX,
     y: (0.5 - point.y) * scaleY,
-    z: point.z * 2.3,
+    // MediaPipe depth gets smaller as the hand moves toward the camera; Three.js uses +Z toward the camera.
+    z: -point.z * 2.3,
   });
   const mappedPoints = smoothedPoints.map(pointAt);
   updateHandSurface(mappedPoints);

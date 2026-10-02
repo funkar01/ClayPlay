@@ -76,7 +76,7 @@ Sub goals:
 - Added a mouse-driven hand preview so the visual tracking scene can be explored without camera access. It previews motion only; webcam recognition still needs to be checked on a real camera.
 - Aligned the pinned MediaPipe JavaScript package and hosted WASM runtime at version `0.10.35`. Previously the app loaded package `0.10.35` with WASM `0.10.22`, so tracking setup could fail after camera permission succeeded.
 - Separated camera-access failures from hand-tracker setup failures. If tracking files fail to load, the camera preview stays on and the player can retry tracking or switch to mouse preview.
-- Confirmed in-browser that the webcam stays on and MediaPipe reaches its “looking for hand” state. The “Done when” check remains open until landmarks are visibly detected in ordinary indoor light and loss/reacquisition behavior is confirmed.
+- Confirmed in-browser that the webcam starts and MediaPipe detects one hand in indoor lighting. Loss and reacquisition still need a deliberate check before Milestone 1 is complete.
 
 ### Milestone 2 — First clay interaction
 
@@ -84,7 +84,7 @@ Sub goals:
 
 Sub goals:
 - Add a clay sphere with a soft, appealing material.
-- Build a lightweight palm-and-finger surface that follows the tracked landmarks.
+- Load the rigged VR hand mesh and map its wrist and finger joints to the tracked landmarks.
 - Detect a pinch with separate start and release thresholds to prevent flicker.
 - Deform a soft strip along the finger paths while pinching and moving.
 - Show a visible cue when the pinch is active.
@@ -100,10 +100,12 @@ Sub goals:
 - Added thumb-to-index pinch detection normalized by palm width, with separate pinch and release thresholds to reduce flicker.
 - Maps the finger paths onto the visible front of the clay and pulls a local strip with a smooth falloff while the pinch moves.
 - Added an active pinch cue, first-use shaping prompts, and a reset control.
-- Added a live hand surface made from a palm patch and articulated finger segments driven by the tracked landmarks.
+- Replaced the procedural palm patch and finger segments with `assets/vr_hands_rigged.glb`.
+- Split the combined skinned mesh into left and right surfaces by skin weights, then select the matching hand using MediaPipe handedness.
+- Retargeted the wrist, palm, and four joints on each finger to the 21 MediaPipe landmarks; mouse mode uses the same rig with a right-hand pose.
 - Pinching now lets the tracked finger paths shape a soft strip of clay along their movement; mouse click-and-drag uses the same path model.
-- Merged the icosphere vertices so the surface stays smoothly shaded after deformation; softened the hand overlay so it does not obscure the clay.
-- Confirmed the production bundle builds and the hand surface appears over the clay in mouse mode. Webcam alignment, pinch recognition, and deformation feel still need a hands-on try before this milestone is complete.
+- Rebound the skinned mesh after setting its scene scale so the GLB rest pose and live joint targets share the same coordinate space.
+- Confirmed the production bundle builds and the replacement mesh appears in mouse mode and a live hand-tracking session. Alignment, handedness, perceived proportions, and pinch feel still need hands-on feedback before this milestone is complete.
 
 **Feedback to collect on the first try**
 
@@ -113,9 +115,9 @@ Sub goals:
 4. Does the pull feel too weak, too strong, too lumpy, or too slow?
 5. Does releasing reliably stop the deformation, and does reset behave as expected?
 
-**Design direction — landmark-driven hand surface**
+**Design direction — rigged hand mesh and landmark-driven contact**
 
-Use the tracked hand as a visible, lightweight contact surface: a palm patch plus articulated finger forms, updated from the 21 landmarks. During an intentional pinch, use the finger paths as soft deformation strokes so the clay follows the curves of the fingers. This is an inferred hand surface, not a detailed scan of finger flesh; tune contact width and depth from webcam trials and keep the response forgiving.
+Use the rigged VR hand as the visible hand surface, retargeted from MediaPipe’s wrist and finger landmarks. During an intentional pinch, use the tracked finger paths as soft deformation strokes so the clay follows the curves of the fingers. Tune the model’s scale, orientation, and contact depth from webcam trials and keep the response forgiving.
 
 ### Milestone 3 — Make the sculpting feel good
 
@@ -221,7 +223,7 @@ We’ll keep a short running list of observations and decisions so feedback turn
 
 ## Current next target
 
-Try the hand surface in mouse mode first, then set up the camera and bring your tracked fingertips over the clay before pinching and tracing a small curve. Share whether the virtual hand lines up, whether the clay follows the finger paths, and what feels weak, strong, confusing, or unreliable. Milestone 1’s hand detection still needs confirmation in ordinary indoor light as part of the webcam try.
+Try the rigged hand in mouse mode, then set up the camera and bring your tracked fingertips over the clay before pinching and tracing a small curve. Share whether the mesh follows your palm and finger curves, whether handedness and orientation look right, and what feels weak, strong, confusing, or unreliable. Milestone 1’s hand detection still needs confirmation in ordinary indoor light as part of the webcam try.
 
 ## Discussion log
 
@@ -276,3 +278,31 @@ Try the hand surface in mouse mode first, then set up the camera and bring your 
 - Interpreted the request as reversing depth for the 3D hand and fingers while preserving screen-space X/Y mapping and the mirrored webcam preview.
 - Inverted the Z mapping used by the rendered hand surface. Clay contact and deformation remain mapped from the same X/Y finger paths.
 - The visible depth orientation needs confirmation in a live webcam session.
+
+### 2026-10-02 — Rigged hand asset format
+
+- Recommended binary glTF 2.0 (`.glb`) for a replacement hand model in the Three.js web app.
+- Asset should contain a skinned mesh and an articulated hand skeleton with wrist/palm and finger joints; animation clips are optional because webcam landmarks will drive the joints live.
+- Plan for an explicit mapping between the asset’s bone names and MediaPipe’s 21 hand landmarks. Confirm rest pose, handedness, scale, and axis orientation when selecting the model.
+
+### 2026-10-02 — Replace the procedural hand with the VR rig
+
+- Loaded `assets/vr_hands_rigged.glb` and replaced the generated palm patch, finger cylinders, and joint spheres.
+- Split the asset’s combined left/right skinned surface by joint skin weights and choose the mesh side from MediaPipe handedness.
+- Mapped the wrist and palm plus four joints on each finger to the 21 landmarks; kept pinch detection and clay deformation separate from hand rendering.
+- Rebuilt the bind pose after applying the scene scale and kept the mirrored camera preview and existing Z-depth mapping.
+- Production build succeeds and mouse mode shows the replacement mesh. Its scale, orientation, and webcam alignment remain open for hands-on feedback.
+- Confirmed the current webcam session detects one hand and renders the new mesh over the clay; the mesh’s fit to the real hand and pinch interaction still need user feedback.
+
+### 2026-10-02 — Restore VR hand proportions and landmark mapping
+
+- Fixed the deformed, spike-like hand: the earlier mapping translated every rig joint onto its landmark, changing the GLB’s segment lengths and pulling its skin apart.
+- Keep the asset’s bind/rest structure intact. Fit and orient the complete hand from wrist and palm landmarks, scale from palm width, and rotate the finger bones along the tracked landmark segments.
+- Continue selecting the matching left/right hand mesh from MediaPipe handedness; keep pinch and clay deformation on their existing path.
+- Production build succeeds. Next live check: confirm the hand surface follows the detected palm and finger bends, and that its pinch reaches the clay naturally.
+
+### 2026-10-02 — Reverse hand movement on Z
+
+- Reversed the MediaPipe depth-to-scene mapping for the rigged hand. Moving a hand toward the webcam now moves the virtual hand toward the viewer; moving it away moves it back.
+- Screen-space X/Y, pinch detection, and clay deformation remain unchanged.
+- Production build succeeds. Confirm the direction with a short toward/away webcam motion.
