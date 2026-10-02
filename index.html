@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f5efe7" />
+    <meta name="description" content="A little creative studio for your hands." />
+    <title>ClayPlay — a little studio for your hands</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="ClayPlay home">
+          <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span>clayplay</span>
+        </a>
+        <div class="top-note"><span class="sparkle">✳</span> a little studio for your hands</div>
+        <div class="session-label"><span class="session-dot"></span><span id="session-label">YOUR FIRST SESSION</span></div>
+      </header>
+
+      <main class="workspace">
+        <section class="studio" aria-label="Hand tracking studio">
+          <div class="studio-head">
+            <div>
+              <div class="eyebrow"><span class="step-dot"></span> STEP 01 <span class="step-line"></span> HAND TRACKING</div>
+              <h1>Let’s get your hands<br /><em>in the studio.</em></h1>
+              <p class="intro">A quick camera check, then you’re ready to play.</p>
+            </div>
+            <div class="tracking-pill" id="tracking-pill" data-state="idle">
+              <span class="tracking-dot"></span><span id="tracking-text">NOT CONNECTED</span>
+            </div>
+          </div>
+
+          <div class="stage-wrap">
+            <div class="stage" id="stage">
+              <div class="stage-grain"></div>
+              <div class="stage-label"><span class="live-dot"></span><span id="stage-caption">YOUR HAND WILL APPEAR HERE</span></div>
+              <div class="stage-scene" id="three-scene" aria-label="Three dimensional hand tracking view">
+                <button class="clay-reset" id="clay-reset" type="button" hidden>Reset clay <span>↺</span></button>
+                <div class="scene-placeholder is-hidden" id="scene-placeholder">
+                  <div class="placeholder-orbit orbit-one"></div>
+                  <div class="placeholder-orbit orbit-two"></div>
+                  <div class="placeholder-palm">✳</div>
+                  <span>YOUR HAND, IN 3D</span>
+                </div>
+              </div>
+              <div class="scene-hint" id="scene-hint"><span class="hint-icon">↗</span> Keep your hand inside the frame</div>
+              <div class="corner corner-tl"></div><div class="corner corner-tr"></div>
+              <div class="corner corner-bl"></div><div class="corner corner-br"></div>
+              <div class="scene-scanline"></div>
+            </div>
+            <div class="stage-caption-row">
+              <span><span class="caption-icon">✦</span> LIVE TRACKING VIEW</span>
+              <span id="landmark-count">21 LANDMARKS · WAITING</span>
+            </div>
+          </div>
+
+          <div class="prompt-card" id="prompt-card" data-tone="neutral" aria-live="polite">
+            <div class="prompt-icon" id="prompt-icon"><span class="camera-icon">◉</span></div>
+            <div class="prompt-copy"><strong id="prompt-title">Ready when you are</strong><span id="prompt-body">We’ll use your camera to follow your hand. Video stays on this device.</span></div>
+            <button class="primary-button" id="camera-button"><span id="button-label">Set up camera</span><span class="button-arrow">↗</span></button>
+          </div>
+        </section>
+
+        <aside class="side-panel" aria-label="Camera setup and tips">
+          <div class="camera-card">
+            <div class="card-head"><div><span class="eyebrow small-eyebrow">CAMERA CHECK</span><h2>Your view</h2></div><span class="camera-status" id="camera-status">OFF</span></div>
+            <div class="video-frame" id="video-frame">
+              <video id="camera-video" autoplay muted playsinline></video>
+              <canvas id="preview-overlay"></canvas>
+              <div class="video-placeholder" id="video-placeholder"><div class="camera-glyph">◉</div><span>Your camera preview<br />will show here</span></div>
+              <div class="frame-guide"><span></span></div>
+              <div class="video-live" id="video-live"><span></span> LIVE</div>
+            </div>
+            <div class="camera-card-foot"><span class="lock-icon">▣</span><span>Your video never leaves this device.</span></div>
+          </div>
+
+          <div class="tip-card" id="tip-card">
+            <div class="tip-heading"><span class="tip-star">✳</span><span id="tip-heading">A little room helps</span></div>
+            <p id="tip-copy">Sit about an arm’s length away, with your hand and wrist visible in the preview.</p>
+            <div class="tip-illustration" aria-hidden="true"><div class="tip-window"><div class="tip-person"><span class="person-head"></span><span class="person-body"></span><span class="person-arm"></span><span class="person-hand"></span></div><div class="tip-rays"></div></div><div class="tip-distance"><span></span><b>↔</b><span></span></div><div class="tip-hand">✋</div></div>
+          </div>
+
+          <div class="checklist-card">
+            <div class="eyebrow small-eyebrow">QUICK CHECKLIST</div>
+            <ul>
+              <li id="check-camera"><span class="check-icon">1</span><span>Allow camera access</span><span class="check-state"></span></li>
+              <li id="check-hand"><span class="check-icon">2</span><span>Show one hand</span><span class="check-state"></span></li>
+              <li id="check-light"><span class="check-icon">3</span><span>Find soft, even light</span><span class="check-state"></span></li>
+            </ul>
+          </div>
+
+          <button class="quiet-button" id="mouse-button">Preview with mouse <span>→</span></button>
+        </aside>
+      </main>
+      <footer class="footer"><span>MADE FOR CURIOUS HANDS</span><span class="footer-center"><i></i> TAKE YOUR TIME · THERE’S NO WRONG WAY TO BEGIN</span><span>CLAYPLAY STUDIO <b>✳</b></span></footer>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
