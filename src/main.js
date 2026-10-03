@@ -1,5 +1,7 @@
 import * as THREE from 'three';
-import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { ClayObjects } from './clayObjects.js';
+import { setupClayMenu } from './clayMenu.js';
+import { setupFullscreen } from './fullscreen.js';
 import './style.css';
 
 const video = document.querySelector('#camera-video');
@@ -23,6 +25,10 @@ const tipHeading = document.querySelector('#tip-heading');
 const tipCopy = document.querySelector('#tip-copy');
 const landmarkCount = document.querySelector('#landmark-count');
 const resetButton = document.querySelector('#clay-reset');
+const toolButtons = [...document.querySelectorAll('.tool-button')];
+const strengthInput = document.querySelector('#tool-strength');
+const strengthValue = document.querySelector('#strength-value');
+const strengthContext = document.querySelector('#strength-context');
 
 const connectionLines = [
   [0,1],[1,2],[2,3],[3,4], [0,5],[5,6],[6,7],[7,8],
@@ -44,7 +50,16 @@ let retryTimer;
 let mouseMode = false;
 let mousePinching = false;
 let pinchActive = false;
-let previousFingerPaths = null;
+let pinchHasContact = false;
+let previousPullPoint = null;
+let previousPullCursorPoint = null;
+const pullPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1));
+let previousCarvePoint = null;
+let previousBulgePoint = null;
+let carveReference = null;
+let bulgeReference = null;
+let activeTool = 'pinch';
+let activeStrength = Number(strengthInput.value);
 let lastPinchHint = false;
 
 const sceneHost = document.querySelector('#three-scene');
@@ -68,18 +83,12 @@ const warmLight = new THREE.PointLight('#de8d67', 22, 12);
 warmLight.position.set(3, -2, 4);
 scene.add(warmLight);
 
-const clayGeometry = mergeVertices(new THREE.IcosahedronGeometry(1.25, 5));
-const clayPositions = clayGeometry.attributes.position;
-clayGeometry.computeVertexNormals();
-const originalClayPositions = new Float32Array(clayPositions.array);
-const clayMaterial = new THREE.MeshPhysicalMaterial({
-  color: '#bd7455', roughness: 0.78, metalness: 0, clearcoat: 0.08, clearcoatRoughness: 0.9,
-});
-const clay = new THREE.Mesh(clayGeometry, clayMaterial);
-clay.position.set(0, -0.08, 0);
-clay.castShadow = true;
-clay.receiveShadow = true;
-scene.add(clay);
+const clayObjects = new ClayObjects(scene);
+let clay = clayObjects.active.group;
+let clayVolume = clayObjects.active.volume;
+let clayMenu;
+let mouseSculptPoint = null;
+const clayRaycaster = new THREE.Raycaster();
 
 const pinchCue = new THREE.Mesh(
   new THREE.SphereGeometry(0.11, 20, 16),
@@ -88,17 +97,38 @@ const pinchCue = new THREE.Mesh(
 pinchCue.visible = false;
 scene.add(pinchCue);
 
-const clayRadius = 1.25;
-const clayCenter = clay.position;
 function resetClay() {
-  clayPositions.array.set(originalClayPositions);
-  clayPositions.needsUpdate = true;
-  clayGeometry.computeVertexNormals();
+  clayVolume.reset();
+  clayObjects.active.edited = false;
   pinchActive = false;
+  pinchHasContact = false;
   mousePinching = false;
-  previousFingerPaths = null;
+  previousPullPoint = null;
+  previousCarvePoint = null;
+  previousBulgePoint = null;
+  carveReference = null;
+  bulgeReference = null;
+  pinchCue.visible = false;
   resetButton.hidden = true;
-  if (lastPinchHint) setPrompt('Fresh clay, ready to shape.', 'Pinch the clay, then pull. Release your fingers to let it settle.', 'success');
+  lastPinchHint = false;
+  selectTool(activeTool);
+  setPrompt('Fresh clay, ready to shape.', mouseMode ? `${toolDetails[activeTool].mouseHint}. Release to stop.` : toolDetails[activeTool].body, 'success');
+}
+
+function selectClayObject(id) {
+  cancelMouseStroke();
+  const item = clayObjects.select(id);
+  clay = item.group;
+  clayVolume = item.volume;
+  resetButton.hidden = !item.edited;
+  resetButton.title = `Reset ${item.label}`;
+  clayMenu?.refresh();
+  selectTool(activeTool);
+}
+
+function markClayEdited() {
+  clayObjects.active.edited = true;
+  resetButton.hidden = false;
 }
 
 const fingerChains = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16], [17, 18, 19, 20]];
@@ -144,6 +174,7 @@ scene.add(handModel);
 const boneAxis = new THREE.Vector3(0, 1, 0);
 function updateHandSurface(mappedPoints) {
   const handPoints = mappedPoints.map(({ x, y, z }) => new THREE.Vector3(x, y, z));
+  // Keep hand thickness proportional to the tracked palm as its apparent size changes in frame.
   const palmWidth = Math.max(0.25, handPoints[5].distanceTo(handPoints[17]));
   for (const { mesh, start, end, fingerIndex, segmentIndex } of handBones) {
     const from = handPoints[start];
@@ -175,86 +206,120 @@ function updateHandSurface(mappedPoints) {
   handModel.visible = true;
 }
 
-function makeFingerPaths(mappedPoints) {
-  return fingerChains.map((chain) => chain.map((landmarkIndex) => {
-    const local = clay.worldToLocal(new THREE.Vector3(mappedPoints[landmarkIndex].x, mappedPoints[landmarkIndex].y, 0));
-    const distanceSquared = local.x * local.x + local.y * local.y;
-    local.z = Math.sqrt(Math.max(0, clayRadius * clayRadius - Math.min(distanceSquared, clayRadius * clayRadius)));
-    return local;
-  }));
+function getClaySurfaceHit(handPoint, surface = clay) {
+  const target = new THREE.Vector3(handPoint.x, handPoint.y, 0);
+  const direction = target.sub(camera.position).normalize();
+  clayRaycaster.set(camera.position, direction);
+  surface.updateMatrixWorld(true);
+  const hit = clayRaycaster.intersectObject(surface, true)[0];
+  if (!hit) return null;
+  const normal = hit.face?.normal.clone().transformDirection(hit.object.matrixWorld) ?? new THREE.Vector3(0, 0, 1);
+  return {
+    point: clay.worldToLocal(hit.point.clone()),
+    worldPoint: hit.point.clone(),
+    worldNormal: normal,
+  };
 }
 
-function deformAlongFingerPaths(mappedPoints, isPinching) {
-  if (!isPinching) {
-    previousFingerPaths = null;
+function getClaySurfacePoint(handPoint) {
+  return getClaySurfaceHit(handPoint)?.point ?? null;
+}
+
+function pullClayAlongPath(handPoint, isPulling, surfacePoint = undefined) {
+  if (!isPulling || !handPoint) {
+    previousPullPoint = null;
+    previousPullCursorPoint = null;
     return;
   }
-  const currentPaths = makeFingerPaths(mappedPoints);
-  if (!previousFingerPaths) {
-    previousFingerPaths = currentPaths;
+  if (!previousPullPoint) {
+    const currentPoint = surfacePoint === undefined ? getClaySurfacePoint(handPoint) : surfacePoint;
+    if (!currentPoint) return;
+    previousPullPoint = currentPoint;
+    previousPullCursorPoint = currentPoint.clone();
+    pullPlane.constant = -clay.localToWorld(currentPoint.clone()).z;
     return;
   }
+  // Hold the original grab plane after contact, including beyond the silhouette.
+  clayRaycaster.set(camera.position, new THREE.Vector3(handPoint.x, handPoint.y, 0).sub(camera.position).normalize());
+  const cursor = clayRaycaster.ray.intersectPlane(pullPlane, new THREE.Vector3());
+  if (!cursor) return;
+  clay.worldToLocal(cursor);
+  if (activeStrength === 0) {
+    previousPullCursorPoint = cursor;
+    return;
+  }
+  const target = previousPullPoint.clone().add(cursor.clone().sub(previousPullCursorPoint));
+  const appliedPoint = clayVolume.applyPull(previousPullPoint, target, 0.3, activeStrength / 100);
+  if (appliedPoint) {
+    markClayEdited();
+    previousPullPoint = appliedPoint;
+    previousPullCursorPoint = cursor;
+  }
+}
 
-  const accumulated = new Float32Array(clayPositions.count * 3);
-  const weights = new Float32Array(clayPositions.count);
-  for (let fingerIndex = 0; fingerIndex < currentPaths.length; fingerIndex += 1) {
-    const current = currentPaths[fingerIndex];
-    const previous = previousFingerPaths[fingerIndex];
-    const radius = fingerIndex < 2 ? 0.17 : 0.14;
-    for (let segmentIndex = 0; segmentIndex < current.length - 1; segmentIndex += 1) {
-      const from = current[segmentIndex];
-      const to = current[segmentIndex + 1];
-      const priorFrom = previous[segmentIndex];
-      const priorTo = previous[segmentIndex + 1];
-      const dxFrom = from.x - priorFrom.x;
-      const dyFrom = from.y - priorFrom.y;
-      const dxTo = to.x - priorTo.x;
-      const dyTo = to.y - priorTo.y;
-      const motion = Math.hypot(dxFrom, dyFrom, dxTo, dyTo);
-      if (motion < 0.004) continue;
-
-      const segmentX = to.x - from.x;
-      const segmentY = to.y - from.y;
-      const segmentLengthSquared = segmentX * segmentX + segmentY * segmentY || 1;
-      for (let vertexIndex = 0; vertexIndex < clayPositions.count; vertexIndex += 1) {
-        const vertexX = clayPositions.getX(vertexIndex);
-        const vertexY = clayPositions.getY(vertexIndex);
-        if (clayPositions.getZ(vertexIndex) < -0.02) continue;
-        const along = THREE.MathUtils.clamp(((vertexX - from.x) * segmentX + (vertexY - from.y) * segmentY) / segmentLengthSquared, 0, 1);
-        const nearestX = from.x + segmentX * along;
-        const nearestY = from.y + segmentY * along;
-        const distance = Math.hypot(vertexX - nearestX, vertexY - nearestY);
-        if (distance >= radius) continue;
-        const falloff = (1 - (distance / radius) ** 2) ** 2;
-        const deltaX = THREE.MathUtils.clamp(THREE.MathUtils.lerp(dxFrom, dxTo, along) * 0.82, -0.075, 0.075);
-        const deltaY = THREE.MathUtils.clamp(THREE.MathUtils.lerp(dyFrom, dyTo, along) * 0.82, -0.075, 0.075);
-        const weightIndex = vertexIndex;
-        accumulated[weightIndex * 3] += deltaX * falloff;
-        accumulated[weightIndex * 3 + 1] += deltaY * falloff;
-        accumulated[weightIndex * 3 + 2] += Math.min(0.055, Math.hypot(deltaX, deltaY) * 0.45) * falloff;
-        weights[weightIndex] += falloff;
-      }
+function carveAlongPath(handPoint, isCarving) {
+  if (!isCarving || !handPoint) {
+    previousCarvePoint = null;
+    carveReference = null;
+    return;
+  }
+  // Remeshing replaces geometry, so these shared CPU buffers remain a stable
+  // reference for the stroke without copying the entire mesh every frame.
+  carveReference ??= clay.clone(true);
+  const hit = getClaySurfaceHit(handPoint, carveReference);
+  if (!hit) {
+    previousCarvePoint = null;
+    carveReference = null;
+    return;
+  }
+  const currentPoint = hit.point;
+  if (!previousCarvePoint) {
+    previousCarvePoint = currentPoint;
+    return;
+  }
+  const motion = currentPoint.distanceTo(previousCarvePoint);
+  const cutDepth = activeStrength === 0 ? 0 : THREE.MathUtils.lerp(0.025, 0.225, activeStrength / 100);
+  if (motion >= 0.003 && clayVolume.carveStroke(previousCarvePoint, currentPoint, 0.105, cutDepth, 0.035, hit.worldNormal)) {
+    markClayEdited();
+    if (stageCaption.textContent !== 'CARVING · TRACE THE CURVE') {
+      stageCaption.textContent = 'CARVING · TRACE THE CURVE';
+      sceneHint.innerHTML = '<span class="hint-icon">✦</span> Keep tracing to extend the groove';
+      setPrompt('Carving a groove.', 'Keep tracing to extend the curve. Switch tools to shape the clay another way.', 'success');
     }
   }
-
-  let changed = false;
-  for (let vertexIndex = 0; vertexIndex < clayPositions.count; vertexIndex += 1) {
-    const weight = weights[vertexIndex];
-    if (!weight) continue;
-    const x = clayPositions.getX(vertexIndex) + accumulated[vertexIndex * 3] / weight;
-    const y = clayPositions.getY(vertexIndex) + accumulated[vertexIndex * 3 + 1] / weight;
-    const z = clayPositions.getZ(vertexIndex) + accumulated[vertexIndex * 3 + 2] / weight;
-    clayPositions.setXYZ(vertexIndex, x, y, z);
-    changed = true;
-  }
-  if (changed) {
-    clayPositions.needsUpdate = true;
-    clayGeometry.computeVertexNormals();
-    resetButton.hidden = false;
-  }
-  previousFingerPaths = currentPaths;
+  previousCarvePoint = currentPoint;
 }
 
+function bulgeAlongPath(handPoint, isBulging) {
+  if (!isBulging || !handPoint) {
+    previousBulgePoint = null;
+    bulgeReference = null;
+    return;
+  }
+  bulgeReference ??= clay.clone(true);
+  const hit = getClaySurfaceHit(handPoint, bulgeReference);
+  if (!hit) {
+    previousBulgePoint = null;
+    bulgeReference = null;
+    return;
+  }
+  const currentPoint = hit.point;
+  if (!previousBulgePoint) {
+    previousBulgePoint = currentPoint;
+    return;
+  }
+  const motion = currentPoint.distanceTo(previousBulgePoint);
+  const raisedAmount = activeStrength === 0 ? 0 : THREE.MathUtils.lerp(0.015, 0.24, activeStrength / 100);
+  if (motion >= 0.003 && clayVolume.applyBulge(previousBulgePoint, currentPoint, 0.28, raisedAmount, hit.worldNormal)) {
+    markClayEdited();
+    if (stageCaption.textContent !== 'BULGING · TRACE TO BUILD UP') {
+      stageCaption.textContent = 'BULGING · TRACE TO BUILD UP';
+      sceneHint.innerHTML = '<span class="hint-icon">✦</span> Keep tracing to raise the clay';
+      setPrompt('Building up the clay.', 'Keep tracing to extend the soft raised form.', 'success');
+    }
+  }
+  previousBulgePoint = currentPoint;
+}
 const floor = new THREE.Mesh(
   new THREE.CircleGeometry(2.2, 64),
   new THREE.MeshBasicMaterial({ color: '#d9c7b7', transparent: true, opacity: 0.34 })
@@ -272,6 +337,8 @@ function resizeScene() {
   camera.position.z = width < 540 ? 10 : 8.6;
   camera.updateProjectionMatrix();
   renderer.setSize(width, height);
+  cancelMouseStroke();
+  clayObjects.layout(camera);
 }
 new ResizeObserver(resizeScene).observe(sceneHost);
 
@@ -292,6 +359,85 @@ function setPrompt(title, body, tone = 'neutral') {
   if (promptBody.textContent !== body) promptBody.textContent = body;
   if (promptCard.dataset.tone !== tone) promptCard.dataset.tone = tone;
 }
+
+const toolDetails = {
+  pinch: {
+    context: 'Pull distance',
+    caption: 'PINCH TOOL · PINCH TO SHAPE',
+    hint: '<span class="hint-icon">✦</span> Pinch over the clay, then pull',
+    mouseHint: 'Click and drag to pull the clay',
+    mouseCaption: 'PINCH TOOL · CLICK AND DRAG TO PULL',
+    title: 'Pinch the clay, then pull.',
+    body: 'Bring thumb and index finger together over the clay, then move your hand gently.',
+    tipHeading: 'Pinch to shape',
+    tipCopy: 'Bring thumb and index finger together over the clay, then pull gently.',
+  },
+  carve: {
+    context: 'Cut depth',
+    caption: 'CARVE TOOL · TRACE TO CARVE',
+    hint: '<span class="hint-icon">✦</span> Trace the clay with your index finger',
+    mouseHint: 'Click and drag across the clay to carve',
+    mouseCaption: 'CARVE TOOL · CLICK AND DRAG TO CARVE',
+    title: 'Carve a curve.',
+    body: 'Trace a curve across the clay with your index finger to carve a groove.',
+    tipHeading: 'Carve a curve',
+    tipCopy: 'Trace the clay with your index finger. Drag with the mouse in preview mode.',
+  },
+  bulge: {
+    context: 'Raised amount',
+    caption: 'BULGE TOOL · TRACE TO BUILD UP',
+    hint: '<span class="hint-icon">✦</span> Trace the clay to build up a soft form',
+    mouseHint: 'Click and drag to raise the clay',
+    mouseCaption: 'BULGE TOOL · CLICK AND DRAG TO BUILD UP',
+    title: 'Build up the clay.',
+    body: 'Trace over the clay with your index finger to raise a soft, rounded form.',
+    tipHeading: 'Build up the clay',
+    tipCopy: 'Trace over the surface to raise the clay. Drag with the mouse in preview mode.',
+  },
+};
+
+function updateStrengthControl() {
+  const details = toolDetails[activeTool];
+  strengthValue.value = String(activeStrength);
+  strengthValue.textContent = String(activeStrength);
+  strengthContext.textContent = details.context;
+  strengthInput.setAttribute('aria-valuetext', `${activeStrength} percent ${details.context.toLowerCase()}`);
+}
+
+strengthInput.addEventListener('input', () => {
+  activeStrength = Number(strengthInput.value);
+  updateStrengthControl();
+});
+updateStrengthControl();
+
+function selectTool(tool) {
+  activeTool = tool;
+  const details = toolDetails[tool];
+  toolButtons.forEach((button) => {
+    const isActive = button.dataset.tool === tool;
+    button.classList.toggle('is-active', isActive);
+    button.setAttribute('aria-pressed', String(isActive));
+  });
+  updateStrengthControl();
+  pinchActive = false;
+  pinchHasContact = false;
+  previousPullPoint = null;
+  previousCarvePoint = null;
+  previousBulgePoint = null;
+  carveReference = null;
+  bulgeReference = null;
+  pinchCue.visible = false;
+  stageCaption.textContent = mouseMode ? details.mouseCaption : details.caption;
+  sceneHint.innerHTML = mouseMode ? `<span class="hint-icon">✦</span> ${details.mouseHint}` : details.hint;
+  setPrompt(mouseMode ? 'Mouse sculpting is ready.' : details.title, mouseMode ? `${details.mouseHint}. Release to stop. Adjust ${details.context.toLowerCase()} above.` : details.body, 'success');
+  tipHeading.textContent = details.tipHeading;
+  tipCopy.textContent = details.tipCopy;
+}
+
+toolButtons.forEach((button) => {
+  button.addEventListener('pointerdown', (event) => event.stopPropagation());
+  button.addEventListener('click', () => selectTool(button.dataset.tool));
+});
 
 function clearPreview() {
   previewContext.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
@@ -345,6 +491,8 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null) {
   window.lastSmoothTime = now;
   const scaleX = 4.8;
   const scaleY = Math.min(4.8 * (sceneHost.clientHeight / sceneHost.clientWidth), 3.5);
+  // Image-space landmarks already carry camera perspective: nearer hands occupy more pixels.
+  // MediaPipe landmark Z is relative to the wrist, not a global camera-distance value.
   const pointAt = (point) => ({
     x: (0.5 - point.x) * scaleX,
     y: (0.5 - point.y) * scaleY,
@@ -352,8 +500,17 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null) {
     z: -point.z * 2.3,
   });
   const mappedPoints = smoothedPoints.map(pointAt);
+  // In mouse preview, align the sculpting fingertip/grab with the actual cursor.
+  if (mouseMode && mouseSculptPoint) {
+    const anchor = activeTool === 'pinch'
+      ? new THREE.Vector3().addVectors(mappedPoints[4], mappedPoints[8]).multiplyScalar(0.5)
+      : mappedPoints[8];
+    const offset = new THREE.Vector3().subVectors(mouseSculptPoint, anchor);
+    mappedPoints.forEach((point) => { point.x += offset.x; point.y += offset.y; });
+  }
   updateHandSurface(mappedPoints);
   scenePlaceholder.classList.add('is-hidden');
+  if (clayMenu?.isOpen) return;
   const pinchDistance = Math.hypot(smoothedPoints[4].x - smoothedPoints[8].x, smoothedPoints[4].y - smoothedPoints[8].y);
   const palmWidth = Math.max(0.04, Math.hypot(smoothedPoints[5].x - smoothedPoints[17].x, smoothedPoints[5].y - smoothedPoints[17].y));
   const pinchRatio = pinchDistance / palmWidth;
@@ -365,25 +522,42 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null) {
   const thumb = mappedPoints[4];
   const index = mappedPoints[8];
   const sculptPoint = new THREE.Vector3((thumb.x + index.x) / 2, (thumb.y + index.y) / 2, 0);
-  const insideClay = Math.hypot(sculptPoint.x - clayCenter.x, sculptPoint.y - clayCenter.y) < clayRadius * 1.08;
-  const cueLocal = clay.worldToLocal(sculptPoint.clone());
-  cueLocal.z = Math.sqrt(Math.max(0, clayRadius * clayRadius - Math.min(cueLocal.x * cueLocal.x + cueLocal.y * cueLocal.y, clayRadius * clayRadius))) + 0.1;
-  pinchCue.position.copy(clay.localToWorld(cueLocal));
-  pinchCue.visible = pinchActive;
+  const surfaceHit = getClaySurfaceHit(sculptPoint);
+  pullClayAlongPath(sculptPoint, activeTool === 'pinch' && pinchActive, surfaceHit?.point ?? null);
+  if (previousPullPoint) {
+    pinchCue.position.copy(clay.localToWorld(previousPullPoint.clone()));
+    pinchCue.position.z += 0.09;
+  }
+  const hasPinchContact = activeTool === 'pinch' && pinchActive && Boolean(previousPullPoint);
+  pinchCue.visible = hasPinchContact;
   pinchCue.scale.setScalar(pinchActive ? 1.12 : 0.8);
-  deformAlongFingerPaths(mappedPoints, pinchActive && insideClay);
-  if (pinchActive !== wasPinching) {
+  carveAlongPath(index, activeTool === 'carve' && (!mouseMode || mousePinching));
+  bulgeAlongPath(index, activeTool === 'bulge' && (!mouseMode || mousePinching));
+  if (activeTool === 'pinch' && (pinchActive !== wasPinching || hasPinchContact !== pinchHasContact)) {
     lastPinchHint = true;
     if (pinchActive) {
-      stageCaption.textContent = 'PINCH ACTIVE · PULL TO SHAPE';
-      sceneHint.innerHTML = '<span class="hint-icon">✦</span> Pull gently to stretch the clay';
-      setPrompt('Pinch the clay, then pull.', 'Release your fingers to stop. Pull slowly for a softer shape.', 'success');
+      if (hasPinchContact) {
+        stageCaption.textContent = 'PINCH ACTIVE · PULL TO SHAPE';
+        sceneHint.innerHTML = '<span class="hint-icon">✦</span> Pull gently to stretch the clay';
+        setPrompt('Pinch the clay, then pull.', 'Release your fingers to stop. Pull slowly for a softer shape.', 'success');
+      } else {
+        stageCaption.textContent = 'PINCH ACTIVE · FIND THE CLAY';
+        sceneHint.innerHTML = '<span class="hint-icon">↗</span> Move the pinched fingertips onto the clay';
+        setPrompt('Move your pinch onto the clay.', 'The fingertips need to touch the clay surface before a pull can begin.', 'warning');
+      }
     } else {
-      stageCaption.textContent = 'CLAY SHAPED · READY FOR MORE';
-      sceneHint.innerHTML = '<span class="hint-icon">✦</span> Lovely shape — pinch again to keep going';
-      setPrompt('Nice pull.', 'Pinch again to shape another spot, or reset the clay to start fresh.', 'success');
+      if (pinchHasContact) {
+        stageCaption.textContent = 'CLAY SHAPED · READY FOR MORE';
+        sceneHint.innerHTML = '<span class="hint-icon">✦</span> Lovely shape — pinch again to keep going';
+        setPrompt('Nice pull.', 'Pinch again to shape another spot, or reset the clay to start fresh.', 'success');
+      } else {
+        stageCaption.textContent = 'HAND TRACKED · PINCH TO SHAPE';
+        sceneHint.innerHTML = '<span class="hint-icon">✦</span> Pinch over the clay, then pull';
+        setPrompt(toolDetails.pinch.title, toolDetails.pinch.body, 'success');
+      }
     }
   }
+  pinchHasContact = hasPinchContact;
 }
 
 function showTracking(landmarks, now) {
@@ -393,11 +567,12 @@ function showTracking(landmarks, now) {
   setStatus('ready', 'HAND DETECTED');
   landmarkCount.textContent = '21 LANDMARKS · 1 HAND';
   tipHeading.textContent = 'Hand in view';
-  tipCopy.textContent = 'Bring your fingertips over the clay, pinch gently, then trace a small curve.';
+  tipCopy.textContent = toolDetails[activeTool].tipCopy;
   if (!lastPinchHint && !pinchActive) {
-    setPrompt('Pinch the clay, then pull.', 'Bring thumb and index finger together over the clay, then move your hand gently.', 'success');
-    stageCaption.textContent = 'HAND TRACKED · PINCH TO SHAPE';
-    sceneHint.innerHTML = '<span class="hint-icon">✦</span> Pinch over the clay, then pull';
+    const details = toolDetails[activeTool];
+    setPrompt(details.title, details.body, 'success');
+    stageCaption.textContent = `HAND TRACKED · ${details.caption.replace(/^[^·]+·\s*/, '')}`;
+    sceneHint.innerHTML = details.hint;
   }
   document.querySelector('#check-hand').classList.add('is-done');
   drawPreviewSkeleton(landmarks);
@@ -408,7 +583,12 @@ function showNoHand(now) {
   if (!noHandSince) noHandSince = now;
   clearPreview();
   pinchActive = false;
-  previousFingerPaths = null;
+  pinchHasContact = false;
+  previousPullPoint = null;
+  previousCarvePoint = null;
+  previousBulgePoint = null;
+  carveReference = null;
+  bulgeReference = null;
   pinchCue.visible = false;
   landmarkCount.textContent = '21 LANDMARKS · WAITING';
   const lost = wasTracking && now - lastHandAt > 900;
@@ -533,6 +713,13 @@ async function startCamera() {
 }
 
 function stopCamera(resetLandmarker = true) {
+  pinchActive = false;
+  pinchHasContact = false;
+  mousePinching = false;
+  pinchCue.visible = false;
+  previousBulgePoint = null;
+  carveReference = null;
+  bulgeReference = null;
   cancelAnimationFrame(retryTimer);
   if (stream) stream.getTracks().forEach((track) => track.stop());
   stream = null;
@@ -552,7 +739,8 @@ function stopCamera(resetLandmarker = true) {
     setStatus('idle', 'NOT CONNECTED');
     scenePlaceholder.classList.remove('is-hidden');
     handModel.visible = false;
-    previousFingerPaths = null;
+    previousPullPoint = null;
+    previousCarvePoint = null;
     smoothedPoints = null;
     window.lastSmoothTime = 0;
     landmarkCount.textContent = '21 LANDMARKS · WAITING';
@@ -582,7 +770,14 @@ mouseButton.addEventListener('click', () => {
     sceneHint.innerHTML = '<span class="hint-icon">↗</span> Keep your hand inside the frame';
     scenePlaceholder.classList.remove('is-hidden');
     handModel.visible = false;
-    previousFingerPaths = null;
+    previousPullPoint = null;
+    previousCarvePoint = null;
+    previousBulgePoint = null;
+    pinchActive = false;
+    mousePinching = false;
+    pinchCue.visible = false;
+    carveReference = null;
+    bulgeReference = null;
     document.querySelector('#session-label').textContent = 'YOUR FIRST SESSION';
     mouseButton.textContent = 'Preview with mouse';
     return;
@@ -592,11 +787,10 @@ mouseButton.addEventListener('click', () => {
   setStatus('ready', 'MOUSE SCULPTING');
   landmarkCount.textContent = '21 LANDMARKS · MOUSE';
   scenePlaceholder.classList.add('is-hidden');
-  stageCaption.textContent = 'MOUSE SCULPTING · DRAG TO SHAPE';
-  sceneHint.innerHTML = '<span class="hint-icon">✦</span> Move over the clay, then click and drag';
-  setPrompt('Mouse sculpting is ready.', 'Move over the clay, then click and drag to shape it. Release to stop.', 'success');
-  stageCaption.textContent = 'CLICK AND DRAG TO SHAPE';
-  sceneHint.innerHTML = '<span class="hint-icon">✦</span> Click and drag the clay';
+  const details = toolDetails[activeTool];
+  stageCaption.textContent = details.mouseCaption;
+  sceneHint.innerHTML = `<span class="hint-icon">✦</span> ${details.mouseHint}`;
+  setPrompt('Mouse sculpting is ready.', `${details.mouseHint}. Release to stop. Adjust ${details.context.toLowerCase()} above.`, 'success');
   tipHeading.textContent = 'Camera optional';
   tipCopy.textContent = 'Drag across the clay, then release to let it settle.';
   mouseButton.textContent = 'Exit mouse sculpting';
@@ -612,8 +806,18 @@ const handShape = [
   [.035,-.06],[.05,-.14],[.065,-.22],[.075,-.29],
   [.09,-.035],[.12,-.105],[.145,-.17],[.165,-.23],
 ];
+function updateMouseTarget(event) {
+  const bounds = sceneHost.getBoundingClientRect();
+  clayRaycaster.setFromCamera(new THREE.Vector2(
+    ((event.clientX - bounds.left) / bounds.width) * 2 - 1,
+    1 - ((event.clientY - bounds.top) / bounds.height) * 2,
+  ), camera);
+  mouseSculptPoint = clayRaycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), new THREE.Vector3());
+}
+
 sceneHost.addEventListener('pointermove', (event) => {
   if (!mouseMode) return;
+  updateMouseTarget(event);
   const bounds = sceneHost.getBoundingClientRect();
   const x = (event.clientX - bounds.left) / bounds.width;
   const y = (event.clientY - bounds.top) / bounds.height;
@@ -627,7 +831,20 @@ sceneHost.addEventListener('pointermove', (event) => {
 });
 
 sceneHost.addEventListener('pointerdown', (event) => {
+  if (event.target !== renderer.domElement || event.button !== 0) return;
+  updateMouseTarget(event);
+  // Click another piece to select it; a subsequent drag sculpts that piece.
+  const hit = clayRaycaster.intersectObjects(clayObjects.items.map((item) => item.group), true)[0];
+  if (hit) {
+    const item = clayObjects.items.find((item) => item.group === hit.object.parent);
+    if (item && item !== clayObjects.active) {
+      selectClayObject(item.id);
+      return;
+    }
+  }
   if (!mouseMode) return;
+  cancelMouseStroke();
+  smoothedPoints = null;
   mousePinching = true;
   sceneHost.setPointerCapture(event.pointerId);
   const bounds = sceneHost.getBoundingClientRect();
@@ -640,6 +857,7 @@ sceneHost.addEventListener('pointerdown', (event) => {
 
 sceneHost.addEventListener('pointerup', (event) => {
   if (!mouseMode || !mousePinching) return;
+  updateMouseTarget(event);
   mousePinching = false;
   const bounds = sceneHost.getBoundingClientRect();
   const x = (event.clientX - bounds.left) / bounds.width;
@@ -648,6 +866,29 @@ sceneHost.addEventListener('pointerup', (event) => {
   const landmarks = handShape.map(([offsetX, offsetY]) => ({ x: Math.max(0.02, Math.min(0.98, x + offsetX * size)), y: Math.max(0.02, Math.min(0.98, y + offsetY * size)), z: 0 }));
   updateThreeSkeleton(landmarks, performance.now(), false);
 });
+
+function cancelMouseStroke() {
+  mousePinching = false;
+  pinchActive = false;
+  pinchHasContact = false;
+  pinchCue.visible = false;
+  previousPullPoint = null;
+  previousPullCursorPoint = null;
+  previousCarvePoint = null;
+  previousBulgePoint = null;
+  carveReference = null;
+  bulgeReference = null;
+}
+sceneHost.addEventListener('pointercancel', cancelMouseStroke);
+sceneHost.addEventListener('lostpointercapture', cancelMouseStroke);
+
+clayMenu = setupClayMenu(clayObjects, {
+  onSelect: selectClayObject,
+  onLayout: () => { cancelMouseStroke(); clayObjects.layout(camera); },
+  onPause: () => cancelMouseStroke(),
+});
+
+setupFullscreen(document.querySelector('#stage'), cancelMouseStroke);
 
 resetButton.addEventListener('pointerdown', (event) => event.stopPropagation());
 resetButton.addEventListener('click', (event) => {

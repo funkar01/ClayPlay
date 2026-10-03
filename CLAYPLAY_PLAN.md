@@ -306,3 +306,96 @@ Try the rigged hand in mouse mode, then set up the camera and bring your tracked
 - Reversed the MediaPipe depth-to-scene mapping for the rigged hand. Moving a hand toward the webcam now moves the virtual hand toward the viewer; moving it away moves it back.
 - Screen-space X/Y, pinch detection, and clay deformation remain unchanged.
 - Production build succeeds. Confirm the direction with a short toward/away webcam motion.
+
+### 2026-10-02 — Near/far hand scale behavior
+
+- Preserve apparent camera-space size: tracked image-space landmarks make a nearby hand render larger and a distant hand smaller; finger and palm thickness follow the tracked palm width.
+- MediaPipe hand-landmark Z is wrist-relative, so it is not used as a global distance-based scale multiplier. This keeps the displayed hand aligned with the tracked fingertips and clay contact.
+
+### 2026-10-02 — Smooth, rounded clay pulls
+
+- User feedback: pulled clay should form a soft, continuous, tapered tail that blends into the blob, rather than a sharp or faceted point.
+- Follow-up clarified that smoothing should affect the whole pulled surface without increasing the tail radius.
+- Found two causes of the sharp cut: the deformation skipped back-facing vertices, and dividing by accumulated falloff canceled the taper near the brush boundary. The prior constant outward Z displacement also puffed up the tail.
+- Fixed deformation to use full 3D brush distance, preserve a smooth falloff in the displacement, remove the artificial outward bulge, and reduce the brush radius slightly. Added a light local vertex-relaxation pass and recompute normals after each pull update.
+- Next live check: compare webcam and mouse pulls for a rounded continuous surface, a narrow tail, and acceptable response speed. Tune smoothing strength from feedback.
+
+### 2026-10-02 — Add a Carve tool
+
+- Added a Pinch/Carve tool switch in the studio. Pinch remains the pull-and-stretch tool.
+- In Carve mode, trace with the index fingertip to press a narrow, rounded groove into the clay along the path. Mouse preview uses click-and-drag for the same stroke; webcam mode carves while the fingertip moves across the surface.
+- Carving follows the clay surface with a camera ray, applies a tapered inward displacement along the traced curve, and lightly relaxes the affected mesh. Reset restores the original clay.
+- Production build succeeds. Next check: try tight and broad curves with webcam and mouse input; tune groove depth, radius, and response from feedback.
+
+### 2026-10-03 — Core clay simulation principle: dynamic topology
+
+- User clarified the foundational requirement: clay is a continuous, malleable material. Pinch, pull, carve, and bulge must produce locally smooth, rounded deformations that follow the hand path.
+- A fixed-resolution mesh with vertex displacement and smoothing alone is not the target. Add or redistribute vertices/polygons where deformation creates detail, so tight curves and narrow tails remain smooth instead of forming sharp or faceted edges.
+- Preserve cohesive clay behavior across the whole surface, including smooth transitions and convincing volume response; deformation topology must adapt to the manipulation rather than forcing the shape into the starting mesh resolution.
+- Treat adaptive remeshing/dynamic topology as a core architecture requirement for the sculpting engine, and validate it against reference pulls and carved curves before adding more tools.
+
+### 2026-10-03 — Technical flow for continuous clay
+
+- Recommended canonical shape representation: a signed-distance field (SDF), stored in sparse fixed-pitch voxel bricks. The field, not the display mesh, is the source of truth. Extract a new triangle surface from affected bricks after each stroke segment; this allows topology and vertex count to change with the deformation.
+- Begin with equal voxel pitch in neighboring bricks to avoid adaptive-resolution seams. Allocate/update only bricks intersecting the brush bounds plus a one-cell halo; refine resolution or introduce an octree only after the first smooth version is playable.
+- Resample webcam/mouse strokes along the 3D finger path at intervals no larger than half a voxel. Apply operation-specific field edits: inverse-warp/advect the field for pinch-pull, smooth subtraction of a stroke capsule for carve, and a local smooth/filter pass plus distance reinitialization for smoothing.
+- After an edit, remesh affected bricks, stitch their shared boundary cells, update normals and bounds, then swap the resulting geometry into Three.js and dispose the old geometry. The Three.js MarchingCubes addon is suitable for a quick field/mesh prototype; production local remeshing should own chunking, affected-region updates, and seam handling.
+- Keep hand tracking and gesture recognition independent from clay operations. Each tool emits a sampled stroke with position, radius, direction, and pressure/strength; the SDF sculpt engine applies it and can later support undo via stroke replay or sparse field snapshots.
+- Milestone order: (1) SDF sphere + smooth carved curve in mouse mode, (2) local remesh and verify topology increases around the stroke, (3) pinch-pull via a smooth deformation warp, (4) webcam stroke input and volume/shape tuning, (5) worker/off-main-thread performance and undo.
+- Acceptance checks: no cut/faceted edges; narrow carve width remains controlled; pulled tails blend continuously; surface stays watertight; detail increases where strokes need it; mouse and webcam produce comparable results; maintain a playable frame rate on the target PC.
+
+### 2026-10-03 — SDF volume-backed sculpting baseline implemented
+
+- Replaced the fixed icosphere vertex deformation with a signed-distance field as the source of truth. The field uses a 0.025-unit voxel pitch over sparse 24-cell bricks; untouched samples evaluate against the initial sphere instead of occupying a dense volume array.
+- Added marching-tetrahedra surface extraction with interpolated SDF-gradient normals. Startup creates only surface bricks; Pull and Carve regenerate the bricks touched by each stroke, disposing/replacing their previous buffer geometry.
+- Pinch now applies a smooth local inverse warp to the volume along the tracked pinch point. Carve subtracts a rounded capsule from the field along the index-finger path. Reset clears field edits and rebuilds the starting clay.
+- Kept Pinch/Carve selection and mouse preview. A mouse pull and an index-finger carve stroke both reached the remeshing path in the running studio; production build succeeds.
+- Known next refinement: the brick grid currently uses a consistent voxel pitch for crack-free boundaries; variable-resolution local refinement, undoable stroke replay, worker-based remeshing, and broader live-webcam feedback remain follow-up work.
+
+### 2026-10-03 — Tool strength and brush size controls
+
+- Agreed that deformation strength should be adjustable per sculpting tool so users can tune subtle versus dramatic edits.
+- Keep **Strength** separate from **Brush size**. Strength controls how much the clay changes; brush size controls the affected footprint. For Pinch, strength scales pull sensitivity/displacement. For Carve, strength controls groove depth while brush size controls groove width. For Bulge, strength controls outward displacement while brush size controls its footprint.
+- Give each tool a useful default that preserves the current feel, and expose a shared 0–100 Strength slider whose meaning is mapped by the active tool. Add a separate Size control when the tool is selected; avoid changing carve width when users only want a deeper cut.
+- Pinch already caps per-update movement, so a strength implementation must scale the effective displacement range as well as the input gain; otherwise high settings may hit the same cap and feel identical. Keep the maximum bounded to avoid abrupt snapping.
+- Before increasing strength to compensate for weak response, validate actual clay contact. The current screenshot shows the pinch cue near the clay edge; the existing coarse inside-clay cue and surface-ray hit are separate checks, so missed contact may be making pulls appear weak. Show clear contact feedback and start deformation only after a real surface hit.
+- Suggested iteration: verify fingertip-to-surface contact first, compare low/default/high Pinch strength, then tune Carve depth independently from width. Add Bulge after the shared strength/size behavior feels consistent. Use the same controls in webcam and mouse preview modes.
+
+### 2026-10-03 — Strength control implemented and checked
+
+- Added a shared 0–100 Strength slider below the tool selector, starting at 55. The value carries across tool changes, updates immediately, and supports keyboard control. Zero makes no edit. Tool-specific captions explain Pull distance, Cut depth, and Raised amount.
+- Pinch scales movement gain and the allowed displacement together. It requires an actual surface hit to start, then keeps the grab attached on a stable drag plane beyond the original silhouette. Small deformation steps carry the clay to the new position before remeshing; a volume-boundary margin prevents clipping the tail at the field edge.
+- Carve uses a rounded elliptical cutter: Strength changes its inward depth, with the lateral brush radius kept at 0.105. Fixed the cutter endcaps so a short stroke cannot cut an unbounded flat strip.
+- Added Bulge as a third tool. It uses smooth union with a rounded stroke volume; Strength sets its height and its brush radius stays at 0.28. Carve and Bulge reference the surface at stroke start so previous edits within the same stroke do not cause runaway depth or height feedback. A brush-size slider remains a separate future control.
+- Cleared held strokes on pointer cancellation, tool change, reset, and tracking loss. Reset restores the active tool's ready message.
+- Verification: production build passes with the existing bundle-size warning. Four automated checks cover zero strength, increasing carve depth with bounded width/endcaps, increasing bulge height, and farther pulls from the same input motion. All pass; generated geometry positions and normals remain finite.
+- Measured carve depths for low/default/high were 0.025/0.135/0.225 scene units. Bulge heights were approximately 0.009/0.139/0.240. The same two input movements produced pull extents of 1.311/1.520/1.815 along X at strength 10/55/100.
+- Browser mouse preview: exercised all three tools at maximum strength, checked slider updates and tool captions, confirmed a zero-strength stroke leaves Reset hidden, and observed no browser console errors. Preview image saved in `artifacts/strength-preview.jpg`.
+- Next user feedback: compare Strength 25, 55, and 85 with the same hand motion, resetting between comparisons. Live webcam feel and sustained sculpting performance still need hands-on feedback; this remains an approximate volume sculptor rather than a full clay physics simulation.
+
+### 2026-10-03 — Larger play area and fullscreen
+
+- User annotation: make the 3D sculpting surface larger because it is the main play area, and provide a fullscreen option.
+- Expanded the workspace maximum width from 1280 to 1720 pixels, reduced the sidebar gap, and increased the desktop stage height to 62% of the viewport (440–740 pixels). Tablets place the sidebar below the studio; narrow screens get a taller stage and separate space for the bottom hint and fullscreen control.
+- Added a Full screen button inside the stage. Native fullscreen includes the clay, hand view, axes, tool selector, Strength, Reset, and guidance. Exit full screen or Escape returns to the studio. Browsers that cannot enter native fullscreen expand the stage within the tab instead.
+- Keep the same renderer, clay, and camera session across view changes. The existing resize observer updates the canvas and perspective. Cancel the current stroke when changing view size to avoid a jump caused by a changed aspect ratio; preserve the selected tool and Strength. Background controls are inert while expanded, and focus returns to the fullscreen button on exit.
+- Verification: production build passes with the existing bundle-size warning. Browser checks confirmed native entry, Escape exit, button exit, repeat entry, matching fullscreen canvas/stage dimensions (1936 × 1096), preserved Carve/Strength settings, restored background focus access, and no console errors. Saved `artifacts/fullscreen-preview.jpg`.
+- Responsive styles are implemented, but the embedded browser's viewport override did not change the test tab size, so narrow-screen rendering and the unsupported-fullscreen fallback still need a device/browser check. Live hand feel in fullscreen remains open for user feedback.
+
+### 2026-10-03 — Opening ClayPlay correctly
+
+- User reported an unstyled page with oversized axis artwork. The screenshot showed the source `index.html` opened directly from the I: drive using the file protocol. The Vite entry module and its CSS imports require the local server; opening the HTML file directly does not start the application.
+- The local server was also stopped. Restarted it at `http://127.0.0.1:5173/`. Open this URL in Chrome to use ClayPlay.
+- For future sessions, run `npm run dev -- --host 127.0.0.1` from `I:\AntiGravities\ClayPlay` and keep that terminal running while using the app.
+
+### 2026-10-03 — Multiple clay shapes and individual colors
+
+- User requested rounded cubes, rounded prisms, other basic shapes, an add menu, and color controls. Clarified that adding a shape should create a separate object, with a choice of which object to sculpt.
+- Added Sphere, Rounded cube, Rounded triangular prism, softly rounded Cylinder, Capsule, and Ring. Each uses its own signed-distance field and remeshed surface, so all three existing sculpt tools operate on the selected piece.
+- Added the **Shapes & color** menu inside the play area, including fullscreen. Shape buttons add a new piece without replacing existing work. A selected-object list and clicking a piece choose the active object; a small ring and name identify the selection.
+- Each piece has an independent material, six color swatches, and a custom color picker. New pieces start in the selected color. Reset restores only the selected object's starting shape and keeps its color. Remove selected removes that piece; at least one piece remains.
+- Automatically arrange and scale the pieces to fit the canvas on addition, removal, or resize. Limit the scene to eight pieces for this version. Moving, rotating, merging objects, and saving scenes remain separate future features.
+- Pause sculpting while the menu is open and clear the current stroke on selection/layout changes. Align mouse sculpting with the actual cursor so clicks and strokes target the same piece.
+- Production build passes with the existing bundle-size warning. No new automated tests were added.
+- Browser walkthrough: added all six shapes to one scene, assigned distinct palette colors, selected pieces by canvas click and dropdown, and used the menu in fullscreen. Carved the rounded cube, switched to the untouched sphere (Reset hidden), returned to the edited cube (Reset visible), and reset it while preserving its green color and all six pieces. No browser console errors were reported. Saved `artifacts/shapes-colors-preview.jpg`.
+- Creating or resetting a dense shape can briefly pause the interface while its surface is generated. The menu shows an adding message; moving mesh generation to a worker remains a performance follow-up. Live webcam sculpting across multiple pieces still needs user feedback.

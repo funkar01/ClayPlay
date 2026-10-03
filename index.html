@@ -38,6 +38,19 @@
             <div class="stage" id="stage">
               <div class="stage-grain"></div>
               <div class="stage-label"><span class="live-dot"></span><span id="stage-caption">YOUR HAND WILL APPEAR HERE</span></div>
+              <div class="tool-switch" role="group" aria-label="Clay tools">
+                <button class="tool-button is-active" id="tool-pinch" type="button" data-tool="pinch" aria-pressed="true">Pinch</button>
+                <button class="tool-button" id="tool-carve" type="button" data-tool="carve" aria-pressed="false">Carve</button>
+                <button class="tool-button" id="tool-bulge" type="button" data-tool="bulge" aria-pressed="false">Bulge</button>
+              </div>
+              <div class="strength-control" aria-label="Sculpt strength control">
+                <div class="strength-heading">
+                  <label for="tool-strength">STRENGTH</label>
+                  <output id="strength-value" for="tool-strength">55</output>
+                </div>
+                <input id="tool-strength" type="range" min="0" max="100" value="55" aria-label="Sculpt strength" />
+                <span class="strength-context" id="strength-context">Pull distance</span>
+              </div>
               <div class="axis-gizmo" role="img" aria-label="Scene axes: X points right, Y points up, Z points toward you">
                 <svg viewBox="0 0 76 76" aria-hidden="true">
                   <circle class="gizmo-face" cx="38" cy="38" r="35"></circle>
@@ -63,6 +76,26 @@
                 </div>
               </div>
               <div class="scene-hint" id="scene-hint"><span class="hint-icon">↗</span> Keep your hand inside the frame</div>
+              <span class="selected-clay-name" id="selected-clay-name">Sphere 1</span>
+              <details class="clay-menu" id="clay-menu">
+                <summary>＋ Shapes &amp; color <span id="clay-object-count">1</span></summary>
+                <div class="clay-menu-panel">
+                  <div class="clay-menu-heading">Make room for a new idea</div>
+                  <p class="clay-menu-copy">Add a piece. Each keeps its own shape and color.</p>
+                  <div class="shape-grid" id="shape-grid" role="group" aria-label="Add a clay shape"></div>
+                  <label class="clay-field-label" for="clay-object">SELECTED OBJECT</label>
+                  <select id="clay-object" aria-label="Selected clay object"></select>
+                  <div class="clay-color-heading"><label class="clay-field-label" for="clay-color">CLAY COLOR</label><input id="clay-color" type="color" value="#bd7455" aria-label="Custom clay color" title="Choose any clay color" /></div>
+                  <div class="clay-swatches" id="clay-swatches" role="group" aria-label="Clay colors"></div>
+                  <div class="clay-menu-footer"><span>Click a piece to select it.</span><button type="button" id="remove-clay" disabled>Remove selected</button></div>
+                  <p class="clay-menu-status" id="clay-menu-status" role="status">Add up to eight pieces to your table.</p>
+                </div>
+              </details>
+              <button class="fullscreen-button" id="fullscreen-button" type="button" aria-controls="stage" aria-pressed="false" title="Expand the play area">
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path class="expand-icon" d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4"/><path class="collapse-icon" d="M3 7h4V3m6 0v4h4M7 17v-4H3m14 0h-4v4"/></svg>
+                <span id="fullscreen-label">Full screen</span>
+              </button>
+              <span class="sr-only" id="fullscreen-status" role="status"></span>
               <div class="corner corner-tl"></div><div class="corner corner-tr"></div>
               <div class="corner corner-bl"></div><div class="corner corner-br"></div>
               <div class="scene-scanline"></div>
