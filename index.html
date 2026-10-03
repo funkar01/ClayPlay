@@ -96,6 +96,25 @@
                 <span id="fullscreen-label">Full screen</span>
               </button>
               <span class="sr-only" id="fullscreen-status" role="status"></span>
+              <details class="reach-calibration" id="reach-calibration">
+                <summary id="reach-label">Calibrate reach</summary>
+                <div class="reach-calibration-panel">
+                  <strong>Place the clay in your reach</strong>
+                  <p id="reach-copy">Start your camera to set your near and forward positions.</p>
+                  <div class="reach-steps" aria-hidden="true"><span>1 · Near your body</span><span>2 · Reach forward</span></div>
+                  <button id="capture-reach" type="button" disabled>Capture near position</button>
+                  <p id="reach-status" role="status">Camera and hand needed</p>
+                  <label class="reach-guide-toggle"><input id="show-reach-guide" type="checkbox" checked /> Show clay-center guide</label>
+                  <button class="reach-restart" id="restart-reach" type="button">Start calibration over</button>
+                  <small>Keep your body still and use the same open palm. Depth is estimated from your webcam.</small>
+                </div>
+              </details>
+              <div class="reach-depth" id="reach-depth" aria-label="Calibrated hand depth">
+                <span id="reach-depth-label">Calibrate to place your hand</span>
+                <div class="reach-track"><span class="reach-center" title="Clay center: halfway through your calibrated reach"></span><span id="reach-marker" hidden></span></div>
+                <div class="reach-depth-labels"><span>You</span><span>Clay center</span><span>Far</span></div>
+                <span id="reach-contact">Calibrate before sculpting</span>
+              </div>
               <div class="corner corner-tl"></div><div class="corner corner-tr"></div>
               <div class="corner corner-bl"></div><div class="corner corner-br"></div>
               <div class="scene-scanline"></div>

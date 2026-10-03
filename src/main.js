@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { ClayObjects } from './clayObjects.js';
 import { setupClayMenu } from './clayMenu.js';
+import { ReachCalibration } from './reachCalibration.js';
 import { setupFullscreen } from './fullscreen.js';
 import './style.css';
 
@@ -96,6 +97,28 @@ const pinchCue = new THREE.Mesh(
 );
 pinchCue.visible = false;
 scene.add(pinchCue);
+const reachCalibration = new ReachCalibration(cancelMouseStroke);
+const contactCue = new THREE.Mesh(new THREE.SphereGeometry(0.065, 16, 12), new THREE.MeshBasicMaterial({ color: '#7cb58b', transparent: true, opacity: 0.85, depthTest: false }));
+contactCue.visible = false;
+contactCue.renderOrder = 5;
+scene.add(contactCue);
+const reachGrid = new THREE.GridHelper(5, 10, '#ae8d73', '#d2bda7');
+reachGrid.position.y = -2.32;
+reachGrid.material.transparent = true;
+reachGrid.material.opacity = 0.28;
+reachGrid.visible = false;
+scene.add(reachGrid);
+const centerGuide = new THREE.LineLoop(
+  new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-1.5, -1.5, 0), new THREE.Vector3(1.5, -1.5, 0), new THREE.Vector3(1.5, 1.5, 0), new THREE.Vector3(-1.5, 1.5, 0)]),
+  new THREE.LineDashedMaterial({ color: '#a7866d', dashSize: 0.08, gapSize: 0.08, transparent: true, opacity: 0.5 }),
+);
+centerGuide.computeLineDistances();
+centerGuide.visible = false;
+scene.add(centerGuide);
+const contactLabel = document.querySelector('#reach-contact');
+const depthGuide = document.querySelector('#reach-depth');
+const guideToggle = document.querySelector('#show-reach-guide');
+document.querySelector('#restart-reach').addEventListener('click', () => { cancelMouseStroke(); reachCalibration.reset(); });
 
 function resetClay() {
   clayVolume.reset();
@@ -207,6 +230,18 @@ function updateHandSurface(mappedPoints) {
 }
 
 function getClaySurfaceHit(handPoint, surface = clay) {
+  if (!mouseMode) {
+    if (!reachCalibration.canSculpt) return null;
+    const field = surface.sample ? surface : clayVolume;
+    const local = clay.worldToLocal(new THREE.Vector3(handPoint.x, handPoint.y, handPoint.z));
+    const distance = field.sample(local.x, local.y, local.z);
+    // Contact is a thin shell around the surface, never a screen-space overlap.
+    if (Math.abs(distance * clay.scale.x) > 0.12) return null;
+    const normal = field.gradient(local.x, local.y, local.z);
+    if (normal.lengthSq() < 0.1) return null;
+    const point = local.addScaledVector(normal, -distance);
+    return { point, worldPoint: clay.localToWorld(point.clone()), worldNormal: normal };
+  }
   const target = new THREE.Vector3(handPoint.x, handPoint.y, 0);
   const direction = target.sub(camera.position).normalize();
   clayRaycaster.set(camera.position, direction);
@@ -235,13 +270,13 @@ function pullClayAlongPath(handPoint, isPulling, surfacePoint = undefined) {
     const currentPoint = surfacePoint === undefined ? getClaySurfacePoint(handPoint) : surfacePoint;
     if (!currentPoint) return;
     previousPullPoint = currentPoint;
-    previousPullCursorPoint = currentPoint.clone();
+    previousPullCursorPoint = mouseMode ? currentPoint.clone() : clay.worldToLocal(new THREE.Vector3(handPoint.x, handPoint.y, handPoint.z));
     pullPlane.constant = -clay.localToWorld(currentPoint.clone()).z;
     return;
   }
   // Hold the original grab plane after contact, including beyond the silhouette.
   clayRaycaster.set(camera.position, new THREE.Vector3(handPoint.x, handPoint.y, 0).sub(camera.position).normalize());
-  const cursor = clayRaycaster.ray.intersectPlane(pullPlane, new THREE.Vector3());
+  const cursor = mouseMode ? clayRaycaster.ray.intersectPlane(pullPlane, new THREE.Vector3()) : new THREE.Vector3(handPoint.x, handPoint.y, handPoint.z);
   if (!cursor) return;
   clay.worldToLocal(cursor);
   if (activeStrength === 0) {
@@ -265,7 +300,8 @@ function carveAlongPath(handPoint, isCarving) {
   }
   // Remeshing replaces geometry, so these shared CPU buffers remain a stable
   // reference for the stroke without copying the entire mesh every frame.
-  carveReference ??= clay.clone(true);
+  if (!carveReference && !getClaySurfaceHit(handPoint)) return;
+  carveReference ??= mouseMode ? clay.clone(true) : clayVolume.snapshot();
   const hit = getClaySurfaceHit(handPoint, carveReference);
   if (!hit) {
     previousCarvePoint = null;
@@ -296,7 +332,8 @@ function bulgeAlongPath(handPoint, isBulging) {
     bulgeReference = null;
     return;
   }
-  bulgeReference ??= clay.clone(true);
+  if (!bulgeReference && !getClaySurfaceHit(handPoint)) return;
+  bulgeReference ??= mouseMode ? clay.clone(true) : clayVolume.snapshot();
   const hit = getClaySurfaceHit(handPoint, bulgeReference);
   if (!hit) {
     previousBulgePoint = null;
@@ -343,6 +380,11 @@ function resizeScene() {
 new ResizeObserver(resizeScene).observe(sceneHost);
 
 function renderScene() {
+  depthGuide.hidden = mouseMode;
+  const guides = !mouseMode && reachCalibration.ready && guideToggle.checked;
+  reachGrid.visible = guides;
+  centerGuide.visible = guides;
+  if (guides) { centerGuide.position.copy(clay.position); centerGuide.scale.copy(clay.scale); }
   renderer.render(scene, camera);
   animationFrame = requestAnimationFrame(renderScene);
 }
@@ -476,7 +518,7 @@ function drawPreviewSkeleton(landmarks) {
   });
 }
 
-function updateThreeSkeleton(landmarks, now, pinchOverride = null) {
+function updateThreeSkeleton(landmarks, now, pinchOverride = null, worldLandmarks = null, handedness = '') {
   if (!smoothedPoints || smoothedPoints.length !== landmarks.length) {
     smoothedPoints = landmarks.map(({ x, y, z }) => ({ x, y, z }));
   } else {
@@ -499,7 +541,20 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null) {
     // MediaPipe depth gets smaller as the hand moves toward the camera; Three.js uses +Z toward the camera.
     z: -point.z * 2.3,
   });
-  const mappedPoints = smoothedPoints.map(pointAt);
+  let mappedPoints = smoothedPoints.map(pointAt);
+  if (!mouseMode) {
+    reachCalibration.observe(landmarks, worldLandmarks, handedness, video.videoWidth / video.videoHeight, now);
+    mappedPoints = reachCalibration.map(worldLandmarks, now);
+    if (!mappedPoints) {
+      handModel.visible = false;
+      cancelMouseStroke();
+      contactCue.visible = false;
+      stageCaption.textContent = 'CALIBRATE YOUR REACH TO SCULPT';
+      sceneHint.textContent = 'Set your near position, then your forward reach';
+      setPrompt('Let’s place the clay within reach.', 'Open Calibrate reach in the play area. Capture a near-body pose, then a comfortable forward reach. Keep the same open palm.', 'neutral');
+      return;
+    }
+  }
   // In mouse preview, align the sculpting fingertip/grab with the actual cursor.
   if (mouseMode && mouseSculptPoint) {
     const anchor = activeTool === 'pinch'
@@ -508,9 +563,15 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null) {
     const offset = new THREE.Vector3().subVectors(mouseSculptPoint, anchor);
     mappedPoints.forEach((point) => { point.x += offset.x; point.y += offset.y; });
   }
+  handModel.position.z = mouseMode ? 1.3 : 0;
   updateHandSurface(mappedPoints);
   scenePlaceholder.classList.add('is-hidden');
-  if (clayMenu?.isOpen) return;
+  if (clayMenu?.isOpen || (!mouseMode && !reachCalibration.canSculpt)) {
+    cancelMouseStroke();
+    contactCue.visible = false;
+    contactLabel.textContent = 'Close the menu to sculpt';
+    return;
+  }
   const pinchDistance = Math.hypot(smoothedPoints[4].x - smoothedPoints[8].x, smoothedPoints[4].y - smoothedPoints[8].y);
   const palmWidth = Math.max(0.04, Math.hypot(smoothedPoints[5].x - smoothedPoints[17].x, smoothedPoints[5].y - smoothedPoints[17].y));
   const pinchRatio = pinchDistance / palmWidth;
@@ -521,8 +582,13 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null) {
 
   const thumb = mappedPoints[4];
   const index = mappedPoints[8];
-  const sculptPoint = new THREE.Vector3((thumb.x + index.x) / 2, (thumb.y + index.y) / 2, 0);
+  const sculptPoint = new THREE.Vector3((thumb.x + index.x) / 2, (thumb.y + index.y) / 2, mouseMode ? 0 : (thumb.z + index.z) / 2);
   const surfaceHit = getClaySurfaceHit(sculptPoint);
+  const contact = activeTool === 'pinch' ? surfaceHit : getClaySurfaceHit(index);
+  contactCue.visible = !mouseMode && Boolean(contact);
+  if (contactCue.visible) contactCue.position.copy(contact.worldPoint);
+  contactLabel.textContent = contact ? 'Touching clay' : 'Move your fingertips to the surface';
+  contactLabel.dataset.contact = String(Boolean(contact));
   pullClayAlongPath(sculptPoint, activeTool === 'pinch' && pinchActive, surfaceHit?.point ?? null);
   if (previousPullPoint) {
     pinchCue.position.copy(clay.localToWorld(previousPullPoint.clone()));
@@ -560,7 +626,7 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null) {
   pinchHasContact = hasPinchContact;
 }
 
-function showTracking(landmarks, now) {
+function showTracking(landmarks, now, worldLandmarks, handedness) {
   lastHandAt = now;
   noHandSince = 0;
   wasTracking = true;
@@ -576,10 +642,14 @@ function showTracking(landmarks, now) {
   }
   document.querySelector('#check-hand').classList.add('is-done');
   drawPreviewSkeleton(landmarks);
-  updateThreeSkeleton(landmarks, now);
+  updateThreeSkeleton(landmarks, now, null, worldLandmarks, handedness);
 }
 
 function showNoHand(now) {
+  reachCalibration.loseHand(now);
+  contactCue.visible = false;
+  contactLabel.textContent = 'Hand out of view';
+  contactLabel.dataset.contact = 'false';
   if (!noHandSince) noHandSince = now;
   clearPreview();
   pinchActive = false;
@@ -617,7 +687,7 @@ function trackingLoop() {
   if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.currentTime !== lastVideoTime) {
     lastVideoTime = video.currentTime;
     const result = landmarker.detectForVideo(video, performance.now());
-    if (result.landmarks?.length) showTracking(result.landmarks[0], performance.now());
+    if (result.landmarks?.length) showTracking(result.landmarks[0], performance.now(), result.worldLandmarks?.[0], result.handedness?.[0]?.[0]?.categoryName ?? '');
     else showNoHand(performance.now());
   }
   retryTimer = requestAnimationFrame(trackingLoop);
@@ -713,6 +783,8 @@ async function startCamera() {
 }
 
 function stopCamera(resetLandmarker = true) {
+  reachCalibration.reset();
+  contactCue.visible = false;
   pinchActive = false;
   pinchHasContact = false;
   mousePinching = false;
@@ -868,6 +940,9 @@ sceneHost.addEventListener('pointerup', (event) => {
 });
 
 function cancelMouseStroke() {
+  contactCue.visible = false;
+  contactLabel.dataset.contact = 'false';
+  contactLabel.textContent = reachCalibration.ready ? 'Move your fingertips to the surface' : 'Calibrate before sculpting';
   mousePinching = false;
   pinchActive = false;
   pinchHasContact = false;
@@ -885,7 +960,7 @@ sceneHost.addEventListener('lostpointercapture', cancelMouseStroke);
 clayMenu = setupClayMenu(clayObjects, {
   onSelect: selectClayObject,
   onLayout: () => { cancelMouseStroke(); clayObjects.layout(camera); },
-  onPause: () => cancelMouseStroke(),
+  onPause: (open) => { cancelMouseStroke(); if (open) reachCalibration.panel.open = false; },
 });
 
 setupFullscreen(document.querySelector('#stage'), cancelMouseStroke);

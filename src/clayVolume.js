@@ -44,6 +44,13 @@ export class ClayVolume {
     return CLAY_SHAPES[this.shape].distance(x, y, z);
   }
 
+  snapshot() {
+    const field = Object.create(ClayVolume.prototype);
+    field.shape = this.shape;
+    field.field = new Map(this.field);
+    return field;
+  }
+
   nodeValue(ix, iy, iz) {
     const key = this.nodeKey(ix, iy, iz);
     const stored = this.field.get(key);
