@@ -4,6 +4,11 @@ import { setupClayMenu } from './clayMenu.js';
 import { ReachCalibration } from './reachCalibration.js';
 import { setupFullscreen } from './fullscreen.js';
 import './style.css';
+import { TrackingClient } from './trackingClient.js';
+import { PinchGesture } from './pinchGesture.js';
+import { diagnostics } from './diagnostics.js';
+import { StrokePath } from './strokePath.js';
+import { KnifeTool } from './knifeTool.js';
 
 const video = document.querySelector('#camera-video');
 const previewCanvas = document.querySelector('#preview-overlay');
@@ -30,6 +35,16 @@ const toolButtons = [...document.querySelectorAll('.tool-button')];
 const strengthInput = document.querySelector('#tool-strength');
 const strengthValue = document.querySelector('#strength-value');
 const strengthContext = document.querySelector('#strength-context');
+const sizeInput = document.querySelector('#tool-size');
+const sizeValue = document.querySelector('#size-value');
+let activeSize = Number(sizeInput.value);
+
+// Brush diameter as a fraction of the shape's original largest dimension.
+// Local units automatically follow the selected object's scene scale.
+function brushRadius() {
+  const referenceRadius = { sphere: 1.25, cube: 1.05, prism: 1.21, cylinder: 1.09, capsule: 1.3, ring: 1.24 };
+  return (referenceRadius[clayVolume.shape] ?? 1.25) * activeSize / 100;
+}
 
 const connectionLines = [
   [0,1],[1,2],[2,3],[3,4], [0,5],[5,6],[6,7],[7,8],
@@ -37,6 +52,18 @@ const connectionLines = [
   [13,17],[17,18],[18,19],[19,20],[17,0], [0,5],[0,17],
 ];
 
+const pinchGesture = new PinchGesture();
+const pullPath = new StrokePath(0.04);
+const carvePath = new StrokePath();
+const bulgePath = new StrokePath();
+let poseTarget = null;
+let poseDisplayed = null;
+let poseReceivedAt = 0;
+let gapStartedAt = null;
+let resumeStroke = false;
+let previousRenderAt = performance.now();
+let trackingEpoch = 0;
+let nextTrackingAt = 0;
 let stream;
 let landmarker;
 let animationFrame = 0;
@@ -116,6 +143,11 @@ centerGuide.computeLineDistances();
 centerGuide.visible = false;
 scene.add(centerGuide);
 const contactLabel = document.querySelector('#reach-contact');
+const knifeTool = new KnifeTool(scene, (volume) => {
+  const item = clayObjects.items.find((item) => item.volume === volume);
+  if (item) item.edited = true;
+  if (volume === clayVolume) markClayEdited();
+}, (message) => { if (activeTool === 'knife') { sceneHint.textContent = message; contactLabel.textContent = message; } });
 const depthGuide = document.querySelector('#reach-depth');
 const guideToggle = document.querySelector('#show-reach-guide');
 document.querySelector('#restart-reach').addEventListener('click', () => { cancelMouseStroke(); reachCalibration.reset(); });
@@ -235,11 +267,25 @@ function getClaySurfaceHit(handPoint, surface = clay) {
     const field = surface.sample ? surface : clayVolume;
     const local = clay.worldToLocal(new THREE.Vector3(handPoint.x, handPoint.y, handPoint.z));
     const distance = field.sample(local.x, local.y, local.z);
-    // Contact is a thin shell around the surface, never a screen-space overlap.
-    if (Math.abs(distance * clay.scale.x) > 0.12) return null;
-    const normal = field.gradient(local.x, local.y, local.z);
+    // Webcam depth is approximate. Acquire near the surface, then allow a
+    // wider band during a stroke so small depth fluctuations do not drop it.
+    const continuing = surface !== clay || (activeTool === 'pinch' && previousPullPoint);
+    const tolerance = continuing ? 0.34 : 0.22;
+    if (!Number.isFinite(distance) || Math.abs(distance * clay.scale.x) > tolerance) return null;
+    const point = local.clone();
+    // Edited fields are not exact distance fields; refine the projection so
+    // the brush starts on the mesh even after repeated deformation.
+    for (let step = 0; step < 6; step += 1) {
+      const residual = field.sample(point.x, point.y, point.z);
+      if (!Number.isFinite(residual)) return null;
+      if (Math.abs(residual * clay.scale.x) < 0.004) break;
+      const direction = field.gradient(point.x, point.y, point.z);
+      if (direction.lengthSq() < 0.1) return null;
+      point.addScaledVector(direction, -THREE.MathUtils.clamp(residual, -0.12, 0.12));
+    }
+    if (Math.abs(field.sample(point.x, point.y, point.z) * clay.scale.x) > 0.025) return null;
+    const normal = field.gradient(point.x, point.y, point.z);
     if (normal.lengthSq() < 0.1) return null;
-    const point = local.addScaledVector(normal, -distance);
     return { point, worldPoint: clay.localToWorld(point.clone()), worldNormal: normal };
   }
   const target = new THREE.Vector3(handPoint.x, handPoint.y, 0);
@@ -262,11 +308,13 @@ function getClaySurfacePoint(handPoint) {
 
 function pullClayAlongPath(handPoint, isPulling, surfacePoint = undefined) {
   if (!isPulling || !handPoint) {
+    pullPath.clear();
     previousPullPoint = null;
     previousPullCursorPoint = null;
     return;
   }
   if (!previousPullPoint) {
+    pullPath.clear();
     const currentPoint = surfacePoint === undefined ? getClaySurfacePoint(handPoint) : surfacePoint;
     if (!currentPoint) return;
     previousPullPoint = currentPoint;
@@ -280,20 +328,25 @@ function pullClayAlongPath(handPoint, isPulling, surfacePoint = undefined) {
   if (!cursor) return;
   clay.worldToLocal(cursor);
   if (activeStrength === 0) {
+    pullPath.clear();
     previousPullCursorPoint = cursor;
     return;
   }
-  const target = previousPullPoint.clone().add(cursor.clone().sub(previousPullCursorPoint));
-  const appliedPoint = clayVolume.applyPull(previousPullPoint, target, 0.3, activeStrength / 100);
+  const nextCursor = pullPath.next(previousPullCursorPoint, cursor);
+  if (!nextCursor) { previousPullPoint = null; previousPullCursorPoint = null; return; }
+  if (nextCursor.distanceTo(previousPullCursorPoint) < 0.003) return;
+  const target = previousPullPoint.clone().add(nextCursor.clone().sub(previousPullCursorPoint));
+  const appliedPoint = clayVolume.applyPull(previousPullPoint, target, brushRadius(), activeStrength / 100);
   if (appliedPoint) {
     markClayEdited();
     previousPullPoint = appliedPoint;
-    previousPullCursorPoint = cursor;
   }
+  previousPullCursorPoint = nextCursor;
 }
 
 function carveAlongPath(handPoint, isCarving) {
   if (!isCarving || !handPoint) {
+    carvePath.clear();
     previousCarvePoint = null;
     carveReference = null;
     return;
@@ -305,17 +358,22 @@ function carveAlongPath(handPoint, isCarving) {
   const hit = getClaySurfaceHit(handPoint, carveReference);
   if (!hit) {
     previousCarvePoint = null;
+    carvePath.clear();
     carveReference = null;
     return;
   }
-  const currentPoint = hit.point;
+  let currentPoint = hit.point;
   if (!previousCarvePoint) {
     previousCarvePoint = currentPoint;
+    carvePath.clear();
     return;
   }
+  currentPoint = carvePath.next(previousCarvePoint, currentPoint);
+  if (!currentPoint) { previousCarvePoint = null; return; }
   const motion = currentPoint.distanceTo(previousCarvePoint);
+  if (motion < 0.003) return;
   const cutDepth = activeStrength === 0 ? 0 : THREE.MathUtils.lerp(0.025, 0.225, activeStrength / 100);
-  if (motion >= 0.003 && clayVolume.carveStroke(previousCarvePoint, currentPoint, 0.105, cutDepth, 0.035, hit.worldNormal)) {
+  if (motion >= 0.003 && clayVolume.carveStroke(previousCarvePoint, currentPoint, brushRadius(), cutDepth, 0.035, hit.worldNormal)) {
     markClayEdited();
     if (stageCaption.textContent !== 'CARVING · TRACE THE CURVE') {
       stageCaption.textContent = 'CARVING · TRACE THE CURVE';
@@ -328,6 +386,7 @@ function carveAlongPath(handPoint, isCarving) {
 
 function bulgeAlongPath(handPoint, isBulging) {
   if (!isBulging || !handPoint) {
+    bulgePath.clear();
     previousBulgePoint = null;
     bulgeReference = null;
     return;
@@ -337,17 +396,22 @@ function bulgeAlongPath(handPoint, isBulging) {
   const hit = getClaySurfaceHit(handPoint, bulgeReference);
   if (!hit) {
     previousBulgePoint = null;
+    bulgePath.clear();
     bulgeReference = null;
     return;
   }
-  const currentPoint = hit.point;
+  let currentPoint = hit.point;
   if (!previousBulgePoint) {
     previousBulgePoint = currentPoint;
+    bulgePath.clear();
     return;
   }
+  currentPoint = bulgePath.next(previousBulgePoint, currentPoint);
+  if (!currentPoint) { previousBulgePoint = null; return; }
   const motion = currentPoint.distanceTo(previousBulgePoint);
+  if (motion < 0.003) return;
   const raisedAmount = activeStrength === 0 ? 0 : THREE.MathUtils.lerp(0.015, 0.24, activeStrength / 100);
-  if (motion >= 0.003 && clayVolume.applyBulge(previousBulgePoint, currentPoint, 0.28, raisedAmount, hit.worldNormal)) {
+  if (motion >= 0.003 && clayVolume.applyBulge(previousBulgePoint, currentPoint, brushRadius(), raisedAmount, hit.worldNormal)) {
     markClayEdited();
     if (stageCaption.textContent !== 'BULGING · TRACE TO BUILD UP') {
       stageCaption.textContent = 'BULGING · TRACE TO BUILD UP';
@@ -380,6 +444,19 @@ function resizeScene() {
 new ResizeObserver(resizeScene).observe(sceneHost);
 
 function renderScene() {
+  const now = performance.now();
+  const dt = Math.min(0.05, (now - previousRenderAt) / 1000);
+  diagnostics.frameMs = now - previousRenderAt;
+  previousRenderAt = now;
+  if (!mouseMode && poseTarget && gapStartedAt === null && reachCalibration.canSculpt && now - poseReceivedAt < 160) {
+    poseDisplayed ??= poseTarget.map((p) => p.clone());
+    // One short render interpolation shared by the visible hand and tools.
+    const blend = 1 - Math.exp(-dt / 0.022);
+    poseDisplayed.forEach((p, i) => p.lerp(poseTarget[i], blend));
+    processHandPose(poseDisplayed, pinchGesture.held);
+  } else if (!mouseMode && poseTarget && now - poseReceivedAt >= 160) {
+    pauseTracking(now);
+  }
   depthGuide.hidden = mouseMode;
   const guides = !mouseMode && reachCalibration.ready && guideToggle.checked;
   reachGrid.visible = guides;
@@ -403,6 +480,12 @@ function setPrompt(title, body, tone = 'neutral') {
 }
 
 const toolDetails = {
+  knife: {
+    context: 'Full cut', caption: 'KNIFE · OPEN PALM TO CUT', hint: 'Open your palm and sweep the blade completely through the clay',
+    mouseHint: 'Drag the blade across the clay until it exits', mouseCaption: 'KNIFE · DRAG THROUGH THE CLAY',
+    title: 'Slice with an open palm.', body: 'Keep your palm flat and sweep through the clay. The smaller side is removed when the blade exits. Close and reopen your hand before the next cut.',
+    tipHeading: 'Open palm knife', tipCopy: 'Select Knife, straighten your fingers, then sweep across the clay in one plane.',
+  },
   pinch: {
     context: 'Pull distance',
     caption: 'PINCH TOOL · PINCH TO SHAPE',
@@ -452,8 +535,27 @@ strengthInput.addEventListener('input', () => {
 });
 updateStrengthControl();
 
+function updateSizeControl() {
+  sizeValue.value = `${activeSize}%`;
+  sizeValue.textContent = `${activeSize}%`;
+  sizeInput.setAttribute('aria-valuetext', `${activeSize} percent of the starting shape width`);
+}
+sizeInput.addEventListener('input', () => {
+  activeSize = THREE.MathUtils.clamp(Number(sizeInput.value), 10, 90);
+  // Begin a fresh stroke when the brush footprint changes.
+  cancelMouseStroke();
+  updateSizeControl();
+});
+updateSizeControl();
+
 function selectTool(tool) {
+  knifeTool.reset();
+  pinchGesture.reset();
+  pullPath.clear(); carvePath.clear(); bulgePath.clear();
   activeTool = tool;
+  strengthInput.disabled = tool === 'knife';
+  sizeInput.disabled = tool === 'knife';
+  document.querySelector('#size-context').textContent = tool === 'knife' ? 'Fixed full-length blade' : 'Brush width · % of starting shape';
   const details = toolDetails[tool];
   toolButtons.forEach((button) => {
     const isActive = button.dataset.tool === tool;
@@ -546,15 +648,47 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null, worldLandmark
     reachCalibration.observe(landmarks, worldLandmarks, handedness, video.videoWidth / video.videoHeight, now);
     mappedPoints = reachCalibration.map(worldLandmarks, now);
     if (!mappedPoints) {
-      handModel.visible = false;
-      cancelMouseStroke();
+      handModel.visible = reachCalibration.ready && now - (reachCalibration.lastMappedAt ?? 0) < 180;
+      if (reachCalibration.ready && !reachCalibration.capturing) pauseTracking(now);
+      else cancelMouseStroke();
       contactCue.visible = false;
+      if (reachCalibration.ready || reachCalibration.capturing || !reachCalibration.valid) {
+        stageCaption.textContent = reachCalibration.capturing ? 'CAPTURING YOUR REACH' : 'WAITING FOR A STABLE HAND POSE';
+        sceneHint.textContent = reachCalibration.capturing ? 'Follow the countdown in Calibrate reach' : 'Keep your calibrated hand and wrist fully visible';
+        contactLabel.textContent = reachCalibration.capturing ? 'Calibration in progress' : 'Sculpting paused';
+        setPrompt('Let’s position your hand.', reachCalibration.status.textContent, 'neutral');
+        return;
+      }
       stageCaption.textContent = 'CALIBRATE YOUR REACH TO SCULPT';
+      setStatus('neutral', 'HAND DETECTED · CALIBRATE REACH');
       sceneHint.textContent = 'Set your near position, then your forward reach';
       setPrompt('Let’s place the clay within reach.', 'Open Calibrate reach in the play area. Capture a near-body pose, then a comfortable forward reach. Keep the same open palm.', 'neutral');
       return;
     }
   }
+  if (!mouseMode) {
+    if (gapStartedAt !== null) {
+      const rootShift = poseTarget ? mappedPoints[0].distanceTo(poseTarget[0]) : Infinity;
+      if (now - gapStartedAt > 180 || rootShift > 0.35) cancelMouseStroke();
+      resumeStroke = true;
+      gapStartedAt = null;
+      poseDisplayed = mappedPoints.map((p) => p.clone());
+    }
+    pinchGesture.update(worldLandmarks, now);
+    poseTarget = mappedPoints;
+    poseReceivedAt = now;
+    // Show calibration poses, but perform edits only from the render loop.
+    if (!reachCalibration.canSculpt) {
+      updateHandSurface(mappedPoints);
+      if (reachCalibration.depthUncertain) pauseTracking(now);
+      else cancelMouseStroke();
+    }
+    return;
+  }
+  processHandPose(mappedPoints, pinchOverride);
+}
+
+function processHandPose(mappedPoints, pinchOverride = null) {
   // In mouse preview, align the sculpting fingertip/grab with the actual cursor.
   if (mouseMode && mouseSculptPoint) {
     const anchor = activeTool === 'pinch'
@@ -566,14 +700,26 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null, worldLandmark
   handModel.position.z = mouseMode ? 1.3 : 0;
   updateHandSurface(mappedPoints);
   scenePlaceholder.classList.add('is-hidden');
+  if (clayVolume.meshFailed) {
+    cancelMouseStroke();
+    setPrompt('Clay updates paused.', 'The background sculpting worker stopped. Reload the page to restart the studio.', 'warning');
+    return;
+  }
   if (clayMenu?.isOpen || (!mouseMode && !reachCalibration.canSculpt)) {
     cancelMouseStroke();
     contactCue.visible = false;
     contactLabel.textContent = 'Close the menu to sculpt';
     return;
   }
-  const pinchDistance = Math.hypot(smoothedPoints[4].x - smoothedPoints[8].x, smoothedPoints[4].y - smoothedPoints[8].y);
-  const palmWidth = Math.max(0.04, Math.hypot(smoothedPoints[5].x - smoothedPoints[17].x, smoothedPoints[5].y - smoothedPoints[17].y));
+  if (volumeBusy()) return;
+  if (activeTool === 'knife') {
+    contactCue.visible = false;
+    pinchCue.visible = false;
+    knifeTool.update(mappedPoints, clay, clayVolume, mouseMode ? mousePinching : null);
+    return;
+  }
+  const pinchDistance = new THREE.Vector3().subVectors(mappedPoints[4], mappedPoints[8]).length();
+  const palmWidth = Math.max(0.04, new THREE.Vector3().subVectors(mappedPoints[5], mappedPoints[17]).length());
   const pinchRatio = pinchDistance / palmWidth;
   const wasPinching = pinchActive;
   if (pinchOverride !== null) pinchActive = pinchOverride;
@@ -587,8 +733,17 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null, worldLandmark
   const contact = activeTool === 'pinch' ? surfaceHit : getClaySurfaceHit(index);
   contactCue.visible = !mouseMode && Boolean(contact);
   if (contactCue.visible) contactCue.position.copy(contact.worldPoint);
-  contactLabel.textContent = contact ? 'Touching clay' : 'Move your fingertips to the surface';
+  contactLabel.textContent = previousPullPoint && pinchActive ? 'Holding clay · pull to shape' : contact ? 'Touching clay' : 'Move your fingertips to the surface';
+  diagnostics.pinch = pinchActive ? 'held' : 'open';
+  diagnostics.pause = 'none';
   contactLabel.dataset.contact = String(Boolean(contact));
+  if (resumeStroke) {
+    pullPath.clear(); carvePath.clear(); bulgePath.clear();
+    if (previousPullPoint) previousPullCursorPoint = clay.worldToLocal(sculptPoint.clone());
+    previousCarvePoint = null; previousBulgePoint = null;
+    resumeStroke = false;
+  }
+  const sculptStartedAt = performance.now();
   pullClayAlongPath(sculptPoint, activeTool === 'pinch' && pinchActive, surfaceHit?.point ?? null);
   if (previousPullPoint) {
     pinchCue.position.copy(clay.localToWorld(previousPullPoint.clone()));
@@ -599,6 +754,7 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null, worldLandmark
   pinchCue.scale.setScalar(pinchActive ? 1.12 : 0.8);
   carveAlongPath(index, activeTool === 'carve' && (!mouseMode || mousePinching));
   bulgeAlongPath(index, activeTool === 'bulge' && (!mouseMode || mousePinching));
+  diagnostics.sculptMs = performance.now() - sculptStartedAt;
   if (activeTool === 'pinch' && (pinchActive !== wasPinching || hasPinchContact !== pinchHasContact)) {
     lastPinchHint = true;
     if (pinchActive) {
@@ -641,11 +797,27 @@ function showTracking(landmarks, now, worldLandmarks, handedness) {
     sceneHint.innerHTML = details.hint;
   }
   document.querySelector('#check-hand').classList.add('is-done');
-  drawPreviewSkeleton(landmarks);
   updateThreeSkeleton(landmarks, now, null, worldLandmarks, handedness);
+  drawPreviewSkeleton(smoothedPoints ?? landmarks);
+}
+
+function pauseTracking(now) {
+  knifeTool.reset();
+  if (gapStartedAt === null) { gapStartedAt = now; diagnostics.dropouts++; pinchGesture.uncertain(); }
+  diagnostics.pause = 'tracking uncertain';
+  contactCue.visible = false;
+  if (now - gapStartedAt > 180) {
+    cancelMouseStroke();
+    handModel.visible = false;
+  }
 }
 
 function showNoHand(now) {
+  pauseTracking(now);
+  if (now - gapStartedAt <= 180 && reachCalibration.ready) {
+    contactLabel.textContent = 'Tracking paused · hold your pose';
+    return;
+  }
   reachCalibration.loseHand(now);
   contactCue.visible = false;
   contactLabel.textContent = 'Hand out of view';
@@ -662,6 +834,7 @@ function showNoHand(now) {
   pinchCue.visible = false;
   landmarkCount.textContent = '21 LANDMARKS · WAITING';
   const lost = wasTracking && now - lastHandAt > 900;
+  if (now - lastHandAt > 180) handModel.visible = false;
   const needsHint = now - noHandSince > 2800;
   if (lost) {
     handModel.visible = false;
@@ -682,47 +855,93 @@ function showNoHand(now) {
   lastPinchHint = false;
 }
 
-function trackingLoop() {
-  if (!stream || !landmarker) return;
-  if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.currentTime !== lastVideoTime) {
-    lastVideoTime = video.currentTime;
-    const result = landmarker.detectForVideo(video, performance.now());
-    if (result.landmarks?.length) showTracking(result.landmarks[0], performance.now(), result.worldLandmarks?.[0], result.handedness?.[0]?.[0]?.categoryName ?? '');
-    else showNoHand(performance.now());
+async function trackingLoop(epoch = trackingEpoch) {
+  const tracker = landmarker;
+  if (!stream || !tracker || epoch !== trackingEpoch) return;
+  let phase = 'frame capture / inference';
+  try {
+    if (performance.now() >= nextTrackingAt && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.currentTime !== lastVideoTime) {
+      lastVideoTime = video.currentTime;
+      const capturedAt = performance.now();
+      nextTrackingAt = capturedAt + (tracker.minInterval ?? 0);
+      const result = await tracker.detectForVideo(video, capturedAt);
+      if (epoch !== trackingEpoch || tracker !== landmarker || !stream) return;
+      diagnostics.inferenceMs = tracker.duration;
+      phase = 'landmark processing';
+      // Never sculpt using an old result after a long inference stall.
+      if (performance.now() - capturedAt > 250) showNoHand(performance.now());
+      else if (result.landmarks?.length) showTracking(result.landmarks[0], performance.now(), result.worldLandmarks?.[0], result.handedness?.[0]?.[0]?.categoryName ?? '');
+      else showNoHand(performance.now());
+    }
+  } catch (error) {
+    if (epoch !== trackingEpoch || tracker !== landmarker) return;
+    console.error('Tracking interrupted:', error);
+    showNoHand(performance.now());
+    cancelMouseStroke();
+    const detail = `${tracker.mode ?? 'unknown'} · ${phase}: ${error.name ?? 'Error'}: ${error.message ?? String(error)}`;
+    diagnostics.lastError = detail;
+    diagnostics.pause = 'tracking error';
+    try { tracker.close(); } catch (closeError) { console.warn('Tracking cleanup:', closeError); }
+    landmarker = null;
+    poseTarget = null;
+    poseDisplayed = null;
+    handModel.visible = false;
+    if (tracker.mode === 'worker' && phase === 'frame capture / inference') {
+      setStatus('loading', 'RECONNECTING TRACKING');
+      buttonLabel.textContent = 'Reconnecting…';
+      cameraButton.disabled = true;
+      setPrompt('Reconnecting hand tracking…', 'Background tracking stopped responding. Switching to compatibility mode; keep your hand in view.', 'neutral');
+      try {
+        const replacement = await TrackingClient.createCompatibility();
+        if (epoch !== trackingEpoch || !stream) { replacement.close(); return; }
+        landmarker = replacement;
+        diagnostics.trackingMode = replacement.mode;
+        diagnostics.pause = 'none';
+        nextTrackingAt = 0;
+        lastVideoTime = -1;
+        gapStartedAt = null;
+        reachCalibration.reset();
+        cameraButton.disabled = false;
+        buttonLabel.textContent = 'Camera on';
+        setStatus('searching', 'LOOKING FOR HAND');
+        setPrompt('Tracking reconnected.', 'Show an open palm, then calibrate your reach. Compatibility mode is active.', 'success');
+        retryTimer = requestAnimationFrame(() => trackingLoop(epoch));
+        return;
+      } catch (recoveryError) {
+        if (epoch !== trackingEpoch || !stream) return;
+        diagnostics.lastError = `${detail}; recovery: ${recoveryError.message}`;
+        console.error('Tracking recovery failed:', recoveryError);
+      }
+    }
+    setStatus('error', 'TRACKING ERROR');
+    stageCaption.textContent = 'TRACKING STOPPED';
+    landmarkCount.textContent = 'TRACKING ERROR · CAMERA STILL ON';
+    buttonLabel.textContent = 'Retry tracking';
+    cameraButton.disabled = false;
+    mouseButton.hidden = false;
+    setPrompt('Tracking stopped — error details', `${diagnostics.lastError}. Use Retry tracking to reconnect.`, 'warning');
+    tipHeading.textContent = 'The camera is working.';
+    tipCopy.textContent = 'Tracking stopped because of a software error. See the error details below the play area.';
+    return;
   }
-  retryTimer = requestAnimationFrame(trackingLoop);
+  if (epoch === trackingEpoch && stream) retryTimer = requestAnimationFrame(() => trackingLoop(epoch));
 }
 
-async function createLandmarker() {
-  const { FilesetResolver, HandLandmarker } = await import('@mediapipe/tasks-vision');
-  const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm');
-  const modelAssetPath = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
-  try {
-    return await HandLandmarker.createFromOptions(vision, {
-      baseOptions: { modelAssetPath, delegate: 'GPU' }, runningMode: 'VIDEO', numHands: 1,
-      minHandDetectionConfidence: 0.52, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.48,
-    });
-  } catch (gpuError) {
-    console.warn('ClayPlay GPU hand tracking setup failed; trying CPU:', gpuError);
-    try {
-      return await HandLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath, delegate: 'CPU' }, runningMode: 'VIDEO', numHands: 1,
-        minHandDetectionConfidence: 0.52, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.48,
-      });
-    } catch (cpuError) {
-      console.error('ClayPlay CPU hand tracking setup failed:', cpuError);
-      throw cpuError;
-    }
-  }
-}
+async function createLandmarker() { return TrackingClient.create(); }
 
 async function startTracking() {
   cameraButton.disabled = true;
   buttonLabel.textContent = 'Loading tracking…';
   setStatus('loading', 'SETTING UP');
   landmarkCount.textContent = '21 LANDMARKS · LOADING';
+  const epoch = ++trackingEpoch;
   try {
-    landmarker = await createLandmarker();
+    const tracker = await createLandmarker();
+    if (epoch !== trackingEpoch || !stream) { tracker.close(); return; }
+    landmarker?.close();
+    landmarker = tracker;
+    nextTrackingAt = 0;
+    diagnostics.trackingMode = tracker.mode;
     buttonLabel.textContent = 'Camera on';
     cameraButton.classList.add('is-secondary');
     cameraButton.disabled = false;
@@ -730,13 +949,14 @@ async function startTracking() {
     setPrompt('Camera’s ready. Show us one hand.', 'Hold your palm toward the camera, with your wrist in view.', 'success');
     trackingLoop();
   } catch (error) {
+    if (epoch !== trackingEpoch || !stream) return;
     console.error('ClayPlay hand tracking setup failed:', error);
     cameraButton.disabled = false;
     buttonLabel.textContent = 'Retry tracking';
     mouseButton.hidden = false;
     setStatus('error', 'TRACKING UNAVAILABLE');
     landmarkCount.textContent = '21 LANDMARKS · OFFLINE';
-    setPrompt('Your camera is on, but tracking didn’t load.', 'Check your internet connection and retry. The hand-tracking files are loaded from the web.', 'warning');
+    setPrompt('Your camera is on, but tracking didn’t load.', 'The tracking engine could not start in either mode. Retry tracking; if it still fails, check your connection and reload the page.', 'warning');
     tipHeading.textContent = 'The camera is still on.';
     tipCopy.textContent = 'Retry tracking, or use the mouse preview while the hand-tracking files load.';
   }
@@ -783,6 +1003,9 @@ async function startCamera() {
 }
 
 function stopCamera(resetLandmarker = true) {
+  trackingEpoch++;
+  poseTarget = null; poseDisplayed = null; gapStartedAt = null;
+  pinchGesture.reset();
   reachCalibration.reset();
   contactCue.visible = false;
   pinchActive = false;
@@ -940,6 +1163,10 @@ sceneHost.addEventListener('pointerup', (event) => {
 });
 
 function cancelMouseStroke() {
+  knifeTool.reset();
+  pullPath.clear(); carvePath.clear(); bulgePath.clear();
+  pinchGesture.reset();
+  resumeStroke = false;
   contactCue.visible = false;
   contactLabel.dataset.contact = 'false';
   contactLabel.textContent = reachCalibration.ready ? 'Move your fingertips to the surface' : 'Calibrate before sculpting';
@@ -953,6 +1180,11 @@ function cancelMouseStroke() {
   previousBulgePoint = null;
   carveReference = null;
   bulgeReference = null;
+}
+function volumeBusy() {
+  if (!clayVolume.cutting) return false;
+  contactLabel.textContent = 'Finishing cut…';
+  return true;
 }
 sceneHost.addEventListener('pointercancel', cancelMouseStroke);
 sceneHost.addEventListener('lostpointercapture', cancelMouseStroke);
@@ -972,6 +1204,10 @@ resetButton.addEventListener('click', (event) => {
 });
 
 window.addEventListener('beforeunload', () => {
+  for (const item of clayObjects.items) item.volume.meshQueue?.dispose();
   stopCamera();
   cancelAnimationFrame(animationFrame);
+});
+document.addEventListener('clay-mesh-error', () => {
+  setPrompt('Clay updates paused.', 'The background sculpting worker stopped. Reload the page to restart the studio.', 'warning');
 });

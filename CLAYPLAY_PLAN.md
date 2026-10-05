@@ -420,3 +420,91 @@ Try the rigged hand in mouse mode, then set up the camera and bring your tracked
 - Webcam tool contact now uses the displayed 3D fingertip/grab positions and a narrow signed-distance contact shell, rather than accepting screen overlap. Pull follows 3D hand motion after contact; Carve/Bulge use per-stroke field snapshots so the depth reference remains stable while remeshing. Mouse preview retains its existing screen-based interaction.
 - Webcam sculpting is gated until calibration is complete and setup menus are closed. Camera restart requires recalibration. The displayed hand and collision positions share the same coordinates with the previous additional hand Z offset removed in webcam mode.
 - Validation: production build passes with the existing bundle-size warning; browser setup UI and fullscreen were inspected, capture remains disabled without a tracked hand, and no console errors were reported. Saved `artifacts/reach-calibration-preview.jpg`. No new automated tests were added or run. Physical two-pose calibration, rotation-induced depth drift, and live contact feel have not been verified with a user's hand and are the next feedback pass.
+
+### 2026-10-04 — Adaptive hand smoothing
+
+- User reported jittery tracking and requested smooth hand flow and sculpted curves.
+- Added a three-frame median and speed-adaptive motion filtering for the calibrated palm translation and all 21 local hand landmarks. Depth receives stronger damping; small deadbands suppress stationary tremor. Faster motion increases responsiveness without predicting beyond the measured pose.
+- The displayed hand, pinch detection, and sculpting contacts use the same filtered 3D points. The webcam skeleton overlay now uses the existing smoothed image landmarks.
+- Pull, Carve, and Bulge ignore tiny webcam displacements until enough motion accumulates, preserving deliberate slow strokes while reducing repeated noise-driven edits.
+- Brief tracking losses preserve filter history but pause sculpting immediately. Hide the stale hand after 180 ms; reset filters after longer losses, recalibration, or a different tracked hand.
+- Production build passed with the existing bundle-size warning. No automated tests or live webcam movement checks were run. Next user feedback: compare a steady hand, a slow carved curve, and a quick sweep; assess remaining jitter versus perceived lag. Filtering does not resolve tracking occlusion, calibration drift, or mesh-generation frame stalls.
+
+### 2026-10-04 — Local launch reminder
+
+- User again saw unstyled content and oversized artwork after opening the source index.html directly from the drive. ClayPlay must be opened through its Vite server so the JavaScript and imported styles load properly.
+- No listener was found on port 5173; started the local development server. Use http://127.0.0.1:5173/ and bookmark that address. For later sessions, run npm run dev -- --host 127.0.0.1 from the project folder and leave the terminal running.
+
+### 2026-10-04 — Detected hand awaiting calibration
+
+- Screenshot shows hand detection working but reach calibration incomplete. The current design hides the virtual hand and gates sculpting until near-body and forward-reach captures are complete.
+- Clarified status messages: a valid detected hand awaiting setup now says calibration needed, replacing a stale hand-out-of-view depth label. Capturing and invalid tracking now show separate guidance instead of always asking to start calibration.
+- User steps: open Calibrate reach; capture a steady open palm near the body; capture the same hand extended toward the screen; close the panel; move halfway between those positions and look for the green surface-contact cue. Camera restart or page reload currently requires calibration again.
+- Production build completed with the existing bundle-size warning. Live calibration with the user's hand remains unverified.
+
+### 2026-10-04 — Sculpting blocked after calibration
+
+- User reported successful calibration but no deformation with any tool.
+- Code inspection found that successful capture left the calibration panel open while canSculpt required it to be closed. Completing calibration now closes that panel automatically and returns focus to its summary, releasing the tool gate.
+- The webcam contact check also rejected fingertips outside a very narrow 0.12 scene-unit surface band, including fingertips slightly inside the clay. Increased acquisition tolerance to 0.22 and ongoing stroke tolerance to 0.34 to reduce depth-related contact loss. This remains a bounded 3D surface check.
+- Surface projection now refines the contact against the edited field and rejects invalid or unconverged results instead of relying on a single distance step. This keeps brushes near the surface after deformation.
+- Production compilation checked; no automated tests or physical webcam sculpting performed. User feedback is still needed for contact tolerance and live deformation. Reload the app, calibrate, then try all tools at nonzero Strength; calibration should close automatically and green contact should appear near the surface.
+
+### 2026-10-04 — Recording review: continuity and pinch reliability
+
+- User supplied a 16-second screen recording and reported discontinuous hand movement, interrupted pinch, and excessive sensitivity. Sampled video frames show some deformation (a small bump/tail), so tool execution is not completely blocked. Frame sampling cannot establish precise application latency or inference timings; no audio transcription was performed.
+- Code findings: detectForVideo and synchronous field editing/remeshing share the main thread; visible hand updates only when detections arrive. A single missing detection clears pinch and stroke anchors. Calibration rejects the whole mapped pose for uncertain palm geometry or handedness. Median filtering, low cutoff values, per-landmark deadbands, and tool displacement thresholds can accumulate lag or stepped motion. Pinch uses filtered independently moving fingertips and fixed ratio thresholds without timed confirmation. Pull caps displacement per update and advances its cursor, potentially dropping excess movement on long frames.
+- Recommended order: add timing/dropout/pinch diagnostics; separate inference and mesh generation from rendering using workers with bounded queues and versioned results; retain gesture and stroke state across brief uncertain periods while pausing edits; filter pinch intent separately from visible pose; use confidence-aware depth stabilization and render interpolation; resample strokes by distance/time with bounded processing, retaining unapplied pull travel. Keep observed contact aligned to the same stabilized pose, and avoid predicted clay edits during genuine tracking loss.
+- Acceptance goals for the next implementation: one deliberate held pinch stays one stroke; slow curves do not staircase; normal movement remains responsive during deformation; brief occlusion causes neither a torn stroke nor an unintended bridge; gesture detection and contact loss are shown separately. Profile actual hardware before claiming frame-rate or latency targets.
+- This turn diagnoses and proposes solutions only; no tracking or sculpting code changed. Official reference confirming synchronous detection and the worker approach: https://developers.google.cn/edge/mediapipe/solutions/vision/hand_landmarker/web_js
+
+### 2026-10-04 — Movement continuity implementation
+
+- User approved the recommended stabilization order.
+- Added optional diagnostics via ?diagnostics=1: render interval, inference time, synchronous field-edit time, mesh generation time, pending mesh bricks, dropout count, pinch state, and pause reason. These are live readings, not measured performance guarantees.
+- Moved MediaPipe initialization and detection into a dedicated worker with GPU/CPU delegate fallback, transferable camera frames, one frame in flight, timeout/error handling, and camera-session guards. Discard results older than 250 ms; process current video frames without an inference backlog.
+- Moved brick polygonization into a separate shared mesh worker. Coalesce dirty brick requests, send changed field samples instead of complete field copies, transfer position/normal buffers, and discard results from reset or removed objects. Field edits remain on the main thread but are limited to short stroke segments; diagnostics expose their residual cost. Worker errors now pause sculpting with a visible message.
+- Added an independent pinch signal using raw world-space normalized fingertip distance, a short filter, separate close/open thresholds, and timed confirmation (55 ms close, 95 ms release). Visual finger filtering no longer determines gesture intent.
+- Preserve held gestures for up to 180 ms of tracking uncertainty while pausing deformation. Resume nearby poses by rebasing the input cursor and clearing unobserved path segments; prolonged loss or a large pose change cancels the grab. Do not extrapolate clay edits through missing data.
+- Reduced position/pose filter delay and tiny deadbands; kept median filtering for depth. Interpolate the hand at render cadence with a short time constant and pass those same displayed points to the sculpting tools. Temporarily uncertain depth can preserve a visible pose while editing pauses.
+- Added bounded stroke-path queues with short spatial steps, preserving sampled bends and remaining pull travel rather than replacing the previous cursor with an unconsumed destination. Overloaded paths rebase rather than bridging stale motion. Tool changes, camera stops, selection changes, and recovery clear stale paths.
+- Production build passes, including both worker bundles; the existing main-bundle size warning remains. No automated tests or live webcam checks were run. Browser-specific worker initialization, live tracking latency, mesh lag under sustained pulls, and gesture feel remain for the next user feedback pass. Recommend refreshing, recalibrating, and recording a slow arc, one held pull, and a brief occlusion, optionally with diagnostics visible.
+
+### 2026-10-04 — Tracking worker startup compatibility fix
+
+- User screenshot showed TRACKING UNAVAILABLE, an active webcam feed, and a disabled calibration capture button. Tracking initialization failed before calibration could begin.
+- Inspected the installed MediaPipe 0.10.35 API and runtime: forVisionTasks accepts useModule, defaulting to false. The new module worker was requesting the classic runtime. Changed worker initialization to request the ES-module runtime explicitly.
+- Added automatic fallback to the previously used main-thread GPU/CPU tracking path if worker initialization fails, including worker-constructor failures. Compatibility mode limits inference scheduling to approximately 15 frames per second while retaining background mesh generation and the continuity changes. Diagnostics expose the selected mode.
+- Guarded late initialization failures after camera shutdown and updated failure wording so it does not imply that internet connectivity is always the cause. Worker and fallback errors remain available in the console.
+- Production build passes with the existing bundle-size warning. Live browser initialization and webcam calibration have not been verified in this turn. Refresh the current localhost page, restart tracking, and calibrate once the webcam landmark overlay appears.
+
+### 2026-10-05 — Distinguishing runtime failure from missing hand detection
+
+- Screenshot shows Tracking paused after initialization, with a working camera and no landmarks. The exact visible prompt maps to the trackingLoop catch block: frame capture/inference OR landmark processing threw an exception, then the loop returned permanently. The old UI misleadingly continued to say looking for hand. Startup fallback does not handle these runtime exceptions.
+- Browser inspection failed twice because its automation kernel could not initialize, so the underlying browser exception has not been retrieved. Do not claim that the screenshot proves a specific GPU, MediaPipe, or calibration fault.
+- Added visible error details including tracking mode, failed phase, exception name, and message; retain worker error names/stacks. On failure, close the broken tracker, pause sculpting, show TRACKING ERROR, and make Retry tracking reconnect while retaining the camera stream.
+- User must reload and reproduce once, then share the error-details message below the play area to establish the exact underlying cause. The diagnostic change fixes misleading error state and retry handling; it does not claim to fix the unknown exception.
+- Production build passed with the existing bundle-size warning. No live browser reproduction was possible in this session.
+
+### 2026-10-05 — Confirmed frame-inference worker timeout
+
+- User supplied the exact error: worker / frame capture-inference / Tracking worker timed out. This confirms worker initialization completed but a frame request did not receive a response within the three-second deadline. It does not distinguish slow first inference, a stalled runtime, or a browser/GPU problem without further profiling.
+- Added automatic runtime recovery for worker capture/inference exceptions: terminate the failed worker, pause edits, start compatibility GPU/CPU tracking against the live video, reset reach calibration, and resume the frame loop. Previously fallback only covered initialization errors.
+- After a worker failure, subsequent tracker creation in the same page session prefers compatibility mode, avoiding repeated worker failures on Retry tracking. Recovery failures include their error in the visible diagnostic text. Epoch guards prevent old recovery attempts taking over a stopped/new camera session.
+- Production build passed with the existing bundle-size warning. Automatic recovery and physical hand detection still require live browser confirmation; no claim that the underlying worker/browser stall has been eliminated.
+
+### 2026-10-05 — Brush size control
+
+- User requested a Size slider alongside Strength, ranging from 10% to 90% of the existing shape. Implemented Size as the sculpting brush diameter relative to the selected shape's original largest dimension (sphere diameter 2.5 local units).
+- Added a labeled, keyboard-accessible 10–90% slider with live percentage readout beneath Strength. Default 24% preserves the sphere's previous pinch radius of 0.3. Pinch, Carve, and Bulge share the chosen brush size; Strength continues to control pull gain, carve depth, or bulge amount separately.
+- Reference sizes are stable during deformation and follow object layout scaling. Changing size ends the current stroke to avoid mixing brush widths unexpectedly. The calibration panel was moved down and its scrolling height adjusted to make space in normal, narrow, and fullscreen layouts.
+- Production build completed with the existing bundle-size warning. No automated tests or browser/webcam walkthrough performed. Large brushes affect more field samples and may increase synchronous sculpting cost.
+
+### 2026-10-05 — Open-palm Knife tool
+
+- Added Knife to the tool selector. In calibrated webcam mode, a steady open palm (four extended fingers and separated thumb) arms a visible blade. Sweep in one plane until the blade exits the selected clay; close and reopen the hand before another cut. Mouse mode supports dragging the blade through the clay.
+- The blade is nine local units long, exceeding the diagonal of the editable clay volume, and follows object display scale. Strength and Size are disabled for Knife because it performs a full cut with a fixed full-length blade.
+- A completed sweep sends the current sculpted field to a separate worker. Occupied voxel samples estimate volume on each side of the palm-oriented plane. Remove the smaller side; equal estimates deterministically keep the negative half. A nonintersecting or negligible cut makes no change.
+- Apply a half-space cut to the base field and existing edited samples, then remesh the retained clay with a closed planar face. Subsequent Pinch, Carve, and Bulge edits can modify that face. Reset restores the original shape. Snapshot and mesh-worker messages now preserve prior cuts.
+- Tracking loss, a changed cutting plane, tool/menu changes, or an incomplete sweep cancel the unfinished gesture. Pending cuts are ignored after object reset/removal. Field edits pause while the selected object's cut is calculated; worker errors/timeouts show retry guidance.
+- Production build passed with the existing bundle-size warning. No automated tests or live hand/mouse walkthrough performed. Side selection is a voxel-volume estimate, and an irregular object can contain multiple components within either retained/discarded half-space. Live open-palm thresholds and sweep feel need user feedback.

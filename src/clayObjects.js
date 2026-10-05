@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { ClayVolume } from './clayVolume.js';
 import { CLAY_SHAPES } from './clayShapes.js';
+import { attachMeshQueue } from './meshQueue.js';
 
 export class ClayObjects {
   constructor(scene) {
@@ -26,7 +27,7 @@ export class ClayObjects {
     const material = new THREE.MeshPhysicalMaterial({ color, roughness: 0.78, metalness: 0, clearcoat: 0.08, clearcoatRoughness: 0.9 });
     const id = this.nextId++;
     group.name = `ClayObject_${id}`;
-    const item = { id, shape, label: `${CLAY_SHAPES[shape].label} ${id}`, group, material, volume: new ClayVolume(group, material, shape), edited: false };
+    const item = { id, shape, label: `${CLAY_SHAPES[shape].label} ${id}`, group, material, volume: new ClayVolume(group, material, shape, attachMeshQueue), edited: false };
     this.items.push(item);
     this.scene.add(group);
     this.active = item;
@@ -43,6 +44,8 @@ export class ClayObjects {
   removeActive() {
     if (this.items.length === 1) return;
     const index = this.items.indexOf(this.active);
+    this.active.volume.cutRevision++;
+    this.active.volume.meshQueue?.dispose();
     for (const { mesh } of this.active.volume.bricks.values()) mesh.geometry.dispose();
     this.active.volume.field.clear();
     this.active.volume.bricks.clear();

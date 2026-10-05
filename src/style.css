@@ -121,9 +121,9 @@ body.play-area-fullscreen { overflow: hidden; }
 .clay-menu-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 15px; padding-top: 10px; border-top: 1px solid #eee3d7; font-size: 9px; color: #9f8976; }
 .clay-menu-footer button { padding: 4px 0; border: 0; background: transparent; color: #ad6045; font-size: 9px; cursor: pointer; }
 .clay-menu-status { margin: 9px 0 0; color: #9f8976; font-size: 9px; line-height: 1.5; }
-.reach-calibration { position: absolute; z-index: 9; top: 154px; right: 17px; width: 162px; color: #806550; font-size: 10px; }
+.reach-calibration { position: absolute; z-index: 9; top: 210px; right: 17px; width: 162px; color: #806550; font-size: 10px; }
 .reach-calibration summary { cursor: pointer; padding: 10px; border: 1px solid #fff9ef; border-radius: 5px; background: #fcf6ec; }
-.reach-calibration-panel { position: absolute; top: 40px; right: 0; width: 280px; max-height: min(440px, calc(clamp(440px, 62vh, 740px) - 215px)); overflow: auto; overscroll-behavior: contain; padding: 16px; border: 1px solid #deccba; border-radius: 8px; background: #fffaf3; box-shadow: 0 8px 28px #55362025; }
+.reach-calibration-panel { position: absolute; top: 40px; right: 0; width: 280px; max-height: min(440px, calc(clamp(440px, 62vh, 740px) - 271px)); overflow: auto; overscroll-behavior: contain; padding: 16px; border: 1px solid #deccba; border-radius: 8px; background: #fffaf3; box-shadow: 0 8px 28px #55362025; }
 .reach-calibration-panel strong { color: #604b3b; font-size: 13px; }
 .reach-calibration-panel p { line-height: 1.6; }
 .reach-steps { display: flex; justify-content: space-between; gap: 8px; padding: 10px 0; color: #a56b4e; font-size: 9px; }
@@ -143,12 +143,12 @@ body.play-area-fullscreen { overflow: hidden; }
 .reach-depth-labels { display: flex; justify-content: space-between; font-size: 8px; }
 #reach-contact { display: block; margin-top: 9px; font-size: 8px; }
 #reach-contact[data-contact="true"] { color: #54825e; font-weight: 700; }
-.is-fullscreen .reach-calibration-panel { max-height: calc(100dvh - 280px); }
+.is-fullscreen .reach-calibration-panel { max-height: calc(100dvh - 336px); }
 .scene-hint { max-width: calc(100% - 440px); }
 .is-fullscreen .clay-menu-panel { max-height: calc(100dvh - 95px); }
 @media (max-width: 700px) {
   .reach-calibration { right: 10px; width: 150px; }
-  .reach-calibration-panel { width: min(280px, calc(100vw - 55px)); max-height: calc(clamp(380px, 65vh, 540px) - 215px); }
+  .reach-calibration-panel { width: min(280px, calc(100vw - 55px)); max-height: calc(clamp(380px, 65vh, 540px) - 271px); }
   .reach-depth { right: 12px; bottom: 108px; width: 157px; padding: 7px 9px; font-size: 8px; }
   .clay-menu { left: 12px; bottom: 17px; }
   .clay-menu summary { gap: 5px; padding-inline: 8px; font-size: 10px; }
@@ -156,3 +156,6 @@ body.play-area-fullscreen { overflow: hidden; }
   .fullscreen-button { right: 12px; gap: 5px; padding-inline: 8px; font-size: 10px; }
   .scene-hint { max-width: calc(100% - 36px); }
 }
+
+.size-control { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(124,88,65,.12); }
+.strength-control input:disabled { opacity: .4; cursor: default; }

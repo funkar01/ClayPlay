@@ -28,11 +28,12 @@ function smoothMax(a, b, radius) {
 }
 
 export class ClayVolume {
-  constructor(parent, material, shape = 'sphere') {
+  constructor(parent, material, shape = 'sphere', meshQueueFactory = null) {
     this.parent = parent;
     this.material = material;
     this.field = new Map();
     this.bricks = new Map();
+    if (meshQueueFactory) this.meshQueue = meshQueueFactory(this);
     this.reset(shape);
   }
 
@@ -41,12 +42,15 @@ export class ClayVolume {
   }
 
   baseDistance(x, y, z) {
-    return CLAY_SHAPES[this.shape].distance(x, y, z);
+    let distance = CLAY_SHAPES[this.shape].distance(x, y, z);
+    for (const cut of this.cuts ?? []) distance = Math.max(distance, cut.n[0] * x + cut.n[1] * y + cut.n[2] * z + cut.d);
+    return distance;
   }
 
   snapshot() {
     const field = Object.create(ClayVolume.prototype);
     field.shape = this.shape;
+    field.cuts = structuredClone(this.cuts ?? []);
     field.field = new Map(this.field);
     return field;
   }
@@ -92,6 +96,10 @@ export class ClayVolume {
   }
 
   reset(shape = this.shape) {
+    this.cutRevision = (this.cutRevision ?? 0) + 1;
+    this.cutting = false;
+    this.cuts = [];
+    this.meshQueue?.reset();
     if (!Object.hasOwn(CLAY_SHAPES, shape)) throw new Error(`Unknown clay shape: ${shape}`);
     this.shape = shape;
     this.field.clear();
@@ -116,6 +124,7 @@ export class ClayVolume {
 
   rebuildBrick(bx, by, bz) {
     const key = `${bx},${by},${bz}`;
+    if (this.meshQueue) { this.meshQueue.brick(key); return; }
     const old = this.bricks.get(key);
     if (old) {
       this.parent.remove(old.mesh);
@@ -215,6 +224,24 @@ export class ClayVolume {
     this.bricks.set(key, { mesh });
   }
 
+  applyKnifePlane(cut) {
+    this.cuts.push(cut);
+    // Bake the cut into edited samples; later sculpting can deform the new face.
+    for (const [key, value] of this.field) {
+      const x = key % GRID_NODES;
+      const y = Math.floor(key / GRID_NODES) % GRID_NODES;
+      const z = Math.floor(key / (GRID_NODES * GRID_NODES));
+      const plane = cut.n[0] * (GRID_MIN + x * VOXEL_SIZE) + cut.n[1] * (GRID_MIN + y * VOXEL_SIZE) + cut.n[2] * (GRID_MIN + z * VOXEL_SIZE) + cut.d;
+      this.field.set(key, Math.max(value, plane));
+    }
+    this.meshQueue?.reset();
+    for (const [key, value] of this.field) this.meshQueue?.edit(key, value);
+    for (let z = 0; z < BRICK_COUNT; z++) for (let y = 0; y < BRICK_COUNT; y++) for (let x = 0; x < BRICK_COUNT; x++) {
+      const c = [x, y, z].map((v) => GRID_MIN + (v + 0.5) * BRICK_CELLS * VOXEL_SIZE);
+      if (this.bricks.has(`${x},${y},${z}`) || this.sample(...c) < 0.6) this.rebuildBrick(x, y, z);
+    }
+  }
+
   rebuildBounds(min, max) {
     const minGrid = [min.x, min.y, min.z].map((value) => THREE.MathUtils.clamp(Math.floor((value - GRID_MIN) / VOXEL_SIZE) - 1, 0, GRID_CELLS));
     const maxGrid = [max.x, max.y, max.z].map((value) => THREE.MathUtils.clamp(Math.ceil((value - GRID_MIN) / VOXEL_SIZE) + 1, 0, GRID_CELLS));
@@ -240,7 +267,7 @@ export class ClayVolume {
       : THREE.MathUtils.lerp(0.12, 0.3, (intensity - neutralIntensity) / (1 - neutralIntensity));
     displacement.multiplyScalar(gain);
     const motion = displacement.length();
-    if (motion < 0.003) return false;
+    if (motion < 0.0005) return false;
     if (motion > maxDisplacement) displacement.multiplyScalar(maxDisplacement / motion);
     const destination = previous.clone().add(displacement);
     // Leave a complete brush-width margin inside the editable volume.
@@ -277,7 +304,7 @@ export class ClayVolume {
         }
       }
       if (edits.length) changed = true;
-      for (const [key, value] of edits) this.field.set(key, value);
+      for (const [key, value] of edits) { this.field.set(key, value); this.meshQueue?.edit(key, value); }
     }
     if (!changed) return false;
     const boundsReach = radius + displacement.length() + VOXEL_SIZE * 2;
@@ -345,7 +372,7 @@ export class ClayVolume {
       }
     }
     if (!edits.length) return false;
-    for (const [key, value] of edits) this.field.set(key, value);
+    for (const [key, value] of edits) { this.field.set(key, value); this.meshQueue?.edit(key, value); }
     this.rebuildBounds(min, max);
     return true;
   }

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { MotionFilter } from './motionFilter.js';
 
 const PALM = [0, 5, 9, 13, 17];
 const EDGES = [[0, 5], [0, 9], [0, 13], [0, 17], [5, 17]];
@@ -31,9 +32,11 @@ export class ReachCalibration {
   }
 
   get ready() { return Boolean(this.near && this.far); }
-  get canSculpt() { return this.ready && this.valid && !this.panel.open && !this.capturing; }
+  get canSculpt() { return this.ready && this.valid && !this.depthUncertain && !this.panel.open && !this.capturing; }
 
   reset() {
+    this.depthUncertain = false;
+    this.resetMotion();
     this.near = null;
     this.far = null;
     this.latest = null;
@@ -64,6 +67,7 @@ export class ReachCalibration {
       this.copy.textContent = 'Hold your open palm near your body. Keep this same hand and palm orientation for both positions.';
     }
     this.onChange();
+    this.resetMotion();
     this.capturing = true;
     this.captureHand = this.latest.hand;
     this.start = performance.now();
@@ -77,8 +81,8 @@ export class ReachCalibration {
     this.valid = false;
     this.latest = null;
     this.samples = [];
-    this.filteredRoot = null;
-    this.filteredPose = null;
+    // Keep a short dropout's filter history; tools pause immediately regardless.
+    if (now - (this.lastMappedAt ?? 0) > 300) this.resetMotion();
     this.marker.hidden = true;
     this.button.disabled = true;
     this.status.textContent = 'Show the same hand, with the palm and wrist visible.';
@@ -97,6 +101,7 @@ export class ReachCalibration {
   }
 
   observe(image, world, handedness, aspect, now) {
+    this.depthUncertain = false;
     if (!world || world.length !== 21 || !world.every((p) => Number.isFinite(p.x + p.y + p.z))) {
       this.loseHand(now);
       return;
@@ -107,12 +112,12 @@ export class ReachCalibration {
       if (projected > 0.018) ratios.push(Math.hypot((image[a].x - image[b].x) * aspect, image[a].y - image[b].y) / projected);
     }
     const inFrame = PALM.every((i) => image[i].x > 0.025 && image[i].x < 0.975 && image[i].y > 0.025 && image[i].y < 0.975);
-    if (ratios.length < 3 || !inFrame) { this.loseHand(now); return; }
+    if (ratios.length < 3 || !inFrame) { this.holdDepth(handedness, now); return; }
     const signal = median(ratios);
-    if (!Number.isFinite(signal) || signal <= 0) { this.loseHand(now); return; }
+    if (!Number.isFinite(signal) || signal <= 0) { this.holdDepth(handedness, now); return; }
     const palm = center(image);
     const width = new THREE.Vector3().subVectors(world[5], world[17]).length();
-    if (width < 0.025 || width > 0.16) { this.loseHand(now); return; }
+    if (width < 0.025 || width > 0.16) { this.holdDepth(handedness, now); return; }
     this.latest = { distance: 1 / signal, x: (palm.x - 0.5) * aspect / signal, y: (palm.y - 0.5) / signal, width, hand: handedness, time: now };
     if (this.capturing && handedness !== this.captureHand) {
       this.capturing = false;
@@ -122,6 +127,7 @@ export class ReachCalibration {
     }
     this.valid = !this.near || this.near.hand === handedness;
     if (!this.valid) {
+      this.resetMotion();
       this.status.textContent = 'Use your calibrated hand, or recalibrate for this hand.';
       this.depthLabel.textContent = 'Different hand — sculpting paused';
       this.marker.hidden = true;
@@ -130,6 +136,7 @@ export class ReachCalibration {
       this.checkTimeout(now);
       return;
     }
+    if (!this.ready) this.depthLabel.textContent = this.capturing ? 'Capturing your reach…' : 'Hand detected · calibration needed';
     if (this.capturing) {
       const elapsed = now - this.start;
       if (elapsed < 1800) {
@@ -168,10 +175,13 @@ export class ReachCalibration {
       this.filteredRoot = null;
       this.filteredPose = null;
       this.copy.textContent = 'Reach halfway between your two positions to find the clay center. The green contact cue shows when a fingertip touches clay. Recalibrate if you move your chair or camera.';
-      this.status.textContent = 'Reach calibrated. Close this panel to sculpt.';
+      this.status.textContent = 'Reach calibrated. Move your fingertips to the clay to sculpt.';
       this.label.textContent = 'Reach calibrated';
       this.button.textContent = 'Recalibrate reach';
       this.onChange();
+      // Completing setup must release the panel's sculpting gate.
+      this.panel.open = false;
+      this.panel.querySelector('summary').focus({ preventScroll: true });
     }
     this.samples = [];
   }
@@ -187,19 +197,36 @@ export class ReachCalibration {
     const root = new THREE.Vector3(-(this.latest.x - originX) * scale, -(this.latest.y - originY) * scale, 2.4 - targetReach * 4.8);
     root.x = THREE.MathUtils.clamp(root.x, -3.2, 3.2);
     root.y = THREE.MathUtils.clamp(root.y, -2.1, 2.1);
-    const alpha = 1 - Math.exp(-10 * Math.min(0.1, (now - (this.lastTime ?? now - 16)) / 1000));
-    this.lastTime = now;
-    if (!this.filteredRoot) this.filteredRoot = root.clone();
-    else this.filteredRoot.lerp(root, alpha);
+    if (this.lastMappedAt && now - this.lastMappedAt > 300) this.onChange();
+    this.lastMappedAt = now;
+    this.filteredRoot = this.rootFilter.update(new THREE.Vector3(root.x, root.y, 0), now);
+    this.filteredRoot.z = this.depthFilter.update(new THREE.Vector3(0, 0, root.z), now).z;
     const palm = center(world);
     const local = world.map((p) => new THREE.Vector3(-(p.x - palm.x), -(p.y - palm.y), p.z - palm.z).multiplyScalar(scale));
-    if (!this.filteredPose) this.filteredPose = local;
-    else this.filteredPose.forEach((p, i) => p.lerp(local[i], alpha));
+    this.filteredPose = local.map((p, i) => this.poseFilters[i].update(p, now));
     this.reach = (2.4 - this.filteredRoot.z) / 4.8;
     this.marker.hidden = false;
     this.marker.style.left = `${THREE.MathUtils.clamp(this.reach, 0, 1) * 100}%`;
     this.depthLabel.textContent = this.reach < 0.43 ? 'Your hand · nearer to you' : this.reach > 0.57 ? 'Your hand · beyond center' : 'Your hand · at clay center';
+    if (this.depthUncertain) this.depthLabel.textContent = 'Hold steady · checking depth';
     if (!this.panel.open) this.status.textContent = 'Calibrated for this hand. Recalibrate after moving your chair or camera.';
     return this.filteredPose.map((p) => p.clone().add(this.filteredRoot));
+  }
+
+  resetMotion() {
+    this.filteredRoot = null;
+    this.filteredPose = null;
+    this.rootFilter = new MotionFilter({ cutoff: 2.2, responsiveness: 2.2, deadband: 0.001, median: false });
+    this.depthFilter = new MotionFilter({ cutoff: 1.4, responsiveness: 1.8, deadband: 0.004 });
+    this.poseFilters = Array.from({ length: 21 }, () => new MotionFilter({ cutoff: 3, responsiveness: 3, deadband: 0, median: false }));
+    this.lastMappedAt = null;
+  }
+
+  holdDepth(handedness, now) {
+    if (this.ready && this.latest && this.near.hand === handedness && now - this.latest.time <= 180) {
+      this.valid = true;
+      this.depthUncertain = true;
+      this.depthLabel.textContent = 'Hold steady · checking depth';
+    } else this.loseHand(now);
   }
 }

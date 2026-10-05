@@ -42,6 +42,7 @@
                 <button class="tool-button is-active" id="tool-pinch" type="button" data-tool="pinch" aria-pressed="true">Pinch</button>
                 <button class="tool-button" id="tool-carve" type="button" data-tool="carve" aria-pressed="false">Carve</button>
                 <button class="tool-button" id="tool-bulge" type="button" data-tool="bulge" aria-pressed="false">Bulge</button>
+                <button class="tool-button" id="tool-knife" type="button" data-tool="knife" aria-pressed="false">Knife</button>
               </div>
               <div class="strength-control" aria-label="Sculpt strength control">
                 <div class="strength-heading">
@@ -50,6 +51,14 @@
                 </div>
                 <input id="tool-strength" type="range" min="0" max="100" value="55" aria-label="Sculpt strength" />
                 <span class="strength-context" id="strength-context">Pull distance</span>
+                <div class="size-control">
+                  <div class="strength-heading">
+                    <label for="tool-size">SIZE</label>
+                    <output id="size-value" for="tool-size">24%</output>
+                  </div>
+                  <input id="tool-size" type="range" min="10" max="90" step="1" value="24" aria-label="Sculpt brush size" aria-describedby="size-context" />
+                  <span class="strength-context" id="size-context">Brush width · % of starting shape</span>
+                </div>
               </div>
               <div class="axis-gizmo" role="img" aria-label="Scene axes: X points right, Y points up, Z points toward you">
                 <svg viewBox="0 0 76 76" aria-hidden="true">
