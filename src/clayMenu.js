@@ -1,4 +1,4 @@
-import { CLAY_SHAPES } from './clayShapes.js';
+import { MASK_SHAPES } from './clayShapes.js';
 
 const palette = [
   ['Terracotta', '#bd7455'], ['Cream', '#ead5b5'], ['Rose', '#ce8793'],
@@ -16,7 +16,7 @@ export function setupClayMenu(objects, { onSelect, onLayout, onPause }) {
   const selectionName = document.querySelector('#selected-clay-name');
   let busy = false;
 
-  shapeGrid.innerHTML = Object.entries(CLAY_SHAPES).map(([key, shape]) =>
+  shapeGrid.innerHTML = Object.entries(MASK_SHAPES).map(([key, shape]) =>
     `<button type="button" class="shape-option" data-shape="${key}" aria-label="Add ${shape.label.toLowerCase()}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${shape.icon}"/></svg><span>${shape.label}</span></button>`).join('');
   swatches.innerHTML = palette.map(([name, hex]) =>
     `<button type="button" class="clay-swatch" data-color="${hex}" style="--swatch:${hex}" aria-label="${name}" aria-pressed="false" title="${name}"></button>`).join('');
@@ -47,7 +47,7 @@ export function setupClayMenu(objects, { onSelect, onLayout, onPause }) {
     if (!button || busy || objects.items.length >= objects.limit) return;
     busy = true;
     const shape = button.dataset.shape;
-    status.textContent = `Adding ${CLAY_SHAPES[shape].label.toLowerCase()}…`;
+    status.textContent = `Adding ${MASK_SHAPES[shape].label.toLowerCase()}…`;
     refresh();
     // Paint the pending state before generating the sculptable surface.
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -55,10 +55,10 @@ export function setupClayMenu(objects, { onSelect, onLayout, onPause }) {
       const item = objects.add(shape, color.value);
       onLayout();
       onSelect(item.id);
-      status.textContent = objects.items.length === objects.limit ? 'Eight shapes on your table. Remove one to add another.' : `${item.label} added. Your other shapes are kept.`;
+      status.textContent = objects.items.length === objects.limit ? 'Eight masks on your table. Remove one to add another.' : `${item.label} added. Your other masks are kept.`;
     } catch (error) {
-      console.error('Could not add clay shape:', error);
-      status.textContent = 'Could not add this shape. Please try again.';
+      console.error('Could not add mask:', error);
+      status.textContent = 'Could not add this mask. Please try again.';
     } finally {
       busy = false;
       refresh();

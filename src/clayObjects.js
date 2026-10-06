@@ -18,7 +18,7 @@ export class ClayObjects {
       new THREE.LineBasicMaterial({ color: '#ad684d', transparent: true, opacity: 0.7 }),
     );
     scene.add(this.marker);
-    this.add('sphere', '#bd7455');
+    this.add('full', '#bd7455');
   }
 
   add(shape, color) {
@@ -44,6 +44,7 @@ export class ClayObjects {
   removeActive() {
     if (this.items.length === 1) return;
     const index = this.items.indexOf(this.active);
+    this.active.volume.surfacePull?.abort();
     this.active.volume.cutRevision++;
     this.active.volume.meshQueue?.dispose();
     for (const { mesh } of this.active.volume.bricks.values()) mesh.geometry.dispose();

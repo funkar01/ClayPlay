@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 
 export class KnifeTool {
-  constructor(scene, onCut, onMessage) {
+  constructor(scene, onCut, onMessage, onBeforeCut = () => {}) {
     this.onCut = onCut;
     this.onMessage = onMessage;
+    this.onBeforeCut = onBeforeCut;
     this.blade = new THREE.Mesh(new THREE.BoxGeometry(0.055, 9, 0.12), new THREE.MeshStandardMaterial({ color: '#8bc8da', metalness: 0.55, roughness: 0.25, transparent: true, opacity: 0.65 }));
     scene.add(this.blade);
     this.reset();
@@ -62,6 +63,7 @@ export class KnifeTool {
     }
   }
   commit(volume, plane) {
+    this.onBeforeCut(volume);
     volume.cutting = true;
     const revision = volume.cutRevision;
     this.onMessage('Finishing cut · comparing the two pieces');
@@ -82,7 +84,7 @@ export class KnifeTool {
         this.onCut(volume);
         this.onMessage('Smaller piece removed · close and reopen your hand for another cut');
       };
-      worker.postMessage({ shape: volume.shape, cuts: volume.cuts, field: [...volume.field], ...plane });
+      worker.postMessage({ state: volume.serialize(), ...plane });
     } catch { fail(); }
   }
 }

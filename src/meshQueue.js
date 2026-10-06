@@ -4,6 +4,7 @@ import { diagnostics } from './diagnostics.js';
 let worker;
 let nextId = 1;
 let busy = false;
+let activeId = null;
 const volumes = new Map();
 let scheduled = false;
 function fail(entry, message) {
@@ -21,18 +22,22 @@ function schedule() {
 }
 function pump() {
   if (busy) return;
-  const entry = [...volumes.values()].find((v) => !v.volume.meshFailed && v.keys.size);
+  const entry = [...volumes.values()].find((v) => !v.volume.meshFailed && !v.volume.pulling && v.keys.size);
   if (!entry) return;
   busy = true;
+  activeId = entry.id;
   diagnostics.meshPending = entry.keys.size;
-  worker.postMessage({ id: entry.id, generation: entry.generation, shape: entry.volume.shape, cuts: entry.volume.cuts, keys: [...entry.keys], edits: [...entry.edits], reset: entry.reset });
-  entry.keys.clear(); entry.edits.clear(); entry.reset = false;
+  // Bound installation work; do not replace every brick in one UI turn.
+  const keys = [...entry.keys].slice(0, 4);
+  worker.postMessage({ id: entry.id, generation: entry.generation, shape: entry.volume.shape, cuts: entry.volume.cuts, state: entry.reset ? entry.volume.serialize() : undefined, keys, edits: [...entry.edits], reset: entry.reset });
+  keys.forEach(key => entry.keys.delete(key)); entry.edits.clear(); entry.reset = false;
 }
 export function attachMeshQueue(volume) {
   if (!worker) {
     worker = new Worker(new URL('./meshWorker.js', import.meta.url), { type: 'module' });
     worker.onmessage = ({ data }) => {
       busy = false;
+      activeId = null;
       diagnostics.meshMs = data.duration ?? 0;
       diagnostics.meshPending = 0;
       const entry = volumes.get(data.id);
@@ -61,6 +66,8 @@ export function attachMeshQueue(volume) {
     edit(key, value) { entry.edits.set(key, value); },
     reset() { entry.generation++; entry.keys.clear(); entry.edits.clear(); entry.reset = true; },
     brick(key) { entry.keys.add(key); schedule(); },
+    get pending() { return entry.keys.size > 0 || (busy && activeId === entry.id); },
+    invalidate() { entry.generation++; entry.keys.clear(); entry.edits.clear(); entry.reset = true; },
     dispose() { volumes.delete(entry.id); worker.postMessage({ id: entry.id, remove: true }); },
   };
 }

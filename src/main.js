@@ -9,6 +9,8 @@ import { PinchGesture } from './pinchGesture.js';
 import { diagnostics } from './diagnostics.js';
 import { StrokePath } from './strokePath.js';
 import { KnifeTool } from './knifeTool.js';
+import { SurfacePull } from './surfacePull.js';
+import { checkpoint, restoreHistory } from './sculptHistory.js';
 
 const video = document.querySelector('#camera-video');
 const previewCanvas = document.querySelector('#preview-overlay');
@@ -31,6 +33,8 @@ const tipHeading = document.querySelector('#tip-heading');
 const tipCopy = document.querySelector('#tip-copy');
 const landmarkCount = document.querySelector('#landmark-count');
 const resetButton = document.querySelector('#clay-reset');
+const undoButton = document.querySelector('#sculpt-undo');
+const redoButton = document.querySelector('#sculpt-redo');
 const toolButtons = [...document.querySelectorAll('.tool-button')];
 const strengthInput = document.querySelector('#tool-strength');
 const strengthValue = document.querySelector('#strength-value');
@@ -42,7 +46,7 @@ let activeSize = Number(sizeInput.value);
 // Brush diameter as a fraction of the shape's original largest dimension.
 // Local units automatically follow the selected object's scene scale.
 function brushRadius() {
-  const referenceRadius = { sphere: 1.25, cube: 1.05, prism: 1.21, cylinder: 1.09, capsule: 1.3, ring: 1.24 };
+  const referenceRadius = { full: 1.4, half: 1.04, animal: 1.77 };
   return (referenceRadius[clayVolume.shape] ?? 1.25) * activeSize / 100;
 }
 
@@ -81,6 +85,10 @@ let pinchActive = false;
 let pinchHasContact = false;
 let previousPullPoint = null;
 let previousPullCursorPoint = null;
+let grabCursorOrigin = null;
+let grabAnchor = null;
+let recentGrabHit = null;
+let recentGrabAt = 0;
 const pullPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1));
 let previousCarvePoint = null;
 let previousBulgePoint = null;
@@ -129,6 +137,14 @@ const contactCue = new THREE.Mesh(new THREE.SphereGeometry(0.065, 16, 12), new T
 contactCue.visible = false;
 contactCue.renderOrder = 5;
 scene.add(contactCue);
+const brushCue = new THREE.LineLoop(
+  new THREE.BufferGeometry().setFromPoints(Array.from({ length: 48 }, (_, i) => new THREE.Vector3(Math.cos(i / 48 * Math.PI * 2), Math.sin(i / 48 * Math.PI * 2), 0))),
+  new THREE.LineBasicMaterial({ color: '#538c68', transparent: true, opacity: 0.85, depthTest: false }),
+);
+brushCue.visible = false; brushCue.renderOrder = 6; scene.add(brushCue);
+const grabTether = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+  new THREE.LineBasicMaterial({ color: '#538c68', depthTest: false, transparent: true, opacity: 0.8 }));
+grabTether.visible = false; grabTether.renderOrder = 6; scene.add(grabTether);
 const reachGrid = new THREE.GridHelper(5, 10, '#ae8d73', '#d2bda7');
 reachGrid.position.y = -2.32;
 reachGrid.material.transparent = true;
@@ -147,12 +163,14 @@ const knifeTool = new KnifeTool(scene, (volume) => {
   const item = clayObjects.items.find((item) => item.volume === volume);
   if (item) item.edited = true;
   if (volume === clayVolume) markClayEdited();
-}, (message) => { if (activeTool === 'knife') { sceneHint.textContent = message; contactLabel.textContent = message; } });
+}, (message) => { if (activeTool === 'knife') { sceneHint.textContent = message; contactLabel.textContent = message; } }, checkpoint);
 const depthGuide = document.querySelector('#reach-depth');
 const guideToggle = document.querySelector('#show-reach-guide');
 document.querySelector('#restart-reach').addEventListener('click', () => { cancelMouseStroke(); reachCalibration.reset(); });
 
 function resetClay() {
+  if (clayVolume.pulling || clayVolume.meshQueue?.pending || clayVolume.cutting) return;
+  checkpoint(clayVolume);
   clayVolume.reset();
   clayObjects.active.edited = false;
   pinchActive = false;
@@ -189,8 +207,8 @@ function markClayEdited() {
 const fingerChains = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16], [17, 18, 19, 20]];
 const handModel = new THREE.Group();
 handModel.position.z = 1.3;
-const handSkin = new THREE.MeshStandardMaterial({ color: '#d9a17f', roughness: 0.72 });
-const palmSkin = new THREE.MeshStandardMaterial({ color: '#e1b08f', roughness: 0.7, side: THREE.DoubleSide, transparent: true, opacity: 0.92 });
+const handSkin = new THREE.MeshStandardMaterial({ color: '#d9a17f', roughness: 0.72, transparent: true, opacity: 0.5, depthWrite: false });
+const palmSkin = new THREE.MeshStandardMaterial({ color: '#e1b08f', roughness: 0.7, side: THREE.DoubleSide, transparent: true, opacity: 0.35, depthWrite: false });
 const handBoneGeometry = new THREE.CylinderGeometry(1, 0.94, 1, 12, 1);
 const handJointGeometry = new THREE.SphereGeometry(1, 14, 10);
 const handBones = [];
@@ -262,7 +280,7 @@ function updateHandSurface(mappedPoints) {
 }
 
 function getClaySurfaceHit(handPoint, surface = clay) {
-  if (!mouseMode) {
+  if (!mouseMode && activeTool !== 'pinch') {
     if (!reachCalibration.canSculpt) return null;
     const field = surface.sample ? surface : clayVolume;
     const local = clay.worldToLocal(new THREE.Vector3(handPoint.x, handPoint.y, handPoint.z));
@@ -308,40 +326,52 @@ function getClaySurfacePoint(handPoint) {
 
 function pullClayAlongPath(handPoint, isPulling, surfacePoint = undefined) {
   if (!isPulling || !handPoint) {
+    clayVolume.surfacePull?.finish();
+    grabTether.visible = false;
     pullPath.clear();
     previousPullPoint = null;
     previousPullCursorPoint = null;
+    grabCursorOrigin = null; grabAnchor = null;
     return;
   }
   if (!previousPullPoint) {
     pullPath.clear();
     const currentPoint = surfacePoint === undefined ? getClaySurfacePoint(handPoint) : surfacePoint;
     if (!currentPoint) return;
+    if (clayVolume.pulling || clayVolume.meshQueue?.pending || activeStrength === 0 || activeSize === 0) return;
+    const volume = clayVolume;
+    const item = clayObjects.active;
+    volume.surfacePull ??= new SurfacePull(volume, () => {
+      item.edited = true;
+      if (volume === clayVolume) markClayEdited();
+    });
+    // Save one reversible action, then deform the same original patch on every
+    // update. No resampling or old path backlog runs in the drawing loop.
+    checkpoint(volume);
+    if (!volume.surfacePull.begin(currentPoint, brushRadius(), activeStrength / 100)) return;
     previousPullPoint = currentPoint;
-    previousPullCursorPoint = mouseMode ? currentPoint.clone() : clay.worldToLocal(new THREE.Vector3(handPoint.x, handPoint.y, handPoint.z));
+    grabAnchor = currentPoint.clone();
     pullPlane.constant = -clay.localToWorld(currentPoint.clone()).z;
+    clayRaycaster.set(camera.position, new THREE.Vector3(handPoint.x, handPoint.y, 0).sub(camera.position).normalize());
+    const cursor = clayRaycaster.ray.intersectPlane(pullPlane, new THREE.Vector3());
+    grabCursorOrigin = cursor ? clay.worldToLocal(cursor) : currentPoint.clone();
     return;
   }
   // Hold the original grab plane after contact, including beyond the silhouette.
   clayRaycaster.set(camera.position, new THREE.Vector3(handPoint.x, handPoint.y, 0).sub(camera.position).normalize());
-  const cursor = mouseMode ? clayRaycaster.ray.intersectPlane(pullPlane, new THREE.Vector3()) : new THREE.Vector3(handPoint.x, handPoint.y, handPoint.z);
+  const cursor = clayRaycaster.ray.intersectPlane(pullPlane, new THREE.Vector3());
   if (!cursor) return;
   clay.worldToLocal(cursor);
-  if (activeStrength === 0) {
-    pullPath.clear();
-    previousPullCursorPoint = cursor;
-    return;
-  }
-  const nextCursor = pullPath.next(previousPullCursorPoint, cursor);
-  if (!nextCursor) { previousPullPoint = null; previousPullCursorPoint = null; return; }
-  if (nextCursor.distanceTo(previousPullCursorPoint) < 0.003) return;
-  const target = previousPullPoint.clone().add(nextCursor.clone().sub(previousPullCursorPoint));
-  const appliedPoint = clayVolume.applyPull(previousPullPoint, target, brushRadius(), activeStrength / 100);
-  if (appliedPoint) {
-    markClayEdited();
-    previousPullPoint = appliedPoint;
-  }
-  previousPullCursorPoint = nextCursor;
+  grabCursorOrigin ??= cursor.clone().sub(previousPullPoint.clone().sub(grabAnchor));
+  if (previousPullCursorPoint && cursor.distanceTo(previousPullCursorPoint) < 0.003) return;
+  const appliedPoint = clayVolume.surfacePull.update(cursor.clone().sub(grabCursorOrigin));
+  if (appliedPoint) previousPullPoint = appliedPoint;
+  previousPullCursorPoint = cursor;
+  const tether = grabTether.geometry.attributes.position;
+  const start = clay.localToWorld(grabAnchor.clone()), end = clay.localToWorld(previousPullPoint.clone());
+  tether.setXYZ(0, start.x, start.y, start.z + 0.025);
+  tether.setXYZ(1, end.x, end.y, end.z + 0.025); tether.needsUpdate = true;
+  grabTether.geometry.boundingSphere = null; grabTether.visible = true;
 }
 
 function carveAlongPath(handPoint, isCarving) {
@@ -354,7 +384,11 @@ function carveAlongPath(handPoint, isCarving) {
   // Remeshing replaces geometry, so these shared CPU buffers remain a stable
   // reference for the stroke without copying the entire mesh every frame.
   if (!carveReference && !getClaySurfaceHit(handPoint)) return;
-  carveReference ??= mouseMode ? clay.clone(true) : clayVolume.snapshot();
+  if (!carveReference) {
+    if (clayVolume.meshQueue?.pending) return;
+    checkpoint(clayVolume);
+    carveReference = mouseMode ? clay.clone(true) : clayVolume.snapshot();
+  }
   const hit = getClaySurfaceHit(handPoint, carveReference);
   if (!hit) {
     previousCarvePoint = null;
@@ -392,7 +426,11 @@ function bulgeAlongPath(handPoint, isBulging) {
     return;
   }
   if (!bulgeReference && !getClaySurfaceHit(handPoint)) return;
-  bulgeReference ??= mouseMode ? clay.clone(true) : clayVolume.snapshot();
+  if (!bulgeReference) {
+    if (clayVolume.meshQueue?.pending) return;
+    checkpoint(clayVolume);
+    bulgeReference = mouseMode ? clay.clone(true) : clayVolume.snapshot();
+  }
   const hit = getClaySurfaceHit(handPoint, bulgeReference);
   if (!hit) {
     previousBulgePoint = null;
@@ -445,24 +483,26 @@ new ResizeObserver(resizeScene).observe(sceneHost);
 
 function renderScene() {
   const now = performance.now();
+  diagnostics.poseAgeMs = poseTarget ? now - poseReceivedAt : 0;
   const dt = Math.min(0.05, (now - previousRenderAt) / 1000);
   diagnostics.frameMs = now - previousRenderAt;
   previousRenderAt = now;
-  if (!mouseMode && poseTarget && gapStartedAt === null && reachCalibration.canSculpt && now - poseReceivedAt < 160) {
+  if (!mouseMode && poseTarget && gapStartedAt === null && (activeTool === 'pinch' || reachCalibration.canSculpt) && now - poseReceivedAt < 200) {
     poseDisplayed ??= poseTarget.map((p) => p.clone());
     // One short render interpolation shared by the visible hand and tools.
-    const blend = 1 - Math.exp(-dt / 0.022);
+    const blend = 1 - Math.exp(-dt / 0.012);
     poseDisplayed.forEach((p, i) => p.lerp(poseTarget[i], blend));
     processHandPose(poseDisplayed, pinchGesture.held);
-  } else if (!mouseMode && poseTarget && now - poseReceivedAt >= 160) {
+  } else if (!mouseMode && poseTarget && now - poseReceivedAt >= 200) {
     pauseTracking(now);
   }
-  depthGuide.hidden = mouseMode;
-  const guides = !mouseMode && reachCalibration.ready && guideToggle.checked;
+  depthGuide.hidden = mouseMode || activeTool === 'pinch';
+  const guides = !mouseMode && activeTool !== 'pinch' && reachCalibration.ready && guideToggle.checked;
   reachGrid.visible = guides;
   centerGuide.visible = guides;
   if (guides) { centerGuide.position.copy(clay.position); centerGuide.scale.copy(clay.scale); }
   renderer.render(scene, camera);
+  updateHistoryButtons();
   animationFrame = requestAnimationFrame(renderScene);
 }
 renderScene();
@@ -487,15 +527,15 @@ const toolDetails = {
     tipHeading: 'Open palm knife', tipCopy: 'Select Knife, straighten your fingers, then sweep across the clay in one plane.',
   },
   pinch: {
-    context: 'Pull distance',
+    context: 'Patch softness',
     caption: 'PINCH TOOL · PINCH TO SHAPE',
-    hint: '<span class="hint-icon">✦</span> Pinch over the clay, then pull',
-    mouseHint: 'Click and drag to pull the clay',
+    hint: '<span class="hint-icon">✦</span> Point at the mask · pinch · drag · release',
+    mouseHint: 'Click a highlighted patch and drag; release to keep it',
     mouseCaption: 'PINCH TOOL · CLICK AND DRAG TO PULL',
-    title: 'Pinch the clay, then pull.',
-    body: 'Bring thumb and index finger together over the clay, then move your hand gently.',
+    title: 'Point, pinch, and drag.',
+    body: 'Aim at the mask until the green ring appears. Pinch and drag to shape it; release to keep it. No reach calibration needed for this tool.',
     tipHeading: 'Pinch to shape',
-    tipCopy: 'Bring thumb and index finger together over the clay, then pull gently.',
+    tipCopy: 'Green ring means ready. Pinch to grab, drag to reshape, and release. Undo is always nearby.',
   },
   carve: {
     context: 'Cut depth',
@@ -540,8 +580,34 @@ function updateSizeControl() {
   sizeValue.textContent = `${activeSize}%`;
   sizeInput.setAttribute('aria-valuetext', `${activeSize} percent of the starting shape width`);
 }
+
+function updateHistoryButtons() {
+  const waiting = Boolean(clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending);
+  undoButton.disabled = waiting || !clayVolume.undoStack?.length;
+  redoButton.disabled = waiting || !clayVolume.redoStack?.length;
+  resetButton.disabled = waiting;
+}
+
+function useHistory(redo = false) {
+  if (clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending) return;
+  cancelMouseStroke();
+  if (!restoreHistory(clayVolume, redo)) return;
+  markClayEdited();
+  sceneHint.textContent = redo ? 'Change restored · keep creating' : 'Change undone · try another idea';
+  setPrompt(redo ? 'Redone.' : 'Undone.', 'Point at a patch and try a new shape.', 'success');
+  updateHistoryButtons();
+}
+undoButton.addEventListener('click', () => useHistory());
+redoButton.addEventListener('click', () => useHistory(true));
+document.addEventListener('sculpt-history-change', updateHistoryButtons);
+document.addEventListener('keydown', event => {
+  if (!(event.ctrlKey || event.metaKey) || /INPUT|TEXTAREA|SELECT/.test(event.target.tagName)) return;
+  if (event.key.toLowerCase() === 'z' || event.key.toLowerCase() === 'y') {
+    event.preventDefault(); useHistory(event.shiftKey || event.key.toLowerCase() === 'y');
+  }
+});
 sizeInput.addEventListener('input', () => {
-  activeSize = THREE.MathUtils.clamp(Number(sizeInput.value), 10, 90);
+  activeSize = THREE.MathUtils.clamp(Number(sizeInput.value), 0, 90);
   // Begin a fresh stroke when the brush footprint changes.
   cancelMouseStroke();
   updateSizeControl();
@@ -549,6 +615,9 @@ sizeInput.addEventListener('input', () => {
 updateSizeControl();
 
 function selectTool(tool) {
+  clayVolume.surfacePull?.finish();
+  brushCue.visible = false; grabTether.visible = false;
+  grabCursorOrigin = null; grabAnchor = null;
   knifeTool.reset();
   pinchGesture.reset();
   pullPath.clear(); carvePath.clear(); bulgePath.clear();
@@ -625,7 +694,7 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null, worldLandmark
     smoothedPoints = landmarks.map(({ x, y, z }) => ({ x, y, z }));
   } else {
     const elapsed = Math.min((now - (window.lastSmoothTime || now - 16)) / 1000, 0.1);
-    const alpha = 1 - Math.exp(-14 * elapsed);
+    const alpha = 1 - Math.exp(-(activeTool === 'pinch' ? 40 : 14) * elapsed);
     landmarks.forEach((point, index) => {
       smoothedPoints[index].x += (point.x - smoothedPoints[index].x) * alpha;
       smoothedPoints[index].y += (point.y - smoothedPoints[index].y) * alpha;
@@ -644,6 +713,22 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null, worldLandmark
     z: -point.z * 2.3,
   });
   let mappedPoints = smoothedPoints.map(pointAt);
+  if (!mouseMode && activeTool === 'pinch') {
+    // Screen-space aim is usable immediately, independently of approximate
+    // webcam depth. Freeze edits during missing frames but keep a brief grab.
+    if (gapStartedAt !== null) {
+      const midpointShift = poseTarget ? new THREE.Vector3(mappedPoints[8].x, mappedPoints[8].y, mappedPoints[8].z).distanceTo(poseTarget[8]) : 0;
+      if (now - gapStartedAt > 700 || midpointShift > 1.2) cancelMouseStroke();
+      grabCursorOrigin = null; previousPullCursorPoint = null;
+      gapStartedAt = null; poseDisplayed = null;
+    }
+    pinchGesture.update(landmarks, now, video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 1);
+    poseTarget = mappedPoints.map(p => new THREE.Vector3(p.x, p.y, p.z));
+    poseReceivedAt = now;
+    reachCalibration.panel.open = false;
+    depthGuide.hidden = true;
+    return;
+  }
   if (!mouseMode) {
     reachCalibration.observe(landmarks, worldLandmarks, handedness, video.videoWidth / video.videoHeight, now);
     mappedPoints = reachCalibration.map(worldLandmarks, now);
@@ -674,7 +759,7 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null, worldLandmark
       gapStartedAt = null;
       poseDisplayed = mappedPoints.map((p) => p.clone());
     }
-    pinchGesture.update(worldLandmarks, now);
+    pinchGesture.update(landmarks, now, video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 1);
     poseTarget = mappedPoints;
     poseReceivedAt = now;
     // Show calibration poses, but perform edits only from the render loop.
@@ -691,9 +776,7 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null, worldLandmark
 function processHandPose(mappedPoints, pinchOverride = null) {
   // In mouse preview, align the sculpting fingertip/grab with the actual cursor.
   if (mouseMode && mouseSculptPoint) {
-    const anchor = activeTool === 'pinch'
-      ? new THREE.Vector3().addVectors(mappedPoints[4], mappedPoints[8]).multiplyScalar(0.5)
-      : mappedPoints[8];
+    const anchor = mappedPoints[8];
     const offset = new THREE.Vector3().subVectors(mouseSculptPoint, anchor);
     mappedPoints.forEach((point) => { point.x += offset.x; point.y += offset.y; });
   }
@@ -705,7 +788,7 @@ function processHandPose(mappedPoints, pinchOverride = null) {
     setPrompt('Clay updates paused.', 'The background sculpting worker stopped. Reload the page to restart the studio.', 'warning');
     return;
   }
-  if (clayMenu?.isOpen || (!mouseMode && !reachCalibration.canSculpt)) {
+  if (clayMenu?.isOpen || (!mouseMode && activeTool !== 'pinch' && !reachCalibration.canSculpt)) {
     cancelMouseStroke();
     contactCue.visible = false;
     contactLabel.textContent = 'Close the menu to sculpt';
@@ -718,6 +801,13 @@ function processHandPose(mappedPoints, pinchOverride = null) {
     knifeTool.update(mappedPoints, clay, clayVolume, mouseMode ? mousePinching : null);
     return;
   }
+  if (activeSize === 0) {
+    brushCue.visible = false; contactCue.visible = false; pinchCue.visible = false;
+    contactLabel.textContent = 'Brush off · increase Size';
+    sceneHint.textContent = 'Size is 0% · increase Size to sculpt';
+    setPrompt('Brush is off.', 'Increase Size above 0% to sculpt the mask.', 'neutral');
+    return;
+  }
   const pinchDistance = new THREE.Vector3().subVectors(mappedPoints[4], mappedPoints[8]).length();
   const palmWidth = Math.max(0.04, new THREE.Vector3().subVectors(mappedPoints[5], mappedPoints[17]).length());
   const pinchRatio = pinchDistance / palmWidth;
@@ -726,14 +816,28 @@ function processHandPose(mappedPoints, pinchOverride = null) {
   else if (!pinchActive && pinchRatio < 0.34) pinchActive = true;
   else if (pinchActive && pinchRatio > 0.48) pinchActive = false;
 
-  const thumb = mappedPoints[4];
   const index = mappedPoints[8];
-  const sculptPoint = new THREE.Vector3((thumb.x + index.x) / 2, (thumb.y + index.y) / 2, mouseMode ? 0 : (thumb.z + index.z) / 2);
-  const surfaceHit = getClaySurfaceHit(sculptPoint);
+  const sculptPoint = new THREE.Vector3(index.x, index.y, mouseMode ? 0 : index.z);
+  let surfaceHit = previousPullPoint && activeTool === 'pinch' ? null : getClaySurfaceHit(sculptPoint);
+  if (activeTool === 'pinch' && !previousPullPoint) {
+    const now = performance.now();
+    if (surfaceHit && !pinchActive) { recentGrabHit = surfaceHit; recentGrabAt = now; }
+    // Closing the fingers can shift the tracked fingertip off an edge. Keep
+    // the patch the user just pointed at, rather than making them aim again.
+    if (!surfaceHit && pinchActive && !wasPinching && recentGrabHit && now - recentGrabAt < 220
+      && Math.hypot(recentGrabHit.worldPoint.x - sculptPoint.x, recentGrabHit.worldPoint.y - sculptPoint.y) < 0.2) surfaceHit = recentGrabHit;
+  }
   const contact = activeTool === 'pinch' ? surfaceHit : getClaySurfaceHit(index);
-  contactCue.visible = !mouseMode && Boolean(contact);
+  contactCue.visible = !mouseMode && Boolean(contact) && activeSize > 0;
+  contactCue.scale.setScalar(activeTool === 'pinch' ? Math.min(1, brushRadius() * clay.scale.x / 0.065 * 0.3) : 1);
   if (contactCue.visible) contactCue.position.copy(contact.worldPoint);
-  contactLabel.textContent = previousPullPoint && pinchActive ? 'Holding clay · pull to shape' : contact ? 'Touching clay' : 'Move your fingertips to the surface';
+  contactLabel.textContent = previousPullPoint && pinchActive ? 'Patch grabbed · drag to reshape' : contact ? 'Ready to grab' : 'Point at the mask';
+  brushCue.visible = activeTool === 'pinch' && Boolean(contact) && !previousPullPoint && activeSize > 0;
+  if (brushCue.visible) {
+    brushCue.position.copy(contact.worldPoint); brushCue.position.z += 0.035;
+    brushCue.scale.setScalar(brushRadius() * clay.scale.x);
+    brushCue.material.color.set(clayVolume.meshQueue?.pending ? '#be914b' : '#538c68');
+  }
   diagnostics.pinch = pinchActive ? 'held' : 'open';
   diagnostics.pause = 'none';
   contactLabel.dataset.contact = String(Boolean(contact));
@@ -750,6 +854,9 @@ function processHandPose(mappedPoints, pinchOverride = null) {
     pinchCue.position.z += 0.09;
   }
   const hasPinchContact = activeTool === 'pinch' && pinchActive && Boolean(previousPullPoint);
+  if (hasPinchContact) {
+    pinchCue.material.color.set('#7cb58b'); grabTether.material.color.set('#538c68');
+  }
   pinchCue.visible = hasPinchContact;
   pinchCue.scale.setScalar(pinchActive ? 1.12 : 0.8);
   carveAlongPath(index, activeTool === 'carve' && (!mouseMode || mousePinching));
@@ -759,19 +866,19 @@ function processHandPose(mappedPoints, pinchOverride = null) {
     lastPinchHint = true;
     if (pinchActive) {
       if (hasPinchContact) {
-        stageCaption.textContent = 'PINCH ACTIVE · PULL TO SHAPE';
-        sceneHint.innerHTML = '<span class="hint-icon">✦</span> Pull gently to stretch the clay';
-        setPrompt('Pinch the clay, then pull.', 'Release your fingers to stop. Pull slowly for a softer shape.', 'success');
+        stageCaption.textContent = 'PATCH GRABBED · DRAG TO RESHAPE';
+        sceneHint.textContent = 'Drag your patch · release to keep it · Undo to try again';
+        setPrompt('You have the patch.', 'Keep your fingers pinched and move your hand. The patch follows your drag. Open your fingers to release; Undo reverses the change.', 'success');
       } else {
         stageCaption.textContent = 'PINCH ACTIVE · FIND THE CLAY';
-        sceneHint.innerHTML = '<span class="hint-icon">↗</span> Move the pinched fingertips onto the clay';
-        setPrompt('Move your pinch onto the clay.', 'The fingertips need to touch the clay surface before a pull can begin.', 'warning');
+        sceneHint.textContent = clayVolume.pulling || clayVolume.meshQueue?.pending ? 'Finishing the last change · keep your hand in view' : 'Point at a solid patch until the green ring appears';
+        setPrompt('Find a patch.', 'Aim at the visible mask surface. Eye openings have no material to grab.', 'neutral');
       }
     } else {
       if (pinchHasContact) {
-        stageCaption.textContent = 'CLAY SHAPED · READY FOR MORE';
-        sceneHint.innerHTML = '<span class="hint-icon">✦</span> Lovely shape — pinch again to keep going';
-        setPrompt('Nice pull.', 'Pinch again to shape another spot, or reset the clay to start fresh.', 'success');
+        stageCaption.textContent = 'RELEASED · READY FOR ANOTHER PATCH';
+        sceneHint.textContent = 'Released · point at another patch or Undo';
+        setPrompt('Released.', 'Check your shape. Undo reverses the last change; pinch another patch to keep creating.', 'success');
       } else {
         stageCaption.textContent = 'HAND TRACKED · PINCH TO SHAPE';
         sceneHint.innerHTML = '<span class="hint-icon">✦</span> Pinch over the clay, then pull';
@@ -806,7 +913,13 @@ function pauseTracking(now) {
   if (gapStartedAt === null) { gapStartedAt = now; diagnostics.dropouts++; pinchGesture.uncertain(); }
   diagnostics.pause = 'tracking uncertain';
   contactCue.visible = false;
-  if (now - gapStartedAt > 180) {
+  brushCue.visible = false;
+  pinchCue.material.color.set('#d6a355'); grabTether.material.color.set('#d6a355');
+  if (previousPullPoint) {
+    contactLabel.textContent = 'Grab paused · bring your hand back';
+    sceneHint.textContent = 'Hand briefly lost · your patch is held, edits are paused';
+  }
+  if (now - gapStartedAt > (activeTool === 'pinch' ? 700 : 180)) {
     cancelMouseStroke();
     handModel.visible = false;
   }
@@ -814,7 +927,7 @@ function pauseTracking(now) {
 
 function showNoHand(now) {
   pauseTracking(now);
-  if (now - gapStartedAt <= 180 && reachCalibration.ready) {
+  if (now - gapStartedAt <= (activeTool === 'pinch' ? 700 : 180) && (activeTool === 'pinch' || reachCalibration.ready)) {
     contactLabel.textContent = 'Tracking paused · hold your pose';
     return;
   }
@@ -867,6 +980,7 @@ async function trackingLoop(epoch = trackingEpoch) {
       const result = await tracker.detectForVideo(video, capturedAt);
       if (epoch !== trackingEpoch || tracker !== landmarker || !stream) return;
       diagnostics.inferenceMs = tracker.duration;
+      diagnostics.resultAgeMs = performance.now() - capturedAt;
       phase = 'landmark processing';
       // Never sculpt using an old result after a long inference stall.
       if (performance.now() - capturedAt > 250) showNoHand(performance.now());
@@ -1163,6 +1277,10 @@ sceneHost.addEventListener('pointerup', (event) => {
 });
 
 function cancelMouseStroke() {
+  recentGrabHit = null;
+  clayVolume.surfacePull?.finish();
+  brushCue.visible = false; grabTether.visible = false;
+  grabCursorOrigin = null; grabAnchor = null;
   knifeTool.reset();
   pullPath.clear(); carvePath.clear(); bulgePath.clear();
   pinchGesture.reset();
@@ -1182,6 +1300,9 @@ function cancelMouseStroke() {
   bulgeReference = null;
 }
 function volumeBusy() {
+  if (clayVolume.pulling && (!previousPullPoint || activeTool !== 'pinch')) {
+    contactLabel.textContent = 'Keeping your change…'; return true;
+  }
   if (!clayVolume.cutting) return false;
   contactLabel.textContent = 'Finishing cut…';
   return true;
@@ -1204,6 +1325,7 @@ resetButton.addEventListener('click', (event) => {
 });
 
 window.addEventListener('beforeunload', () => {
+  for (const item of clayObjects.items) item.volume.surfacePull?.abort();
   for (const item of clayObjects.items) item.volume.meshQueue?.dispose();
   stopCamera();
   cancelAnimationFrame(animationFrame);
@@ -1211,3 +1333,18 @@ window.addEventListener('beforeunload', () => {
 document.addEventListener('clay-mesh-error', () => {
   setPrompt('Clay updates paused.', 'The background sculpting worker stopped. Reload the page to restart the studio.', 'warning');
 });
+document.addEventListener('mask-pull-error', () => {
+  cancelMouseStroke();
+  setPrompt('This pull could not finish.', 'Your previous mask is being restored. Try again when the green ring returns.', 'warning');
+});
+
+// Opt-in local inspection for replaying landmark traces and comparing field
+// and mesh state. Camera data is never retained or transmitted by this hook.
+if (new URLSearchParams(location.search).has('diagnostics')) {
+  window.clayPlayDebug = { objects: clayObjects, camera,
+    feedHand: updateThreeSkeleton, pauseHand: pauseTracking, cancel: cancelMouseStroke,
+    getState: () => ({ pulling: Boolean(clayVolume.pulling), pending: Boolean(clayVolume.meshQueue?.pending),
+      brushSize: activeSize, brushRadius: brushRadius(), hoverRadius: brushCue.visible ? brushCue.scale.x / clay.scale.x : 0,
+      held: pinchGesture.held, grabbed: Boolean(previousPullPoint), undo: clayVolume.undoStack?.length ?? 0,
+      redo: clayVolume.redoStack?.length ?? 0, anchor: previousPullPoint?.toArray(), ...diagnostics }) };
+}

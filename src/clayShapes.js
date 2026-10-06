@@ -1,45 +1,33 @@
-function roundedBox(x, y, z, hx, hy, hz, radius) {
-  const qx = Math.abs(x) - hx;
-  const qy = Math.abs(y) - hy;
-  const qz = Math.abs(z) - hz;
-  return Math.hypot(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0))
-    + Math.min(Math.max(qx, qy, qz), 0) - radius;
-}
-
-// Exact distance to a triangular cross-section, extruded along Z.
-const triangle = [[-1.05, -0.8], [1.05, -0.8], [0, 1.15]];
-function roundedPrism(x, y, z) {
-  let squaredDistance = Infinity;
-  let inside = true;
-  for (let i = 0; i < 3; i += 1) {
-    const [ax, ay] = triangle[i];
-    const [bx, by] = triangle[(i + 1) % 3];
-    const ex = bx - ax;
-    const ey = by - ay;
-    const px = x - ax;
-    const py = y - ay;
-    const t = Math.max(0, Math.min(1, (px * ex + py * ey) / (ex * ex + ey * ey)));
-    squaredDistance = Math.min(squaredDistance, (px - ex * t) ** 2 + (py - ey * t) ** 2);
-    if (ex * py - ey * px < 0) inside = false;
+// Hollow curved mask shells facing the camera along +Z.
+function maskDistance(x, y, z, kind) {
+  const width = kind === 'animal' ? 1.12 : 1.04;
+  const height = kind === 'half' ? 0.66 : 1.4;
+  const centerY = kind === 'half' ? 0.28 : 0;
+  const outline = (Math.hypot(x / width, (y - centerY) / height) - 1) * Math.min(width, height);
+  const surfaceZ = 0.48 - 0.22 * (x / width) ** 2 - 0.12 * (y / 1.4) ** 2
+    + 0.2 * Math.exp(-((x / 0.23) ** 2 + ((y - 0.02) / 0.42) ** 2));
+  let distance = Math.max(outline, Math.abs(z - surfaceZ) - 0.105);
+  if (kind === 'animal') {
+    for (const side of [-1, 1]) {
+      const ear = Math.max(
+        (Math.hypot((x - side * 0.77) / 0.27, (y - 1.2) / 0.57) - 1) * 0.27,
+        Math.abs(z - 0.21) - 0.105,
+      );
+      distance = Math.min(distance, ear);
+    }
   }
-  const crossSection = Math.sqrt(squaredDistance) * (inside ? -1 : 1);
-  const depth = Math.abs(z) - 0.65;
-  return Math.hypot(Math.max(crossSection, 0), Math.max(depth, 0))
-    + Math.min(Math.max(crossSection, depth), 0) - 0.16;
+  const eye = (Math.hypot((Math.abs(x) - 0.46) / 0.27, (y - 0.35) / 0.19) - 1) * 0.19;
+  return Math.max(distance, -eye);
 }
 
+export const MASK_SHAPES = {
+  full: { label: 'Full-face mask', icon: 'M5 4q7-4 14 0v8q0 7-7 10-7-3-7-10ZM7 9h3m4 0h3M10 16h4', distance: (x, y, z) => maskDistance(x, y, z, 'full') },
+  half: { label: 'Half-face mask', icon: 'M3 7q9-5 18 0v5l-5 4-4-3-4 3-5-4ZM6 10h3m6 0h3', distance: (x, y, z) => maskDistance(x, y, z, 'half') },
+  animal: { label: 'Animal mask', icon: 'm5 8-2-6 7 4h4l7-4-2 6v6l-7 8-7-8ZM7 11h3m4 0h3m-7 6 2 2 2-2', distance: (x, y, z) => maskDistance(x, y, z, 'animal') },
+};
+
+// Legacy volume fixture for existing sculpting regression checks only.
 export const CLAY_SHAPES = {
-  sphere: { label: 'Sphere', icon: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z', distance: (x, y, z) => Math.hypot(x, y, z) - 1.25 },
-  cube: { label: 'Rounded cube', icon: 'M7 4h10a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3Z', distance: (x, y, z) => roundedBox(x, y, z, 0.85, 0.85, 0.85, 0.2) },
-  prism: { label: 'Rounded prism', icon: 'm10 4-7 14q-1 2 2 2h14q3 0 2-2L14 4q-2-3-4 0Z', distance: roundedPrism },
-  cylinder: {
-    label: 'Cylinder', icon: 'M4 6a8 3 0 1 0 16 0 8 3 0 1 0-16 0Zm0 0v12a8 3 0 0 0 16 0V6',
-    distance: (x, y, z) => {
-      const radial = Math.hypot(x, z) - 0.86;
-      const height = Math.abs(y) - 0.95;
-      return Math.hypot(Math.max(radial, 0), Math.max(height, 0)) + Math.min(Math.max(radial, height), 0) - 0.14;
-    },
-  },
-  capsule: { label: 'Capsule', icon: 'M6 8a6 6 0 0 1 12 0v8a6 6 0 0 1-12 0Z', distance: (x, y, z) => Math.hypot(x, y - Math.max(-0.6, Math.min(0.6, y)), z) - 0.7 },
-  ring: { label: 'Ring', icon: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 5a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z', distance: (x, y, z) => Math.hypot(Math.hypot(x, y) - 0.88, z) - 0.36 },
+  ...MASK_SHAPES,
+  sphere: { label: 'Sphere', distance: (x, y, z) => Math.hypot(x, y, z) - 1.25 },
 };

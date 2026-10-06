@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CLAY_SHAPES } from './clayShapes.js';
+import { inverseWarp } from './maskWarp.js';
 
 const GRID_MIN = -2.4;
 const GRID_CELLS = 192;
@@ -28,7 +29,7 @@ function smoothMax(a, b, radius) {
 }
 
 export class ClayVolume {
-  constructor(parent, material, shape = 'sphere', meshQueueFactory = null) {
+  constructor(parent, material, shape = 'full', meshQueueFactory = null) {
     this.parent = parent;
     this.material = material;
     this.field = new Map();
@@ -42,7 +43,9 @@ export class ClayVolume {
   }
 
   baseDistance(x, y, z) {
-    let distance = CLAY_SHAPES[this.shape].distance(x, y, z);
+    let distance = this.pullSource
+      ? this.pullSource.sample(...inverseWarp(x, y, z, this.pullWarp))
+      : CLAY_SHAPES[this.shape].distance(x, y, z);
     for (const cut of this.cuts ?? []) distance = Math.max(distance, cut.n[0] * x + cut.n[1] * y + cut.n[2] * z + cut.d);
     return distance;
   }
@@ -52,7 +55,21 @@ export class ClayVolume {
     field.shape = this.shape;
     field.cuts = structuredClone(this.cuts ?? []);
     field.field = new Map(this.field);
+    field.pullSource = this.pullSource;
+    field.pullWarp = this.pullWarp;
     return field;
+  }
+
+  serialize() {
+    return { shape: this.shape, cuts: this.cuts ?? [], field: [...this.field],
+      pullWarp: this.pullWarp, pullSource: this.pullSource?.serialize() };
+  }
+
+  static fromState(state) {
+    const volume = Object.create(ClayVolume.prototype);
+    Object.assign(volume, { shape: state.shape, cuts: structuredClone(state.cuts ?? []), field: new Map(state.field),
+      pullWarp: state.pullWarp, pullSource: state.pullSource ? ClayVolume.fromState(state.pullSource) : null });
+    return volume;
   }
 
   nodeValue(ix, iy, iz) {
@@ -67,6 +84,9 @@ export class ClayVolume {
   }
 
   sample(x, y, z) {
+    // Empty overlays can sample their analytic source directly. This prevents
+    // repeated mask pulls from multiplying recursive grid evaluations.
+    if (!this.field.size) return this.baseDistance(x, y, z);
     const gx = (x - GRID_MIN) / VOXEL_SIZE;
     const gy = (y - GRID_MIN) / VOXEL_SIZE;
     const gz = (z - GRID_MIN) / VOXEL_SIZE;
@@ -76,6 +96,11 @@ export class ClayVolume {
     const ix = Math.min(Math.floor(gx), GRID_CELLS - 1);
     const iy = Math.min(Math.floor(gy), GRID_CELLS - 1);
     const iz = Math.min(Math.floor(gz), GRID_CELLS - 1);
+    let editedCell = false;
+    for (let oz = 0; oz <= 1; oz++) for (let oy = 0; oy <= 1; oy++) for (let ox = 0; ox <= 1; ox++) {
+      if (this.field.has(this.nodeKey(ix + ox, iy + oy, iz + oz))) editedCell = true;
+    }
+    if (!editedCell) return this.baseDistance(x, y, z);
     const tx = gx - ix;
     const ty = gy - iy;
     const tz = gz - iz;
@@ -99,6 +124,8 @@ export class ClayVolume {
     this.cutRevision = (this.cutRevision ?? 0) + 1;
     this.cutting = false;
     this.cuts = [];
+    this.pullSource = null;
+    this.pullWarp = null;
     this.meshQueue?.reset();
     if (!Object.hasOwn(CLAY_SHAPES, shape)) throw new Error(`Unknown clay shape: ${shape}`);
     this.shape = shape;

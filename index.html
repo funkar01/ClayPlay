@@ -56,7 +56,7 @@
                     <label for="tool-size">SIZE</label>
                     <output id="size-value" for="tool-size">24%</output>
                   </div>
-                  <input id="tool-size" type="range" min="10" max="90" step="1" value="24" aria-label="Sculpt brush size" aria-describedby="size-context" />
+                  <input id="tool-size" type="range" min="0" max="90" step="1" value="24" aria-label="Sculpt brush size" aria-describedby="size-context" />
                   <span class="strength-context" id="size-context">Brush width · % of starting shape</span>
                 </div>
               </div>
@@ -76,7 +76,11 @@
                 </svg>
               </div>
               <div class="stage-scene" id="three-scene" aria-label="Three dimensional hand tracking view">
-                <button class="clay-reset" id="clay-reset" type="button" hidden>Reset clay <span>↺</span></button>
+                <div class="sculpt-history" role="group" aria-label="Undo or redo sculpting">
+                  <button type="button" id="sculpt-undo" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
+                  <button type="button" id="sculpt-redo" disabled title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
+                </div>
+                <button class="clay-reset" id="clay-reset" type="button" hidden>Reset mask <span>↺</span></button>
                 <div class="scene-placeholder is-hidden" id="scene-placeholder">
                   <div class="placeholder-orbit orbit-one"></div>
                   <div class="placeholder-orbit orbit-two"></div>
@@ -85,19 +89,19 @@
                 </div>
               </div>
               <div class="scene-hint" id="scene-hint"><span class="hint-icon">↗</span> Keep your hand inside the frame</div>
-              <span class="selected-clay-name" id="selected-clay-name">Sphere 1</span>
+              <span class="selected-clay-name" id="selected-clay-name">Full-face mask 1</span>
               <details class="clay-menu" id="clay-menu">
-                <summary>＋ Shapes &amp; color <span id="clay-object-count">1</span></summary>
+                <summary>＋ Masks &amp; color <span id="clay-object-count">1</span></summary>
                 <div class="clay-menu-panel">
-                  <div class="clay-menu-heading">Make room for a new idea</div>
-                  <p class="clay-menu-copy">Add a piece. Each keeps its own shape and color.</p>
-                  <div class="shape-grid" id="shape-grid" role="group" aria-label="Add a clay shape"></div>
-                  <label class="clay-field-label" for="clay-object">SELECTED OBJECT</label>
-                  <select id="clay-object" aria-label="Selected clay object"></select>
+                  <div class="clay-menu-heading">Choose a starter mask</div>
+                  <p class="clay-menu-copy">Start with a full-face, half-face, or animal mask.</p>
+                  <div class="shape-grid" id="shape-grid" role="group" aria-label="Add a starter mask"></div>
+                  <label class="clay-field-label" for="clay-object">SELECTED MASK</label>
+                  <select id="clay-object" aria-label="Selected mask"></select>
                   <div class="clay-color-heading"><label class="clay-field-label" for="clay-color">CLAY COLOR</label><input id="clay-color" type="color" value="#bd7455" aria-label="Custom clay color" title="Choose any clay color" /></div>
                   <div class="clay-swatches" id="clay-swatches" role="group" aria-label="Clay colors"></div>
-                  <div class="clay-menu-footer"><span>Click a piece to select it.</span><button type="button" id="remove-clay" disabled>Remove selected</button></div>
-                  <p class="clay-menu-status" id="clay-menu-status" role="status">Add up to eight pieces to your table.</p>
+                  <div class="clay-menu-footer"><span>Click a mask to select it.</span><button type="button" id="remove-clay" disabled>Remove selected</button></div>
+                  <p class="clay-menu-status" id="clay-menu-status" role="status">Add up to eight masks to your table.</p>
                 </div>
               </details>
               <button class="fullscreen-button" id="fullscreen-button" type="button" aria-controls="stage" aria-pressed="false" title="Expand the play area">

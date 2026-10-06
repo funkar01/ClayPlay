@@ -9,8 +9,9 @@ self.onmessage = ({ data }) => {
     const start = performance.now();
     let volume = fields.get(id);
     if (!volume || reset) {
-      volume = Object.create(ClayVolume.prototype);
-      Object.assign(volume, { shape, cuts: data.cuts ?? [], field: new Map(), bricks: new Map(), parent: new THREE.Group(), material: null });
+      volume = data.state ? ClayVolume.fromState(data.state) : Object.create(ClayVolume.prototype);
+      Object.assign(volume, { shape, cuts: data.cuts ?? [], bricks: new Map(), parent: new THREE.Group(), material: null });
+      volume.field ??= new Map();
       fields.set(id, volume);
     }
     for (const [key, value] of edits) volume.field.set(key, value);

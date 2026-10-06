@@ -31,7 +31,9 @@ export class TrackingClient {
     });
   }
   async detectForVideo(video, timestamp) {
-    const bitmap = await createImageBitmap(video);
+    const width = Math.min(640, video.videoWidth);
+    const bitmap = await createImageBitmap(video, { resizeWidth: width,
+      resizeHeight: Math.max(1, Math.round(video.videoHeight * width / video.videoWidth)), resizeQuality: 'low' });
     if (this.closed) { bitmap.close(); throw new Error('Tracking stopped'); }
     return this.request('frame', { bitmap, timestamp }, [bitmap]);
   }
@@ -70,7 +72,7 @@ class CompatibilityTracker {
   constructor(tracker) {
     this.tracker = tracker;
     this.mode = 'compatibility';
-    this.minInterval = 65;
+    this.minInterval = 33;
     this.duration = 0;
   }
   async detectForVideo(video, timestamp) {

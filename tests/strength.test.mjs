@@ -10,7 +10,7 @@ const end = new THREE.Vector3(0.05, 0, 1.25);
 function withVolume(run) {
   const parent = new THREE.Group();
   const material = new THREE.MeshBasicMaterial();
-  const volume = new ClayVolume(parent, material);
+  const volume = new ClayVolume(parent, material, 'sphere');
   try { return run(volume, parent); }
   finally {
     for (const mesh of parent.children) mesh.geometry.dispose();

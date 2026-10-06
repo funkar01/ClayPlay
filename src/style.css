@@ -158,4 +158,10 @@ body.play-area-fullscreen { overflow: hidden; }
 }
 
 .size-control { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(124,88,65,.12); }
+.sculpt-history { position: absolute; z-index: 5; top: 15px; right: 126px; display: flex; gap: 4px; }
+.sculpt-history button { padding: 8px 9px; border: 1px solid rgba(255,255,255,.72); border-radius: 4px; background: rgba(255,251,246,.86); color: #765844; font: inherit; font-size: 10px; cursor: pointer; }
+.sculpt-history button:disabled { opacity: .45; cursor: default; }
+.sculpt-history button:focus-visible { outline: 2px solid #c96f50; outline-offset: 2px; }
+.clay-reset:disabled { opacity: .45; cursor: default; }
+@media (max-width: 440px) { .sculpt-history { right: 112px; } .sculpt-history button { padding-inline: 5px; font-size: 9px; } }
 .strength-control input:disabled { opacity: .4; cursor: default; }

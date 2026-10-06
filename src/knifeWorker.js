@@ -2,8 +2,7 @@ import { ClayVolume } from './clayVolume.js';
 
 self.onmessage = ({ data }) => {
   try {
-    const volume = Object.create(ClayVolume.prototype);
-    Object.assign(volume, { shape: data.shape, cuts: data.cuts, field: new Map(data.field) });
+    const volume = ClayVolume.fromState(data.state ?? data);
     const { n, d } = data;
     let positive = 0, negative = 0;
     // Estimate actual occupied volume on each side, including prior sculpting.
