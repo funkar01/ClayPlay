@@ -137,7 +137,7 @@ A small, one-time smoothing pass softens grid steps along the cut rim without
 increasing mesh resolution or adding work to live hand tracking.
 
 Use the **V-shaped Symmetry button** to mirror new pinch drags across the selected
-mask's vertical center, including Cut outlines. It starts off; when enabled, the button shows On, a dashed
+mask's vertical center, including Cut outlines. It starts on; when enabled, the button shows On, a dashed
 center guide appears, and a second brush ring previews the opposite side.
 Symmetry works with hand tracking and mouse sculpting, follows the mask when it
 moves or scales, and keeps each two-sided drag as one Undo/Redo action. Centered
@@ -155,6 +155,19 @@ hand is hidden so the real hand stays visible. Fingertip targeting follows the
 video's cropping and the play area's size, including fullscreen. Turning AR off
 returns to the studio background and keeps the mask and camera session; stopping
 the camera turns AR off as well. Camera video stays on the device.
+
+Turn on **Try it** beside AR mode to wear the selected mask in the camera view.
+The mask automatically aligns its eye openings with your eyes and follows head
+movement, tilt, and turns. It uses your actual cuts, sculpting, and color; switch
+masks or colors through Masks & color while wearing it. Sculpting is paused until
+you turn Try it off, which restores your previous view and keeps every edit and
+Undo/Redo action. If your face leaves the frame, the mask hides until you return.
+Stopping the camera or AR mode also ends try-on.
+
+Face tracking loads only when requested, reuses the camera stream, and processes
+one face locally with [MediaPipe Face Landmarker](https://developers.google.com/edge/mediapipe/solutions/vision/face_landmarker/web_js).
+Background tracking and shared mask geometry keep preview work small; hand
+inference pauses while wearing the mask. The first use downloads the face model.
 
 ### Proposed later scope
 

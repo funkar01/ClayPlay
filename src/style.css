@@ -184,3 +184,8 @@ body.play-area-fullscreen { overflow: hidden; }
 .is-ar .stage-label, .is-ar .selected-clay-name { color: #fffaf4; text-shadow: 0 1px 4px #000; }
 .is-ar .corner { border-color: rgba(255,255,255,.8); }
 @media (max-width: 440px) { .ar-toggle { left: 12px; } }
+
+.try-toggle { left: 130px; }
+.is-trying .tool-switch, .is-trying .strength-control, .is-trying .reach-calibration,
+.is-trying .sculpt-history, .is-trying .clay-reset, .is-trying .axis-gizmo { display: none; }
+@media (max-width: 440px) { .try-toggle { left: 124px; } }

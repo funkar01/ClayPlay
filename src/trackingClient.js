@@ -1,7 +1,10 @@
-let preferCompatibility = false;
+import { trackingOptions, visionRuntime } from './trackingOptions.js';
+const preferCompatibility = new Set();
 
 export class TrackingClient {
-  constructor() {
+  constructor(task = 'hand') {
+    this.task = task;
+    this.minInterval = task === 'face' ? 33 : 0;
     this.mode = 'worker';
     this.worker = new Worker(new URL('./trackingWorker.js', import.meta.url), { type: 'module' });
     this.pending = new Map();
@@ -43,27 +46,31 @@ export class TrackingClient {
     for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(error); }
     this.pending.clear();
   }
-  static async create() {
-    if (preferCompatibility) return CompatibilityTracker.create();
+  static async create(task = 'hand', signal) {
+    if (signal?.aborted) throw new DOMException('Tracking canceled', 'AbortError');
+    if (preferCompatibility.has(task)) return CompatibilityTracker.create(task, signal);
     let client;
+    const abort = () => client?.close(new DOMException('Tracking canceled', 'AbortError'));
     try {
-      client = new TrackingClient();
-      await client.request('init');
+      client = new TrackingClient(task);
+      signal?.addEventListener('abort', abort, { once: true });
+      await client.request('init', { task });
       return client;
     } catch (error) {
       client?.close();
+      if (signal?.aborted) throw new DOMException('Tracking canceled', 'AbortError');
       console.warn('Background tracking unavailable; using compatibility mode:', error);
-      try { return await TrackingClient.createCompatibility(); }
+      try { return await TrackingClient.createCompatibility(task, signal); }
       catch (fallbackError) {
         throw new Error(`Background tracking: ${error.message}. Compatibility tracking: ${fallbackError.message}`);
       }
-    }
+    } finally { signal?.removeEventListener('abort', abort); }
   }
 
-  static async createCompatibility() {
+  static async createCompatibility(task = 'hand', signal) {
     // Avoid repeatedly selecting a worker that failed during this page session.
-    preferCompatibility = true;
-    return CompatibilityTracker.create();
+    preferCompatibility.add(task);
+    return CompatibilityTracker.create(task, signal);
   }
 }
 
@@ -82,15 +89,19 @@ class CompatibilityTracker {
     return result;
   }
   close() { this.tracker.close(); }
-  static async create() {
-    const { FilesetResolver, HandLandmarker } = await import('@mediapipe/tasks-vision');
-    const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm');
-    const options = {
-      baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task', delegate: 'GPU' },
-      runningMode: 'VIDEO', numHands: 1,
-      minHandDetectionConfidence: 0.52, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.48,
-    };
-    try { return new CompatibilityTracker(await HandLandmarker.createFromOptions(vision, options)); }
-    catch { options.baseOptions.delegate = 'CPU'; return new CompatibilityTracker(await HandLandmarker.createFromOptions(vision, options)); }
+  static async create(task = 'hand', signal) {
+    const { FilesetResolver, HandLandmarker, FaceLandmarker } = await import('@mediapipe/tasks-vision');
+    const vision = await FilesetResolver.forVisionTasks(visionRuntime);
+    const options = trackingOptions(task), Tracker = task === 'face' ? FaceLandmarker : HandLandmarker;
+    if (signal?.aborted) throw new DOMException('Tracking canceled', 'AbortError');
+    let tracker;
+    try { tracker = await Tracker.createFromOptions(vision, options); }
+    catch (error) {
+      if (signal?.aborted) throw new DOMException('Tracking canceled', 'AbortError');
+      if (options.baseOptions.delegate === 'CPU') throw error;
+      options.baseOptions.delegate = 'CPU'; tracker = await Tracker.createFromOptions(vision, options);
+    }
+    if (signal?.aborted) { tracker.close(); throw new DOMException('Tracking canceled', 'AbortError'); }
+    return new CompatibilityTracker(tracker);
   }
 }

@@ -1,4 +1,5 @@
-import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
+import { FilesetResolver, HandLandmarker, FaceLandmarker } from '@mediapipe/tasks-vision';
+import { trackingOptions, visionRuntime } from './trackingOptions.js';
 
 let tracker;
 self.onmessage = async ({ data }) => {
@@ -7,14 +8,14 @@ self.onmessage = async ({ data }) => {
     if (type === 'init') {
       // Module workers cannot execute the classic runtime with importScripts.
       // Select MediaPipe's ES-module runtime, which exports ModuleFactory.
-      const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm', true);
-      const options = {
-        baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task', delegate: 'GPU' },
-        runningMode: 'VIDEO', numHands: 1,
-        minHandDetectionConfidence: 0.52, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.48,
-      };
-      try { tracker = await HandLandmarker.createFromOptions(vision, options); }
-      catch { options.baseOptions.delegate = 'CPU'; tracker = await HandLandmarker.createFromOptions(vision, options); }
+      const vision = await FilesetResolver.forVisionTasks(visionRuntime, true);
+      const options = trackingOptions(data.task);
+      const Tracker = data.task === 'face' ? FaceLandmarker : HandLandmarker;
+      try { tracker = await Tracker.createFromOptions(vision, options); }
+      catch (error) {
+        if (options.baseOptions.delegate === 'CPU') throw error;
+        options.baseOptions.delegate = 'CPU'; tracker = await Tracker.createFromOptions(vision, options);
+      }
       self.postMessage({ id, result: true });
     } else {
       const start = performance.now();

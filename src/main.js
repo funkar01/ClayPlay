@@ -11,6 +11,7 @@ import { SurfacePull } from './surfacePull.js';
 import { SurfaceCut } from './surfaceCut.js';
 import { checkpoint, restoreHistory } from './sculptHistory.js';
 import { CameraBackdrop, cameraCoverPoint } from './arView.js';
+import { MaskTryOn } from './tryOn.js';
 
 const video = document.querySelector('#camera-video');
 const previewCanvas = document.querySelector('#preview-overlay');
@@ -66,9 +67,15 @@ let trackingEpoch = 0;
 let nextTrackingAt = 0;
 let stream;
 let cameraOpening = false;
+let cameraStartup;
 let cameraRequestEpoch = 0;
 let arStartedCamera = false;
 let arAction = 0;
+let faceTracker, faceAbort, faceFrame;
+let faceEpoch = 0, lastFaceVideoTime = -1, nextFaceTrackingAt = 0;
+let tryPreviousAR = false, tryPreviousMouse = false, tryStartedCamera = false;
+let tryHandWasDone = false;
+let tryPhase = null;
 let landmarker;
 let animationFrame = 0;
 let lastVideoTime = -1;
@@ -90,7 +97,7 @@ let grabAnchor = null;
 let recentGrabHit = null;
 let recentGrabAt = 0;
 const pullPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1));
-let symmetryEnabled = false;
+let symmetryEnabled = true;
 let activeTool = 'pinch';
 let cutStroke = null;
 const symmetryButton = document.querySelector('#vertical-symmetry');
@@ -113,6 +120,7 @@ const arButton = document.querySelector('#ar-toggle');
 const arView = new CameraBackdrop({ video: document.querySelector('#ar-camera-video'), button: arButton,
   stage: document.querySelector('#stage'), scene, renderer,
   onChange: () => {
+    if (tryOn.enabled && !arView.enabled) endTryOn({ restoreView: false });
     cancelMouseStroke(); poseTarget = null; poseDisplayed = null; smoothedPoints = null;
     sceneHost.setAttribute('aria-label', arView.live ? 'Camera view with editable mask' : 'Three dimensional hand tracking view');
   },
@@ -120,6 +128,7 @@ const arView = new CameraBackdrop({ video: document.querySelector('#ar-camera-vi
 });
 arButton.addEventListener('pointerdown', event => event.stopPropagation());
 arButton.addEventListener('click', async () => {
+  if (tryOn.enabled) endTryOn({ restoreView: false });
   const action = ++arAction;
   cancelMouseStroke();
   const enabled = !arView.enabled;
@@ -139,7 +148,7 @@ arButton.addEventListener('click', async () => {
     await startCamera();
     if (action === arAction) arStartedCamera = false;
   }
-  if (arView.live) sceneHint.textContent = 'AR mode on · point at the mask to shape or cut';
+  if (arView.live && !tryOn.enabled) sceneHint.textContent = 'AR mode on · point at the mask to shape or cut';
 });
 video.addEventListener('resize', () => {
   if (arView.live) { cancelMouseStroke(); poseTarget = null; poseDisplayed = null; smoothedPoints = null; }
@@ -154,6 +163,91 @@ warmLight.position.set(3, -2, 4);
 scene.add(warmLight);
 
 const clayObjects = new ClayObjects(scene);
+const tryOn = new MaskTryOn(scene.children.filter(child => child.isLight));
+const tryButton = document.querySelector('#try-toggle');
+tryButton.addEventListener('pointerdown', event => event.stopPropagation());
+tryButton.addEventListener('click', async () => {
+  if (tryOn.enabled) { endTryOn(); return; }
+  if (clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending) {
+    sceneHint.textContent = 'Finishing your mask · try it in a moment'; return;
+  }
+  tryPreviousAR = arView.enabled; tryPreviousMouse = mouseMode;
+  tryStartedCamera = !stream && !cameraOpening;
+  cancelMouseStroke(); trackingEpoch++; cancelAnimationFrame(retryTimer);
+  poseTarget = null; poseDisplayed = null; handModel.visible = false; clearPreview();
+  mouseMode = false; tryOn.setEnabled(true);
+  tryPhase = null;
+  const epoch = ++faceEpoch;
+  faceAbort = new AbortController(); const signal = faceAbort.signal;
+  document.querySelector('#stage').classList.add('is-trying');
+  document.querySelector('#session-label').textContent = 'TRY IT';
+  const handCheck = document.querySelector('#check-hand');
+  tryHandWasDone = handCheck.classList.contains('is-done');
+  handCheck.children[1].textContent = 'Show your face'; handCheck.classList.remove('is-done');
+  tryButton.setAttribute('aria-pressed', 'true'); tryButton.classList.add('is-active');
+  cameraButton.hidden = false; mouseButton.textContent = 'Preview with mouse';
+  arView.setEnabled(true);
+  try {
+    if (stream) await arView.attachStream(stream); else await startCamera();
+    if (epoch !== faceEpoch || !tryOn.enabled) return;
+    if (!stream || !arView.live) throw new Error('Camera view is unavailable');
+    const tracker = await TrackingClient.create('face', signal);
+    if (epoch !== faceEpoch || !tryOn.enabled) { tracker.close(); return; }
+    faceTracker = tracker; lastFaceVideoTime = -1; nextFaceTrackingAt = 0;
+    cameraButton.disabled = false; buttonLabel.textContent = 'Camera on';
+    faceTrackingLoop(epoch);
+  } catch (error) {
+    if (epoch !== faceEpoch || !tryOn.enabled) return;
+    console.warn('Mask try-on could not start:', error);
+    endTryOn();
+    setPrompt('Try it could not start.', 'Face tracking could not load. Check your connection and try again; your mask is ready to keep creating.', 'warning');
+  }
+});
+
+function endTryOn({ restoreView = true, resumeTracking = true } = {}) {
+  if (!tryOn.enabled) return;
+  faceEpoch++; faceAbort?.abort(); faceTracker?.close(); faceTracker = null;
+  cancelAnimationFrame(faceFrame); tryOn.setEnabled(false);
+  document.querySelector('#stage').classList.remove('is-trying');
+  tryButton.setAttribute('aria-pressed', 'false'); tryButton.classList.remove('is-active');
+  tryButton.querySelector('.try-state').textContent = 'Off';
+  mouseMode = tryPreviousMouse; poseTarget = null; poseDisplayed = null; smoothedPoints = null; gapStartedAt = null;
+  mouseButton.textContent = mouseMode ? 'Exit mouse sculpting' : 'Preview with mouse';
+  mouseButton.hidden = !mouseMode && Boolean(stream && landmarker);
+  document.querySelector('#session-label').textContent = mouseMode ? 'MOUSE MODE' : 'YOUR FIRST SESSION';
+  const handCheck = document.querySelector('#check-hand');
+  handCheck.children[1].textContent = 'Show one hand'; handCheck.classList.toggle('is-done', tryHandWasDone);
+  sceneHost.setAttribute('aria-label', arView.live ? 'Camera view with editable mask' : 'Three dimensional hand tracking view');
+  resetToolControls();
+  if (restoreView) arView.setEnabled(tryPreviousAR);
+  if (tryStartedCamera && cameraOpening) { tryStartedCamera = false; stopCamera(); return; }
+  tryStartedCamera = false;
+  if (resumeTracking && stream && !mouseMode) {
+    if (landmarker) trackingLoop(); else startTracking();
+  }
+}
+
+async function faceTrackingLoop(epoch) {
+  const tracker = faceTracker;
+  if (!tryOn.enabled || !stream || !tracker || epoch !== faceEpoch) return;
+  try {
+    const now = performance.now();
+    if (now >= nextFaceTrackingAt && video.readyState >= 2 && video.currentTime !== lastFaceVideoTime) {
+      lastFaceVideoTime = video.currentTime; nextFaceTrackingAt = now + (tracker.minInterval ?? 33);
+      const result = await tracker.detectForVideo(video, now);
+      if (epoch !== faceEpoch || !tryOn.enabled || tracker !== faceTracker) return;
+      diagnostics.faceInferenceMs = tracker.duration;
+      diagnostics.faceResultAgeMs = performance.now() - now;
+      if (performance.now() - now < 400) tryOn.receive(result, performance.now(), video.videoWidth, video.videoHeight);
+    }
+  } catch (error) {
+    if (epoch !== faceEpoch || !tryOn.enabled) return;
+    console.warn('Mask try-on tracking stopped:', error);
+    endTryOn();
+    setPrompt('Face tracking paused.', 'Your mask is safe. Turn Try it on again to reconnect.', 'warning'); return;
+  }
+  if (epoch === faceEpoch && tryOn.enabled) faceFrame = requestAnimationFrame(() => faceTrackingLoop(epoch));
+}
 let clay = clayObjects.active.group;
 let clayVolume = clayObjects.active.volume;
 let clayMenu;
@@ -200,6 +294,7 @@ const depthGuide = document.querySelector('#reach-depth');
 document.querySelector('#restart-reach').addEventListener('click', () => { cancelMouseStroke(); reachCalibration.reset(); });
 
 function resetClay() {
+  if (tryOn.enabled) return;
   if (clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending) return;
   cancelMouseStroke();
   checkpoint(clayVolume);
@@ -382,6 +477,7 @@ function resizeScene() {
   camera.position.z = width < 540 ? 10 : 8.6;
   camera.updateProjectionMatrix();
   renderer.setSize(width, height);
+  tryOn.resize(width, height);
   cancelMouseStroke();
   if (arView.live) { poseTarget = null; poseDisplayed = null; smoothedPoints = null; }
   clayObjects.layout(camera);
@@ -395,17 +491,17 @@ function renderScene() {
   const dt = Math.min(0.05, (now - previousRenderAt) / 1000);
   diagnostics.frameMs = now - previousRenderAt;
   previousRenderAt = now;
-  if (!mouseMode && poseTarget && gapStartedAt === null && now - poseReceivedAt < 200) {
+  if (!tryOn.enabled && !mouseMode && poseTarget && gapStartedAt === null && now - poseReceivedAt < 200) {
     poseDisplayed ??= poseTarget.map((p) => p.clone());
     // One short render interpolation shared by the visible hand and tools.
     const blend = 1 - Math.exp(-dt / 0.012);
     poseDisplayed.forEach((p, i) => p.lerp(poseTarget[i], blend));
     processHandPose(poseDisplayed, pinchGesture.held);
-  } else if (!mouseMode && poseTarget && now - poseReceivedAt >= 200) {
+  } else if (!tryOn.enabled && !mouseMode && poseTarget && now - poseReceivedAt >= 200) {
     pauseTracking(now);
   }
   depthGuide.hidden = true;
-  symmetryGuide.visible = symmetryEnabled;
+  symmetryGuide.visible = symmetryEnabled && !tryOn.enabled;
   if (symmetryEnabled) {
     const radius = { full: 1.4, half: 0.75, animal: 1.8 }[clayVolume.shape];
     symmetryGuide.position.copy(clay.localToWorld(new THREE.Vector3(0, 0, 0.9)));
@@ -419,7 +515,27 @@ function renderScene() {
     mirroredBrush.scale.setScalar(brushRadius() * clay.scale.x);
   }
   if (arView.live) handModel.visible = false;
-  renderer.render(scene, camera);
+  if (tryOn.enabled) {
+    tryOn.setItem(clayObjects.active);
+    const wearing = tryOn.update(now, dt);
+    const ready = Boolean(faceTracker);
+    const phase = wearing ? 'wearing' : ready ? 'looking' : 'loading';
+    if (tryPhase !== phase) {
+      tryPhase = phase;
+      tryButton.querySelector('.try-state').textContent = ready ? 'On' : 'Starting…';
+      setStatus(wearing ? 'ready' : ready ? 'searching' : 'loading', wearing ? 'MASK ON' : ready ? 'LOOKING FOR FACE' : 'SETTING UP TRY IT');
+      stageCaption.textContent = wearing ? 'LOOKING GOOD · YOUR MASK IS ON' : ready ? 'BRING YOUR FACE INTO VIEW' : 'OPENING YOUR FITTING ROOM';
+      sceneHint.textContent = wearing ? 'Move your head · switch masks in Masks & color · turn Try it off to sculpt' : ready ? 'Face the camera · your mask will fit automatically' : 'Getting your mask ready to wear…';
+      setPrompt(wearing ? 'That’s your creation!' : ready ? 'Let’s see your face.' : 'Getting ready to try it…',
+        wearing ? 'Move your head and try a new color or another mask. Turn Try it off whenever you want to keep shaping.' : ready ? 'Look toward the camera in good light. Your selected mask will follow your face.' : 'Opening the camera and loading face tracking. The first try can take a few seconds.', wearing ? 'success' : 'neutral');
+      tipHeading.textContent = wearing ? 'Made by you. Worn by you.' : 'Face the camera';
+      tipCopy.textContent = 'Try different masks and colors. Turn Try it off to return to sculpting.';
+      landmarkCount.textContent = wearing ? 'FACE TRACKED · MASK ON' : 'FACE TRACKING · WAITING';
+      document.querySelector('#check-hand').classList.toggle('is-done', wearing);
+      sceneHost.setAttribute('aria-label', 'Camera view wearing your selected mask');
+    }
+    renderer.render(tryOn.scene, tryOn.camera);
+  } else renderer.render(scene, camera);
   updateHistoryButtons();
   animationFrame = requestAnimationFrame(renderScene);
 }
@@ -480,13 +596,14 @@ function updateSizeControl() {
 }
 
 function updateHistoryButtons() {
-  const waiting = Boolean(clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending);
+  const waiting = Boolean(tryOn.enabled || clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending);
   undoButton.disabled = waiting || !clayVolume.undoStack?.length;
   redoButton.disabled = waiting || !clayVolume.redoStack?.length;
   resetButton.disabled = waiting;
 }
 
 function useHistory(redo = false) {
+  if (tryOn.enabled) return;
   if (clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending) return;
   cancelMouseStroke();
   if (!restoreHistory(clayVolume, redo)) return;
@@ -513,13 +630,14 @@ sizeInput.addEventListener('input', () => {
 updateSizeControl();
 
 function resetToolControls() {
+  tryPhase = null;
   cutStroke = null; cutPreview.visible = false; mirroredCutPreview.visible = false;
   clayVolume.surfacePull?.finish();
   brushCue.visible = false; grabTether.visible = false;
   grabCursorOrigin = null; grabAnchor = null;
   pinchGesture.reset();
   const details = toolDetails();
-  strengthInput.disabled = activeTool === 'cut'; sizeInput.disabled = activeTool === 'cut';
+  strengthInput.disabled = tryOn.enabled || activeTool === 'cut'; sizeInput.disabled = tryOn.enabled || activeTool === 'cut';
   document.querySelector('#size-context').textContent = activeTool === 'cut' ? 'Cut follows your index' : 'Brush width · % of starting shape';
   toolButtons.forEach(button => {
     const selected = button.dataset.tool === activeTool;
@@ -705,6 +823,7 @@ function processCut(handPoint, held, wasHeld) {
 }
 
 function processHandPose(mappedPoints, pinchOverride = null) {
+  if (tryOn.enabled) return;
   // In mouse preview, align the sculpting fingertip/grab with the actual cursor.
   if (mouseMode && mouseSculptPoint) {
     const anchor = mappedPoints[8];
@@ -967,6 +1086,7 @@ async function trackingLoop(epoch = trackingEpoch) {
 async function createLandmarker() { return TrackingClient.create(); }
 
 async function startTracking() {
+  if (tryOn.enabled) return;
   cameraButton.disabled = true;
   buttonLabel.textContent = 'Loading tracking…';
   setStatus('loading', 'SETTING UP');
@@ -999,8 +1119,13 @@ async function startTracking() {
   }
 }
 
-async function startCamera() {
-  if (cameraOpening) return;
+function startCamera() {
+  if (cameraOpening) return cameraStartup;
+  cameraStartup = openCamera();
+  return cameraStartup;
+}
+
+async function openCamera() {
   cameraOpening = true;
   const requestEpoch = ++cameraRequestEpoch;
   cancelMouseStroke();
@@ -1009,7 +1134,8 @@ async function startCamera() {
   buttonLabel.textContent = 'Opening camera…';
   setStatus('loading', 'SETTING UP');
   landmarkCount.textContent = '21 LANDMARKS · LOADING';
-  setPrompt('Waking up the studio…', 'Opening your camera, then loading hand tracking. This can take a few seconds.', 'neutral');
+  setPrompt(tryOn.enabled ? 'Opening your fitting room…' : 'Waking up the studio…',
+    tryOn.enabled ? 'Opening your camera, then loading face tracking. Your mask will fit automatically.' : 'Opening your camera, then loading hand tracking. This can take a few seconds.', 'neutral');
   try {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('unsupported');
     const openedStream = await navigator.mediaDevices.getUserMedia({
@@ -1051,10 +1177,14 @@ async function startCamera() {
     if (requestEpoch === cameraRequestEpoch) cameraOpening = false;
   }
   if (requestEpoch !== cameraRequestEpoch) return;
-  await startTracking();
+  if (tryOn.enabled) {
+    cameraButton.disabled = false; buttonLabel.textContent = 'Camera on';
+    cameraButton.classList.add('is-secondary'); mouseButton.hidden = true;
+  } else await startTracking();
 }
 
 function stopCamera(resetLandmarker = true) {
+  endTryOn({ restoreView: false, resumeTracking: false });
   cameraRequestEpoch++; cameraOpening = false;
   arView.setEnabled(false);
   cancelMouseStroke();
@@ -1095,7 +1225,7 @@ function stopCamera(resetLandmarker = true) {
 
 cameraButton.addEventListener('click', () => {
   if (stream) {
-    if (!landmarker) {
+    if (!landmarker && !tryOn.enabled && !mouseMode) {
       startTracking();
       return;
     }
@@ -1173,6 +1303,7 @@ sceneHost.addEventListener('pointermove', (event) => {
 });
 
 sceneHost.addEventListener('pointerdown', (event) => {
+  if (tryOn.enabled) return;
   if (event.target !== renderer.domElement || event.button !== 0) return;
   updateMouseTarget(event);
   // Click another piece to select it; a subsequent drag sculpts that piece.
@@ -1268,9 +1399,10 @@ document.addEventListener('mask-pull-error', () => {
 // Opt-in local inspection for replaying landmark traces and comparing field
 // and mesh state. Camera data is never retained or transmitted by this hook.
 if (new URLSearchParams(location.search).has('diagnostics')) {
-  window.clayPlayDebug = { objects: clayObjects, camera,
+  window.clayPlayDebug = { objects: clayObjects, camera, tryOn,
     feedHand: updateThreeSkeleton, pauseHand: pauseTracking, cancel: cancelMouseStroke,
     getState: () => ({ arEnabled: arView.enabled, arLive: arView.live, cameraOn: Boolean(stream),
+      trying: tryOn.enabled, wearing: tryOn.mask.visible, faceReady: Boolean(faceTracker),
       virtualHandVisible: handModel.visible, tool: activeTool, cutting: Boolean(clayVolume.cutting), cutPoints: cutStroke?.points.length ?? 0,
       cutPreview: cutPreview.visible, pulling: Boolean(clayVolume.pulling), pending: Boolean(clayVolume.meshQueue?.pending),
       symmetry: symmetryEnabled, brushSize: activeSize, brushRadius: brushRadius(), hoverRadius: brushCue.visible ? brushCue.scale.x / clay.scale.x : 0,

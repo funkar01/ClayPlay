@@ -41,9 +41,9 @@
               <div class="tool-switch" role="group" aria-label="Mask sculpting controls">
                 <button class="tool-button is-active" id="tool-pinch" type="button" data-tool="pinch" aria-pressed="true">Pinch</button>
                 <button class="tool-button" id="tool-cut" type="button" data-tool="cut" aria-pressed="false" title="Pinch, trace with your index, then release to cut">Cut</button>
-                <button class="tool-button symmetry-button" id="vertical-symmetry" type="button" aria-label="Vertical symmetry" aria-pressed="false" title="Mirror new drags across the mask’s vertical center">
+                <button class="tool-button symmetry-button is-active" id="vertical-symmetry" type="button" aria-label="Vertical symmetry" aria-pressed="true" title="Mirror new drags across the mask’s vertical center">
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5 12 19 20 5"/><path class="symmetry-axis" d="M12 3v18"/></svg>
-                  <span>Symmetry</span><span id="symmetry-state">Off</span>
+                  <span>Symmetry</span><span id="symmetry-state">On</span>
                 </button>
               </div>
               <div class="strength-control" aria-label="Sculpt strength control">
@@ -110,6 +110,10 @@
               <button class="ar-toggle" id="ar-toggle" type="button" aria-pressed="false" title="Show your live camera behind the mask">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h4l2-3h6l2 3h4v13H3Z"/><circle cx="12" cy="13" r="4"/></svg>
                 <span>AR mode</span><span class="ar-state">Off</span>
+              </button>
+              <button class="ar-toggle try-toggle" id="try-toggle" type="button" aria-pressed="false" title="Wear your selected mask in the camera view">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5q8-5 16 0v7q0 7-8 10-8-3-8-10Z"/><path d="M7 10h3m4 0h3"/></svg>
+                <span>Try it</span><span class="try-state">Off</span>
               </button>
               <button class="fullscreen-button" id="fullscreen-button" type="button" aria-controls="stage" aria-pressed="false" title="Expand the play area">
                 <svg viewBox="0 0 20 20" aria-hidden="true"><path class="expand-icon" d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4"/><path class="collapse-icon" d="M3 7h4V3m6 0v4h4M7 17v-4H3m14 0h-4v4"/></svg>
