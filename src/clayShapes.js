@@ -26,8 +26,4 @@ export const MASK_SHAPES = {
   animal: { label: 'Animal mask', icon: 'm5 8-2-6 7 4h4l7-4-2 6v6l-7 8-7-8ZM7 11h3m4 0h3m-7 6 2 2 2-2', distance: (x, y, z) => maskDistance(x, y, z, 'animal') },
 };
 
-// Legacy volume fixture for existing sculpting regression checks only.
-export const CLAY_SHAPES = {
-  ...MASK_SHAPES,
-  sphere: { label: 'Sphere', distance: (x, y, z) => Math.hypot(x, y, z) - 1.25 },
-};
+export const CLAY_SHAPES = MASK_SHAPES;

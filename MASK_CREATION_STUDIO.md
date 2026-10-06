@@ -118,6 +118,25 @@ These are design expectations to validate through a prototype, not measured find
 
 ## Recommended first release
 
+### Current prototype controls
+
+The studio currently focuses on one sculpting tool: **Pinch**. Carve, Bulge,
+Knife, and their editing implementations have been removed to keep this
+prototype focused. The full-face, half-face, and animal starters remain available.
+
+Use the **V-shaped Symmetry button** to mirror new pinch drags across the selected
+mask's vertical center. It starts off; when enabled, the button shows On, a dashed
+center guide appears, and a second brush ring previews the opposite side.
+Symmetry works with hand tracking and mouse sculpting, follows the mask when it
+moves or scales, and keeps each two-sided drag as one Undo/Redo action. Centered
+pulls happen once; horizontal pulls cannot cross the center while symmetry is on.
+Switching symmetry affects subsequent grabs and preserves existing details.
+
+Brush size remains adjustable from 0% to 90%; 0% turns the brush off. Strength,
+colors, the mask collection, camera controls, reset, and fullscreen remain available.
+
+### Proposed later scope
+
 1. Three starter mask shells.
 2. Push, pull, smooth, and paint tools.
 3. Hand tracking with symmetry, adjustable brushes, and undo.

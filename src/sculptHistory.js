@@ -19,9 +19,9 @@ export function restoreHistory(volume, redo = false) {
   const to = redo ? (volume.undoStack ??= []) : (volume.redoStack ??= []);
   to.push(capture(volume));
   const saved = from.pop();
-  Object.assign(volume, { shape: saved.state.shape, cuts: structuredClone(saved.state.cuts), field: new Map(saved.state.field),
-    pullSource: saved.state.pullSource, pullWarp: saved.state.pullWarp });
-  volume.cutRevision++;
+  Object.assign(volume, { shape: saved.state.shape, field: new Map(saved.state.field),
+    pullSource: saved.state.pullSource, pullWarp: saved.state.pullWarp,
+    cutSource: saved.state.cutSource, cutRegion: saved.state.cutRegion });
   volume.meshQueue?.invalidate();
   for (const { mesh } of volume.bricks.values()) { volume.parent.remove(mesh); mesh.geometry.dispose(); }
   volume.bricks.clear();

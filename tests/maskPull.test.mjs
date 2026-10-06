@@ -9,6 +9,59 @@ import { PinchGesture } from '../src/pinchGesture.js';
 
 function field(shape) { return ClayVolume.fromState({ shape, cuts: [], field: [] }); }
 
+test('Symmetry mirrors either side; disabled symmetry leaves the other side unchanged', () => {
+  for (const side of [-1, 1]) for (const percent of [1, 3, 24]) {
+    const center = [side * 0.82, 0.72, 0.3], delta = [side * 0.3, 0.12, 0.04];
+    const radius = 1.4 * percent / 100;
+    const mirrored = [-center[0], center[1], center[2]];
+    const off = makeWarp(center, delta, radius);
+    assert.deepEqual(forwardWarp(...mirrored, off), mirrored);
+    const on = makeWarp(center, delta, radius, 0.55, true);
+    const moved = forwardWarp(...center, on), twin = forwardWarp(...mirrored, on);
+    assert.ok(Math.hypot(moved[0] + twin[0], moved[1] - twin[1], moved[2] - twin[2]) < 1e-10);
+    assert.ok(Math.hypot(...moved.map((v, i) => v - center[i] - delta[i])) < 1e-8);
+    assert.ok(Math.hypot(...inverseWarp(...twin, on).map((v, i) => v - mirrored[i])) < 1e-6);
+  }
+});
+
+test('Overlapping mirrored brushes preserve the center without doubling or folding', () => {
+  const centered = makeWarp([0, 0.7, 0.3], [0.2, 0.15, 0.04], 0.336, 0.55, true);
+  assert.equal(centered.delta[0], 0);
+  assert.ok(Math.abs(centered.delta[1] - 0.15) < 1e-10);
+  const moved = forwardWarp(0, 0.7, 0.3, centered);
+  assert.equal(moved[0], 0);
+  assert.ok(Math.abs(moved[1] - 0.85) < 1e-10, 'Center pull happens once');
+  const warp = makeWarp([0.12, 0.7, 0.3], [-0.4, 0.12, 0.04], 0.336, 1, true);
+  assert.equal(warp.delta[0], -0.12, 'Drag stops at the symmetry axis');
+  const h = 1e-5;
+  for (let x = -0.4; x <= 0.4; x += 0.04) for (let y = 0.4; y <= 1; y += 0.06) {
+    const p = [x, y, 0.32], q = forwardWarp(...p, warp), twin = forwardWarp(-x, y, 0.32, warp);
+    assert.ok(Math.hypot(q[0] + twin[0], q[1] - twin[1], q[2] - twin[2]) < 1e-8);
+    assert.ok(Math.hypot(...inverseWarp(...q, warp).map((v, i) => v - p[i])) < 1e-6);
+    assert.ok(x * q[0] >= -1e-10, 'Halves do not cross the center');
+    const columns = p.map((_, axis) => {
+      const shifted = [...p]; shifted[axis] += h;
+      return new THREE.Vector3(...forwardWarp(...shifted, warp)).sub(new THREE.Vector3(...q)).divideScalar(h);
+    });
+    assert.ok(columns[0].dot(columns[1].clone().cross(columns[2])) > 0);
+    const normal = warpNormal(...p, [0, 0, 1], warp), mirrorNormal = warpNormal(-x, y, 0.32, [0, 0, 1], warp);
+    assert.ok(Math.hypot(normal[0] + mirrorNormal[0], normal[1] - mirrorNormal[1], normal[2] - mirrorNormal[2]) < 1e-7);
+  }
+});
+
+test('All starter mask fields remain symmetric through saved mirrored strokes', () => {
+  for (const shape of Object.keys(MASK_SHAPES)) {
+    const volume = field(shape);
+    volume.pullSource = volume.snapshot();
+    volume.pullWarp = makeWarp([0.8, 0.6, 0.3], [0.3, 0.15, 0], 0.336, 0.55, true);
+    const saved = ClayVolume.fromState(structuredClone(volume.serialize()));
+    assert.equal(saved.pullWarp.symmetry, true);
+    for (let x = 0; x < 1.4; x += 0.1) for (let y = 0.2; y < 1.1; y += 0.15) {
+      assert.ok(Math.abs(saved.sample(x, y, 0.3) - saved.sample(-x, y, 0.3)) < 1e-8);
+    }
+  }
+});
+
 test('Visible pinch survives depth jitter and a brief noisy open frame', () => {
   const points = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5, z: 0 }));
   points[5].x = 0.45; points[17].x = 0.55; points[4].x = 0.51;

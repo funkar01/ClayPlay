@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CLAY_SHAPES } from './clayShapes.js';
 import { inverseWarp } from './maskWarp.js';
+import { cutDistance } from './cutGeometry.js';
 
 const GRID_MIN = -2.4;
 const GRID_CELLS = 192;
@@ -17,16 +18,6 @@ const CUBE_CORNERS = [
   [0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0],
   [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1],
 ];
-
-function smoothStep01(value) {
-  const t = THREE.MathUtils.clamp(value, 0, 1);
-  return t * t * (3 - 2 * t);
-}
-
-function smoothMax(a, b, radius) {
-  const blend = Math.max(radius - Math.abs(a - b), 0) / radius;
-  return Math.max(a, b) + (blend * blend * radius * 0.25);
-}
 
 export class ClayVolume {
   constructor(parent, material, shape = 'full', meshQueueFactory = null) {
@@ -45,30 +36,33 @@ export class ClayVolume {
   baseDistance(x, y, z) {
     let distance = this.pullSource
       ? this.pullSource.sample(...inverseWarp(x, y, z, this.pullWarp))
+      : this.cutSource ? Math.max(this.cutSource.sample(x, y, z), cutDistance(x, y, z, this.cutRegion))
       : CLAY_SHAPES[this.shape].distance(x, y, z);
-    for (const cut of this.cuts ?? []) distance = Math.max(distance, cut.n[0] * x + cut.n[1] * y + cut.n[2] * z + cut.d);
     return distance;
   }
 
   snapshot() {
     const field = Object.create(ClayVolume.prototype);
     field.shape = this.shape;
-    field.cuts = structuredClone(this.cuts ?? []);
     field.field = new Map(this.field);
     field.pullSource = this.pullSource;
     field.pullWarp = this.pullWarp;
+    field.cutSource = this.cutSource;
+    field.cutRegion = this.cutRegion;
     return field;
   }
 
   serialize() {
-    return { shape: this.shape, cuts: this.cuts ?? [], field: [...this.field],
-      pullWarp: this.pullWarp, pullSource: this.pullSource?.serialize() };
+    return { shape: this.shape, field: [...this.field],
+      pullWarp: this.pullWarp, pullSource: this.pullSource?.serialize(),
+      cutRegion: this.cutRegion, cutSource: this.cutSource?.serialize() };
   }
 
   static fromState(state) {
     const volume = Object.create(ClayVolume.prototype);
-    Object.assign(volume, { shape: state.shape, cuts: structuredClone(state.cuts ?? []), field: new Map(state.field),
-      pullWarp: state.pullWarp, pullSource: state.pullSource ? ClayVolume.fromState(state.pullSource) : null });
+    Object.assign(volume, { shape: state.shape, field: new Map(state.field),
+      pullWarp: state.pullWarp, pullSource: state.pullSource ? ClayVolume.fromState(state.pullSource) : null,
+      cutRegion: state.cutRegion, cutSource: state.cutSource ? ClayVolume.fromState(state.cutSource) : null });
     return volume;
   }
 
@@ -121,9 +115,7 @@ export class ClayVolume {
   }
 
   reset(shape = this.shape) {
-    this.cutRevision = (this.cutRevision ?? 0) + 1;
-    this.cutting = false;
-    this.cuts = [];
+    this.cutSource = null; this.cutRegion = null;
     this.pullSource = null;
     this.pullWarp = null;
     this.meshQueue?.reset();
@@ -251,160 +243,4 @@ export class ClayVolume {
     this.bricks.set(key, { mesh });
   }
 
-  applyKnifePlane(cut) {
-    this.cuts.push(cut);
-    // Bake the cut into edited samples; later sculpting can deform the new face.
-    for (const [key, value] of this.field) {
-      const x = key % GRID_NODES;
-      const y = Math.floor(key / GRID_NODES) % GRID_NODES;
-      const z = Math.floor(key / (GRID_NODES * GRID_NODES));
-      const plane = cut.n[0] * (GRID_MIN + x * VOXEL_SIZE) + cut.n[1] * (GRID_MIN + y * VOXEL_SIZE) + cut.n[2] * (GRID_MIN + z * VOXEL_SIZE) + cut.d;
-      this.field.set(key, Math.max(value, plane));
-    }
-    this.meshQueue?.reset();
-    for (const [key, value] of this.field) this.meshQueue?.edit(key, value);
-    for (let z = 0; z < BRICK_COUNT; z++) for (let y = 0; y < BRICK_COUNT; y++) for (let x = 0; x < BRICK_COUNT; x++) {
-      const c = [x, y, z].map((v) => GRID_MIN + (v + 0.5) * BRICK_CELLS * VOXEL_SIZE);
-      if (this.bricks.has(`${x},${y},${z}`) || this.sample(...c) < 0.6) this.rebuildBrick(x, y, z);
-    }
-  }
-
-  rebuildBounds(min, max) {
-    const minGrid = [min.x, min.y, min.z].map((value) => THREE.MathUtils.clamp(Math.floor((value - GRID_MIN) / VOXEL_SIZE) - 1, 0, GRID_CELLS));
-    const maxGrid = [max.x, max.y, max.z].map((value) => THREE.MathUtils.clamp(Math.ceil((value - GRID_MIN) / VOXEL_SIZE) + 1, 0, GRID_CELLS));
-    const minBrick = minGrid.map((value) => Math.max(0, Math.floor((value - 1) / BRICK_CELLS)));
-    const maxBrick = maxGrid.map((value) => Math.min(BRICK_COUNT - 1, Math.floor(value / BRICK_CELLS)));
-    for (let z = minBrick[2]; z <= maxBrick[2]; z += 1) {
-      for (let y = minBrick[1]; y <= maxBrick[1]; y += 1) {
-        for (let x = minBrick[0]; x <= maxBrick[0]; x += 1) this.rebuildBrick(x, y, z);
-      }
-    }
-  }
-
-  applyPull(previous, current, radius = 0.3, strength = 0.55) {
-    const displacement = current.clone().sub(previous);
-    const intensity = THREE.MathUtils.clamp(strength, 0, 1);
-    if (intensity === 0) return false;
-    const neutralIntensity = 0.4;
-    const gain = intensity <= neutralIntensity
-      ? THREE.MathUtils.lerp(0.25, 1, intensity / neutralIntensity)
-      : THREE.MathUtils.lerp(1, 3, (intensity - neutralIntensity) / (1 - neutralIntensity));
-    const maxDisplacement = intensity <= neutralIntensity
-      ? THREE.MathUtils.lerp(0.035, 0.12, intensity / neutralIntensity)
-      : THREE.MathUtils.lerp(0.12, 0.3, (intensity - neutralIntensity) / (1 - neutralIntensity));
-    displacement.multiplyScalar(gain);
-    const motion = displacement.length();
-    if (motion < 0.0005) return false;
-    if (motion > maxDisplacement) displacement.multiplyScalar(maxDisplacement / motion);
-    const destination = previous.clone().add(displacement);
-    // Leave a complete brush-width margin inside the editable volume.
-    destination.clampScalar(GRID_MIN + radius, GRID_MIN + GRID_CELLS * VOXEL_SIZE - radius);
-    displacement.copy(destination).sub(previous);
-    const steps = Math.max(1, Math.ceil(displacement.length() / (VOXEL_SIZE * 1.5)));
-    const step = displacement.clone().multiplyScalar(1 / steps);
-    const reach = radius + VOXEL_SIZE;
-    let changed = false;
-    for (let strokeStep = 1; strokeStep <= steps; strokeStep += 1) {
-      const center = previous.clone().addScaledVector(step, strokeStep);
-      const min = new THREE.Vector3(center.x - reach, center.y - reach, center.z - reach);
-      const max = new THREE.Vector3(center.x + reach, center.y + reach, center.z + reach);
-      const minGrid = [min.x, min.y, min.z].map((value) => THREE.MathUtils.clamp(Math.floor((value - GRID_MIN) / VOXEL_SIZE), 0, GRID_CELLS));
-      const maxGrid = [max.x, max.y, max.z].map((value) => THREE.MathUtils.clamp(Math.ceil((value - GRID_MIN) / VOXEL_SIZE), 0, GRID_CELLS));
-      const edits = [];
-      for (let z = minGrid[2]; z <= maxGrid[2]; z += 1) {
-        for (let y = minGrid[1]; y <= maxGrid[1]; y += 1) {
-          for (let x = minGrid[0]; x <= maxGrid[0]; x += 1) {
-            const px = GRID_MIN + x * VOXEL_SIZE;
-            const py = GRID_MIN + y * VOXEL_SIZE;
-            const pz = GRID_MIN + z * VOXEL_SIZE;
-            const distance = Math.hypot(px - center.x, py - center.y, pz - center.z);
-            if (distance >= radius) continue;
-            const influence = smoothStep01((radius - distance) / (radius * 0.7));
-            const sourceX = px - step.x * influence;
-            const sourceY = py - step.y * influence;
-            const sourceZ = pz - step.z * influence;
-            const oldValue = this.sample(px, py, pz);
-            const newValue = this.sample(sourceX, sourceY, sourceZ);
-            if (Math.abs(newValue - oldValue) < 1e-5) continue;
-            edits.push([this.nodeKey(x, y, z), newValue]);
-          }
-        }
-      }
-      if (edits.length) changed = true;
-      for (const [key, value] of edits) { this.field.set(key, value); this.meshQueue?.edit(key, value); }
-    }
-    if (!changed) return false;
-    const boundsReach = radius + displacement.length() + VOXEL_SIZE * 2;
-    this.rebuildBounds(
-      new THREE.Vector3(Math.min(previous.x, destination.x) - boundsReach, Math.min(previous.y, destination.y) - boundsReach, Math.min(previous.z, destination.z) - boundsReach),
-      new THREE.Vector3(Math.max(previous.x, destination.x) + boundsReach, Math.max(previous.y, destination.y) + boundsReach, Math.max(previous.z, destination.z) + boundsReach),
-    );
-    return destination;
-  }
-
-  carveStroke(start, end, radius = 0.105, depth = 0.105, smoothness = 0.035, normal = null) {
-    return this.surfaceStroke(start, end, radius, depth, smoothness, normal, false);
-  }
-
-  surfaceStroke(start, end, radius, depth, smoothness, normal, additive) {
-    if (depth <= 0 || radius <= 0) return false;
-    const reach = Math.max(radius, depth) + smoothness;
-    const min = new THREE.Vector3(Math.min(start.x, end.x) - reach, Math.min(start.y, end.y) - reach, Math.min(start.z, end.z) - reach);
-    const max = new THREE.Vector3(Math.max(start.x, end.x) + reach, Math.max(start.y, end.y) + reach, Math.max(start.z, end.z) + reach);
-    const minGrid = [min.x, min.y, min.z].map((value) => THREE.MathUtils.clamp(Math.floor((value - GRID_MIN) / VOXEL_SIZE), 0, GRID_CELLS));
-    const maxGrid = [max.x, max.y, max.z].map((value) => THREE.MathUtils.clamp(Math.ceil((value - GRID_MIN) / VOXEL_SIZE), 0, GRID_CELLS));
-    const midpoint = start.clone().add(end).multiplyScalar(0.5);
-    const surfaceNormal = normal ? normal.clone().normalize() : this.gradient(midpoint.x, midpoint.y, midpoint.z);
-    if (surfaceNormal.lengthSq() < 1e-6) surfaceNormal.copy(midpoint).normalize();
-    if (surfaceNormal.lengthSq() < 1e-6) surfaceNormal.set(0, 0, 1);
-    const segment = end.clone().sub(start);
-    segment.addScaledVector(surfaceNormal, -segment.dot(surfaceNormal));
-    const segmentLength = segment.length();
-    const tangent = segmentLength > 1e-5 ? segment.clone().multiplyScalar(1 / segmentLength)
-      : new THREE.Vector3(Math.abs(surfaceNormal.x) < 0.8 ? 1 : 0, Math.abs(surfaceNormal.x) < 0.8 ? 0 : 1, 0).cross(surfaceNormal).normalize();
-    const side = tangent.clone().cross(surfaceNormal).normalize();
-    if (side.lengthSq() < 1e-6) side.set(0, 1, 0);
-    const safeDepth = Math.max(depth, VOXEL_SIZE * 0.5);
-    const safeRadius = Math.max(radius, VOXEL_SIZE * 0.5);
-    const smoothing = Math.max(0.004, Math.min(smoothness, safeDepth * 0.5, safeRadius * 0.5));
-    const edits = [];
-    for (let z = minGrid[2]; z <= maxGrid[2]; z += 1) {
-      for (let y = minGrid[1]; y <= maxGrid[1]; y += 1) {
-        for (let x = minGrid[0]; x <= maxGrid[0]; x += 1) {
-          const px = GRID_MIN + x * VOXEL_SIZE;
-          const py = GRID_MIN + y * VOXEL_SIZE;
-          const pz = GRID_MIN + z * VOXEL_SIZE;
-          const relativeX = px - start.x;
-          const relativeY = py - start.y;
-          const relativeZ = pz - start.z;
-          const tangentPosition = relativeX * tangent.x + relativeY * tangent.y + relativeZ * tangent.z;
-          const along = segmentLength > 1e-5 ? THREE.MathUtils.clamp(tangentPosition / segmentLength, 0, 1) : 0;
-          const offsetX = relativeX - segment.x * along;
-          const offsetY = relativeY - segment.y * along;
-          const offsetZ = relativeZ - segment.z * along;
-          const sideDistance = (offsetX * side.x + offsetY * side.y + offsetZ * side.z) / safeRadius;
-          const normalDistance = (offsetX * surfaceNormal.x + offsetY * surfaceNormal.y + offsetZ * surfaceNormal.z) / safeDepth;
-          const endDistance = Math.max(-tangentPosition, 0, tangentPosition - segmentLength);
-          const capDistance = endDistance / safeRadius;
-          const ellipseDistance = Math.hypot(sideDistance, normalDistance, capDistance);
-          const brushDistance = (ellipseDistance - 1) * Math.min(safeRadius, safeDepth);
-          if (brushDistance > smoothing) continue;
-          const oldValue = this.nodeValue(x, y, z);
-          const newValue = additive
-            ? -smoothMax(-oldValue, -brushDistance, smoothing)
-            : smoothMax(oldValue, -brushDistance, smoothing);
-          if (Math.abs(newValue - oldValue) < 1e-5) continue;
-          edits.push([this.nodeKey(x, y, z), newValue]);
-        }
-      }
-    }
-    if (!edits.length) return false;
-    for (const [key, value] of edits) { this.field.set(key, value); this.meshQueue?.edit(key, value); }
-    this.rebuildBounds(min, max);
-    return true;
-  }
-
-  applyBulge(start, end, radius = 0.28, amount = 0.12, normal = null) {
-    return this.surfaceStroke(start, end, radius, amount, 0.06, normal, true);
-  }
 }

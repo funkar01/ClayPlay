@@ -10,7 +10,7 @@ self.onmessage = ({ data }) => {
     let volume = fields.get(id);
     if (!volume || reset) {
       volume = data.state ? ClayVolume.fromState(data.state) : Object.create(ClayVolume.prototype);
-      Object.assign(volume, { shape, cuts: data.cuts ?? [], bricks: new Map(), parent: new THREE.Group(), material: null });
+      Object.assign(volume, { shape, bricks: new Map(), parent: new THREE.Group(), material: null });
       volume.field ??= new Map();
       fields.set(id, volume);
     }

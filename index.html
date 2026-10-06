@@ -38,11 +38,13 @@
             <div class="stage" id="stage">
               <div class="stage-grain"></div>
               <div class="stage-label"><span class="live-dot"></span><span id="stage-caption">YOUR HAND WILL APPEAR HERE</span></div>
-              <div class="tool-switch" role="group" aria-label="Clay tools">
+              <div class="tool-switch" role="group" aria-label="Mask sculpting controls">
                 <button class="tool-button is-active" id="tool-pinch" type="button" data-tool="pinch" aria-pressed="true">Pinch</button>
-                <button class="tool-button" id="tool-carve" type="button" data-tool="carve" aria-pressed="false">Carve</button>
-                <button class="tool-button" id="tool-bulge" type="button" data-tool="bulge" aria-pressed="false">Bulge</button>
-                <button class="tool-button" id="tool-knife" type="button" data-tool="knife" aria-pressed="false">Knife</button>
+                <button class="tool-button" id="tool-cut" type="button" data-tool="cut" aria-pressed="false" title="Pinch, trace with your index, then release to cut">Cut</button>
+                <button class="tool-button symmetry-button" id="vertical-symmetry" type="button" aria-label="Vertical symmetry" aria-pressed="false" title="Mirror new drags across the mask’s vertical center">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5 12 19 20 5"/><path class="symmetry-axis" d="M12 3v18"/></svg>
+                  <span>Symmetry</span><span id="symmetry-state">Off</span>
+                </button>
               </div>
               <div class="strength-control" aria-label="Sculpt strength control">
                 <div class="strength-heading">

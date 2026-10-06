@@ -165,3 +165,10 @@ body.play-area-fullscreen { overflow: hidden; }
 .clay-reset:disabled { opacity: .45; cursor: default; }
 @media (max-width: 440px) { .sculpt-history { right: 112px; } .sculpt-history button { padding-inline: 5px; font-size: 9px; } }
 .strength-control input:disabled { opacity: .4; cursor: default; }
+
+.symmetry-button { display: inline-flex; align-items: center; gap: 5px; }
+.symmetry-button svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.symmetry-axis { stroke-dasharray: 1.5 2.5; stroke-width: 1; opacity: .5; }
+#symmetry-state { font-size: 8px; opacity: .7; }
+.symmetry-button.is-active { color: #39734e; background: #edf5ed; }
+.tool-button:focus-visible { outline: 2px solid #538c68; outline-offset: 2px; }

@@ -1,7 +1,8 @@
+import { outsideStroke, warpVertex } from './maskWarp.js';
 let original;
 let unmodified;
 let previousKeys = new Set();
-function anchorVertex(bricks, anchor) {
+function anchorVertex(bricks, anchor, tolerance = 1e-5) {
   // Put a vertex at the actual ray hit. Even a brush smaller than the voxel
   // spacing then has a real point to drag; adjacent faces keep their edges.
   for (const brick of bricks) {
@@ -17,7 +18,8 @@ function anchorVertex(bricks, anchor) {
       if (determinant < 1e-16) continue;
       const b = (wu * vv - wv * uv) / determinant, c = (wv * uu - wu * uv) / determinant;
       if (b < 1e-5 || c < 1e-5 || b + c > 1 - 1e-5) continue;
-      if (Math.hypot(wx - b * ux - c * vx, wy - b * uy - c * vy, wz - b * uz - c * vz) > 1e-5) continue;
+      if (Math.hypot(wx - b * ux - c * vx, wy - b * uy - c * vy, wz - b * uz - c * vz) > tolerance) continue;
+      const vertex = [ax + b * ux + c * vx, ay + b * uy + c * vy, az + b * uz + c * vz];
       const normal = [0, 1, 2].map(a => n[i + a] * (1 - b - c) + n[i + 3 + a] * b + n[i + 6 + a] * c);
       const length = Math.hypot(...normal) || 1;
       const pos = new Float32Array(p.length + 18), norms = new Float32Array(n.length + 18);
@@ -25,7 +27,7 @@ function anchorVertex(bricks, anchor) {
       const corners = [[0, 3], [3, 6], [6, 0]];
       for (let t = 0; t < 3; t++) {
         const at = i + t * 9, [a, d] = corners[t];
-        pos.set(p.subarray(i + a, i + a + 3), at); pos.set(p.subarray(i + d, i + d + 3), at + 3); pos.set(anchor, at + 6);
+        pos.set(p.subarray(i + a, i + a + 3), at); pos.set(p.subarray(i + d, i + d + 3), at + 3); pos.set(vertex, at + 6);
         norms.set(n.subarray(i + a, i + a + 3), at); norms.set(n.subarray(i + d, i + d + 3), at + 3); norms.set(normal.map(v => v / length), at + 6);
       }
       pos.set(p.subarray(i + 9), i + 27); norms.set(n.subarray(i + 9), i + 27);
@@ -39,6 +41,7 @@ self.onmessage = ({ data }) => {
     if (data.type === 'begin') {
       original = data.bricks; unmodified = original.map(b => ({ ...b }));
       anchorVertex(original, data.anchor);
+      if (data.symmetry && Math.abs(data.anchor[0]) > 1e-6) anchorVertex(original, [-data.anchor[0], data.anchor[1], data.anchor[2]], 0.005);
       for (const brick of original) {
         const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
         for (let i = 0; i < brick.positions.length; i += 3) for (let a = 0; a < 3; a++) {
@@ -62,14 +65,21 @@ self.onmessage = ({ data }) => {
     const nextKeys = new Set();
     for (const brick of original) {
       const start = [cx, cy, cz], end = [cx + dx, cy + dy, cz + dz];
-      const overlaps = [0, 1, 2].every(a => brick.bounds.max[a] >= Math.min(start[a], end[a]) - support
+      const intersects = (start, end) => [0, 1, 2].every(a => brick.bounds.max[a] >= Math.min(start[a], end[a]) - support
         && brick.bounds.min[a] <= Math.max(start[a], end[a]) + support);
+      const overlaps = intersects(start, end) || (data.warp.symmetry && intersects([-cx, cy, cz], [-cx - dx, cy + dy, cz + dz]));
       if (!data.final && !overlaps && !previousKeys.has(brick.key)) continue;
       const positions = brick.positions.slice();
       const normals = brick.normals.slice();
       let affected = false;
       for (let i = 0; overlaps && i < positions.length; i += 3) {
         let x = positions[i], y = positions[i + 1], z = positions[i + 2];
+        if (data.warp.symmetry) {
+          if (outsideStroke(x, y, z, data.warp)) continue;
+          const result = warpVertex(x, y, z, [normals[i], normals[i + 1], normals[i + 2]], data.warp);
+          positions.set(result.point, i); normals.set(result.normal, i); affected = true;
+          continue;
+        }
         const ox = x - cx, oy = y - cy, oz = z - cz;
         const along = squaredLength ? Math.max(0, Math.min(1, (ox * dx + oy * dy + oz * dz) / squaredLength)) : 0;
         if ((ox - dx * along) ** 2 + (oy - dy * along) ** 2 + (oz - dz * along) ** 2 >= squaredSupport) continue;
@@ -104,8 +114,7 @@ self.onmessage = ({ data }) => {
     const repartition = data.final && dx * dx + dy * dy + dz * dz > 0.00000025;
     if (repartition) {
       // Keep the spatial brick ownership correct after triangles move across
-      // boundaries. Later carve/bulge/knife edits can then replace the right
-      // region without retaining duplicate triangles from an old brick.
+      // boundaries, keeping subsequent drags and surface picking consistent.
       const buckets = new Map();
       for (const brick of bricks) for (let i = 0; i < brick.positions.length; i += 9) {
         const gx = Math.max(0, Math.min(7, Math.floor(((brick.positions[i] + brick.positions[i + 3] + brick.positions[i + 6]) / 3 + 2.4) / 0.6)));

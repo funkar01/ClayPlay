@@ -22,14 +22,14 @@ function schedule() {
 }
 function pump() {
   if (busy) return;
-  const entry = [...volumes.values()].find((v) => !v.volume.meshFailed && !v.volume.pulling && v.keys.size);
+  const entry = [...volumes.values()].find((v) => !v.volume.meshFailed && !v.volume.pulling && !v.volume.cutting && v.keys.size);
   if (!entry) return;
   busy = true;
   activeId = entry.id;
   diagnostics.meshPending = entry.keys.size;
   // Bound installation work; do not replace every brick in one UI turn.
   const keys = [...entry.keys].slice(0, 4);
-  worker.postMessage({ id: entry.id, generation: entry.generation, shape: entry.volume.shape, cuts: entry.volume.cuts, state: entry.reset ? entry.volume.serialize() : undefined, keys, edits: [...entry.edits], reset: entry.reset });
+  worker.postMessage({ id: entry.id, generation: entry.generation, shape: entry.volume.shape, state: entry.reset ? entry.volume.serialize() : undefined, keys, edits: [...entry.edits], reset: entry.reset });
   keys.forEach(key => entry.keys.delete(key)); entry.edits.clear(); entry.reset = false;
 }
 export function attachMeshQueue(volume) {

@@ -1,14 +1,14 @@
 import * as THREE from 'three';
-import { makeWarp } from './maskWarp.js';
+import { makeWarp, forwardWarp } from './maskWarp.js';
 import { diagnostics } from './diagnostics.js';
 
 export class SurfacePull {
   constructor(volume, onChange) { this.volume = volume; this.onChange = onChange; }
-  begin(anchor, radius, softness) {
-    if (radius <= 0 || this.volume.pulling || this.volume.meshQueue?.pending || !this.volume.bricks.size) return false;
+  begin(anchor, radius, softness, symmetry = false) {
+    if (radius <= 0 || this.volume.pulling || this.volume.cutting || this.volume.meshQueue?.pending || !this.volume.bricks.size) return false;
     this.source = this.volume.snapshot();
-    this.anchor = anchor.clone(); this.radius = radius; this.softness = softness;
-    this.lastWarp = makeWarp(anchor.toArray(), [0, 0, 0], radius, softness);
+    this.anchor = anchor.clone(); this.radius = radius; this.softness = softness; this.symmetry = symmetry;
+    this.lastWarp = makeWarp(anchor.toArray(), [0, 0, 0], radius, softness, symmetry);
     this.worker = new Worker(new URL('./pullWorker.js', import.meta.url), { type: 'module' });
     this.volume.pulling = true; this.active = true; this.busy = false; this.released = false;
     this.worker.onmessage = ({ data }) => {
@@ -46,7 +46,8 @@ export class SurfacePull {
         if (Math.hypot(...data.warp.delta) > 0.0005) {
           this.volume.pullSource = this.source;
           this.volume.pullWarp = data.warp;
-          this.volume.field = new Map(); this.volume.cuts = [];
+          this.volume.field = new Map();
+          this.volume.cutSource = null; this.volume.cutRegion = null;
           this.volume.meshQueue?.invalidate();
           this.onChange();
         } else {
@@ -61,14 +62,14 @@ export class SurfacePull {
     this.worker.onerror = event => this.fail(event.message);
     const bricks = [...this.volume.bricks].map(([key, { mesh }]) => ({ key,
       positions: mesh.geometry.attributes.position.array.slice(), normals: mesh.geometry.attributes.normal.array.slice() }));
-    this.worker.postMessage({ type: 'begin', bricks, anchor: anchor.toArray() }, bricks.flatMap(b => [b.positions.buffer, b.normals.buffer]));
+    this.worker.postMessage({ type: 'begin', bricks, anchor: anchor.toArray(), symmetry }, bricks.flatMap(b => [b.positions.buffer, b.normals.buffer]));
     return true;
   }
   update(delta) {
     if (!this.active || this.released) return null;
-    this.lastWarp = makeWarp(this.anchor.toArray(), delta.toArray(), this.radius, this.softness);
+    this.lastWarp = makeWarp(this.anchor.toArray(), delta.toArray(), this.radius, this.softness, this.symmetry);
     this.pending = this.lastWarp; this.pump();
-    return this.anchor.clone().add(new THREE.Vector3(...this.lastWarp.delta));
+    return new THREE.Vector3(...forwardWarp(...this.anchor.toArray(), this.lastWarp));
   }
   pump() {
     if (this.busy || !this.pending || !this.worker) return;
