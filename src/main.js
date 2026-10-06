@@ -10,6 +10,7 @@ import { diagnostics } from './diagnostics.js';
 import { SurfacePull } from './surfacePull.js';
 import { SurfaceCut } from './surfaceCut.js';
 import { checkpoint, restoreHistory } from './sculptHistory.js';
+import { CameraBackdrop, cameraCoverPoint } from './arView.js';
 
 const video = document.querySelector('#camera-video');
 const previewCanvas = document.querySelector('#preview-overlay');
@@ -64,6 +65,10 @@ let previousRenderAt = performance.now();
 let trackingEpoch = 0;
 let nextTrackingAt = 0;
 let stream;
+let cameraOpening = false;
+let cameraRequestEpoch = 0;
+let arStartedCamera = false;
+let arAction = 0;
 let landmarker;
 let animationFrame = 0;
 let lastVideoTime = -1;
@@ -104,6 +109,41 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.15;
 sceneHost.appendChild(renderer.domElement);
+const arButton = document.querySelector('#ar-toggle');
+const arView = new CameraBackdrop({ video: document.querySelector('#ar-camera-video'), button: arButton,
+  stage: document.querySelector('#stage'), scene, renderer,
+  onChange: () => {
+    cancelMouseStroke(); poseTarget = null; poseDisplayed = null; smoothedPoints = null;
+    sceneHost.setAttribute('aria-label', arView.live ? 'Camera view with editable mask' : 'Three dimensional hand tracking view');
+  },
+  onError: () => setPrompt('Camera view could not start.', 'The studio is ready. Try AR mode again to show the camera behind your mask.', 'warning'),
+});
+arButton.addEventListener('pointerdown', event => event.stopPropagation());
+arButton.addEventListener('click', async () => {
+  const action = ++arAction;
+  cancelMouseStroke();
+  const enabled = !arView.enabled;
+  arView.setEnabled(enabled);
+  if (!enabled) {
+    if (arStartedCamera && cameraOpening) stopCamera();
+    arStartedCamera = false;
+    sceneHint.innerHTML = toolDetails().hint;
+    return;
+  }
+  if (stream) await arView.attachStream(stream);
+  else if (!cameraOpening) {
+    arStartedCamera = true;
+    cameraButton.hidden = false;
+    mouseButton.textContent = 'Preview with mouse';
+    document.querySelector('#session-label').textContent = 'YOUR FIRST SESSION';
+    await startCamera();
+    if (action === arAction) arStartedCamera = false;
+  }
+  if (arView.live) sceneHint.textContent = 'AR mode on · point at the mask to shape or cut';
+});
+video.addEventListener('resize', () => {
+  if (arView.live) { cancelMouseStroke(); poseTarget = null; poseDisplayed = null; smoothedPoints = null; }
+});
 
 scene.add(new THREE.HemisphereLight('#fff9f2', '#c4a895', 2.2));
 const keyLight = new THREE.DirectionalLight('#fffaf2', 2.8);
@@ -343,11 +383,13 @@ function resizeScene() {
   camera.updateProjectionMatrix();
   renderer.setSize(width, height);
   cancelMouseStroke();
+  if (arView.live) { poseTarget = null; poseDisplayed = null; smoothedPoints = null; }
   clayObjects.layout(camera);
 }
 new ResizeObserver(resizeScene).observe(sceneHost);
 
 function renderScene() {
+  arView.update();
   const now = performance.now();
   diagnostics.poseAgeMs = poseTarget ? now - poseReceivedAt : 0;
   const dt = Math.min(0.05, (now - previousRenderAt) / 1000);
@@ -376,6 +418,7 @@ function renderScene() {
     mirroredBrush.position.copy(clay.localToWorld(point)); mirroredBrush.position.z += 0.035;
     mirroredBrush.scale.setScalar(brushRadius() * clay.scale.x);
   }
+  if (arView.live) handModel.visible = false;
   renderer.render(scene, camera);
   updateHistoryButtons();
   animationFrame = requestAnimationFrame(renderScene);
@@ -524,11 +567,10 @@ function drawPreviewSkeleton(landmarks) {
   }
   previewContext.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
   clearPreview();
-  const videoRatio = video.videoWidth / video.videoHeight;
-  const frameRatio = width / height;
-  const coverScaleX = Math.max(1, videoRatio / frameRatio);
-  const coverOffsetX = (coverScaleX - 1) / 2;
-  const points = landmarks.map(({ x, y }) => ({ x: ((1 - x) * coverScaleX - coverOffsetX) * width, y: y * height }));
+  const points = landmarks.map(point => {
+    const mapped = cameraCoverPoint(point, video.videoWidth, video.videoHeight, width, height);
+    return { x: mapped.x * width, y: mapped.y * height };
+  });
   previewContext.lineCap = 'round';
   previewContext.lineJoin = 'round';
   previewContext.lineWidth = 2;
@@ -562,14 +604,21 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null, worldLandmark
   window.lastSmoothTime = now;
   const scaleX = 4.8;
   const scaleY = Math.min(4.8 * (sceneHost.clientHeight / sceneHost.clientWidth), 3.5);
+  const arHeight = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.position.z;
   // Image-space landmarks already carry camera perspective: nearer hands occupy more pixels.
   // MediaPipe landmark Z is relative to the wrist, not a global camera-distance value.
-  const pointAt = (point) => ({
-    x: (0.5 - point.x) * scaleX,
-    y: (0.5 - point.y) * scaleY,
-    // MediaPipe depth gets smaller as the hand moves toward the camera; Three.js uses +Z toward the camera.
-    z: -point.z * 2.3,
-  });
+  const pointAt = (point) => {
+    if (arView.live && !mouseMode) {
+      const mapped = cameraCoverPoint(point, video.videoWidth, video.videoHeight, sceneHost.clientWidth, sceneHost.clientHeight);
+      return { x: (mapped.x - 0.5) * arHeight * camera.aspect, y: (0.5 - mapped.y) * arHeight, z: 0 };
+    }
+    return {
+      x: (0.5 - point.x) * scaleX,
+      y: (0.5 - point.y) * scaleY,
+      // MediaPipe depth gets smaller toward the camera; Three.js uses +Z.
+      z: -point.z * 2.3,
+    };
+  };
   let mappedPoints = smoothedPoints.map(pointAt);
   if (!mouseMode) {
     // Screen-space aim is usable immediately, independently of approximate
@@ -664,6 +713,7 @@ function processHandPose(mappedPoints, pinchOverride = null) {
   }
   handModel.position.z = mouseMode ? 1.3 : 0;
   updateHandSurface(mappedPoints);
+  if (arView.live) handModel.visible = false;
   scenePlaceholder.classList.add('is-hidden');
   if (clayVolume.meshFailed) {
     cancelMouseStroke();
@@ -950,6 +1000,10 @@ async function startTracking() {
 }
 
 async function startCamera() {
+  if (cameraOpening) return;
+  cameraOpening = true;
+  const requestEpoch = ++cameraRequestEpoch;
+  cancelMouseStroke();
   mouseMode = false;
   cameraButton.disabled = true;
   buttonLabel.textContent = 'Opening camera…';
@@ -958,12 +1012,18 @@ async function startCamera() {
   setPrompt('Waking up the studio…', 'Opening your camera, then loading hand tracking. This can take a few seconds.', 'neutral');
   try {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('unsupported');
-    stream = await navigator.mediaDevices.getUserMedia({
+    const openedStream = await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } },
     });
+    if (requestEpoch !== cameraRequestEpoch) { openedStream.getTracks().forEach(track => track.stop()); return; }
+    stream = openedStream;
+    openedStream.getVideoTracks()[0]?.addEventListener('ended', () => {
+      if (stream === openedStream) { stopCamera(); setPrompt('Camera stopped.', 'Reconnect your camera, then turn AR mode on again.', 'neutral'); }
+    });
     video.srcObject = stream;
     await video.play();
+    if (requestEpoch !== cameraRequestEpoch) return;
     videoWidth = video.videoWidth;
     videoHeight = video.videoHeight;
     videoPlaceholder.hidden = true;
@@ -971,7 +1031,9 @@ async function startCamera() {
     cameraStatus.textContent = 'ON';
     cameraStatus.classList.add('is-on');
     document.querySelector('#check-camera').classList.add('is-done');
+    if (arView.enabled) await arView.attachStream(stream);
   } catch (error) {
+    if (requestEpoch !== cameraRequestEpoch) return;
     console.error('ClayPlay camera access failed:', error);
     stopCamera();
     cameraButton.disabled = false;
@@ -985,11 +1047,17 @@ async function startCamera() {
     tipHeading.textContent = 'No camera? That’s okay.';
     tipCopy.textContent = 'You can still preview how a tracked hand moves through the studio.';
     return;
+  } finally {
+    if (requestEpoch === cameraRequestEpoch) cameraOpening = false;
   }
+  if (requestEpoch !== cameraRequestEpoch) return;
   await startTracking();
 }
 
 function stopCamera(resetLandmarker = true) {
+  cameraRequestEpoch++; cameraOpening = false;
+  arView.setEnabled(false);
+  cancelMouseStroke();
   trackingEpoch++;
   poseTarget = null; poseDisplayed = null; gapStartedAt = null;
   pinchGesture.reset();
@@ -1202,7 +1270,8 @@ document.addEventListener('mask-pull-error', () => {
 if (new URLSearchParams(location.search).has('diagnostics')) {
   window.clayPlayDebug = { objects: clayObjects, camera,
     feedHand: updateThreeSkeleton, pauseHand: pauseTracking, cancel: cancelMouseStroke,
-    getState: () => ({ tool: activeTool, cutting: Boolean(clayVolume.cutting), cutPoints: cutStroke?.points.length ?? 0,
+    getState: () => ({ arEnabled: arView.enabled, arLive: arView.live, cameraOn: Boolean(stream),
+      virtualHandVisible: handModel.visible, tool: activeTool, cutting: Boolean(clayVolume.cutting), cutPoints: cutStroke?.points.length ?? 0,
       cutPreview: cutPreview.visible, pulling: Boolean(clayVolume.pulling), pending: Boolean(clayVolume.meshQueue?.pending),
       symmetry: symmetryEnabled, brushSize: activeSize, brushRadius: brushRadius(), hoverRadius: brushCue.visible ? brushCue.scale.x / clay.scale.x : 0,
       held: pinchGesture.held, grabbed: Boolean(previousPullPoint), undo: clayVolume.undoStack?.length ?? 0,

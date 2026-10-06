@@ -78,6 +78,7 @@
                 </svg>
               </div>
               <div class="stage-scene" id="three-scene" aria-label="Three dimensional hand tracking view">
+                <video id="ar-camera-video" autoplay muted playsinline aria-hidden="true" hidden></video>
                 <div class="sculpt-history" role="group" aria-label="Undo or redo sculpting">
                   <button type="button" id="sculpt-undo" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
                   <button type="button" id="sculpt-redo" disabled title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
@@ -106,6 +107,10 @@
                   <p class="clay-menu-status" id="clay-menu-status" role="status">Add up to eight masks to your table.</p>
                 </div>
               </details>
+              <button class="ar-toggle" id="ar-toggle" type="button" aria-pressed="false" title="Show your live camera behind the mask">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h4l2-3h6l2 3h4v13H3Z"/><circle cx="12" cy="13" r="4"/></svg>
+                <span>AR mode</span><span class="ar-state">Off</span>
+              </button>
               <button class="fullscreen-button" id="fullscreen-button" type="button" aria-controls="stage" aria-pressed="false" title="Expand the play area">
                 <svg viewBox="0 0 20 20" aria-hidden="true"><path class="expand-icon" d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4"/><path class="collapse-icon" d="M3 7h4V3m6 0v4h4M7 17v-4H3m14 0h-4v4"/></svg>
                 <span id="fullscreen-label">Full screen</span>

@@ -60,6 +60,52 @@ test('Symmetry cuts both sides and keeps the larger center piece', () => {
   for (let x = 0; x < 1.1; x += 0.05) assert.ok(Math.abs(distanceUV(x, 0, result.region) - distanceUV(-x, 0, result.region)) < 1e-6);
 });
 
+test('Diagonal cut contours stay close to the stroke without raster stair steps', () => {
+  const f = footprint(), result = separateCut(f, [[0.2, -1], [0.8, 1]]);
+  assert.equal(result.valid, true);
+  assert.equal(result.region.cell, f.cell);
+  assert.equal(result.region.distances.length, f.mask.length);
+  const offsets = [];
+  for (let y = -0.6; y <= 0.6; y += 0.002) {
+    let lo = 0, hi = 1;
+    for (let i = 0; i < 25; i++) {
+      const mid = (lo + hi) / 2;
+      if (distanceUV(mid, y, result.region) > 0) hi = mid; else lo = mid;
+    }
+    offsets.push((lo + hi) / 2 - (0.5 + 0.3 * y));
+  }
+  // Include the fixed fine cut width; smoothing must not move the trim far.
+  assert.ok(offsets.every(offset => Math.abs(offset) < f.cell * 1.5));
+  const mean = offsets.reduce((a, b) => a + b, 0) / offsets.length;
+  const deviation = Math.sqrt(offsets.reduce((sum, v) => sum + (v - mean) ** 2, 0) / offsets.length);
+  const roughness = Math.sqrt(offsets.slice(1, -1).reduce((sum, v, i) =>
+    sum + (offsets[i] - 2 * v + offsets[i + 2]) ** 2, 0) / (offsets.length - 2));
+  assert.ok(deviation < f.cell * 0.1, `Contour deviation: ${deviation}`);
+  assert.ok(roughness < f.cell * 0.005, `Contour roughness: ${roughness}`);
+});
+
+test('Smoothed loop rims remain round and small cutouts remain open', () => {
+  const f = footprint(), result = separateCut(f, loop(0.3, -0.25, 0.2)), radii = [];
+  assert.equal(result.valid, true);
+  for (let i = 0; i < 360; i++) {
+    const angle = i / 360 * 2 * Math.PI;
+    let lo = 0, hi = 0.4;
+    for (let j = 0; j < 25; j++) {
+      const mid = (lo + hi) / 2;
+      if (distanceUV(0.3 + Math.cos(angle) * mid, -0.25 + Math.sin(angle) * mid, result.region) > 0) lo = mid; else hi = mid;
+    }
+    radii.push((lo + hi) / 2);
+  }
+  assert.ok(Math.max(...radii) - Math.min(...radii) < f.cell * 0.5);
+  const roughness = Math.sqrt(radii.reduce((sum, v, i) =>
+    sum + (radii[(i + 359) % 360] - 2 * v + radii[(i + 1) % 360]) ** 2, 0) / 360);
+  assert.ok(roughness < f.cell * 0.015, `Loop roughness: ${roughness}`);
+  const small = separateCut(f, loop(0.3, -0.25, 0.06));
+  assert.equal(small.valid, true);
+  assert.ok(distanceUV(0.3, -0.25, small.region) > f.cell);
+  assert.ok(distanceUV(0.45, -0.25, small.region) < 0);
+});
+
 test('Perspective footprint projects both shell surfaces onto the cursor plane', () => {
   const eye = [1, 0.5, 8.6], planeZ = 0.9;
   const p = projectCutPoint(0.8, 0.2, 0.4, eye, planeZ);

@@ -133,6 +133,8 @@ incomplete strokes keep the mask unchanged and show a completion hint. Cut uses
 a fixed fine width, so the brush Size and Strength sliders are disabled in this mode.
 Processing happens in a background worker, retaining the old mask until the cut
 is ready. The newly cut edges have thickness and support further sculpting.
+A small, one-time smoothing pass softens grid steps along the cut rim without
+increasing mesh resolution or adding work to live hand tracking.
 
 Use the **V-shaped Symmetry button** to mirror new pinch drags across the selected
 mask's vertical center, including Cut outlines. It starts off; when enabled, the button shows On, a dashed
@@ -144,6 +146,15 @@ Switching symmetry affects subsequent grabs and preserves existing details.
 
 Brush size remains adjustable from 0% to 90%; 0% turns the brush off. Strength,
 colors, the mask collection, camera controls, reset, and fullscreen remain available.
+
+Turn on **AR mode** above Masks & color to show the live camera behind the mask.
+It reuses the camera stream, requesting camera access if it is not already on.
+The background is mirrored like the camera preview. Pinch, Cut, symmetry, color,
+and Undo/Redo remain available while you work over the camera view. The virtual
+hand is hidden so the real hand stays visible. Fingertip targeting follows the
+video's cropping and the play area's size, including fullscreen. Turning AR off
+returns to the studio background and keeps the mask and camera session; stopping
+the camera turns AR off as well. Camera video stays on the device.
 
 ### Proposed later scope
 

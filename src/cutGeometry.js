@@ -132,7 +132,7 @@ export function separateCut(footprint, points, symmetry = false) {
     }
   }
   for (let i = 0; i < mask.length; i++) if (barrier[i] && mask[i]) classification[i] = 2;
-  const distances = signedDistances(classification, width, height, cell);
+  const distances = smoothCutBoundary(signedDistances(classification, width, height, cell), width, height, cell);
   return { valid: true, closed, removedArea: removedArea * cell * cell,
     region: { min, width, height, cell, distances, eye: footprint.eye, planeZ: footprint.planeZ } };
 }
@@ -160,6 +160,28 @@ function signedDistances(labels, width, height, cell) {
   }
   for (let i = 0; i < distances.length; i++) distances[i] *= cell * (labels[i] === 2 ? 1 : -1);
   return distances;
+}
+
+function smoothCutBoundary(distances, width, height, cell) {
+  // A small separable filter softens raster steps once, in the cut worker.
+  // Keep the original field away from the edge and use the same mesh grid.
+  const horizontal = new Float32Array(distances.length), smooth = distances.slice();
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const row = y * width, i = row + x;
+    horizontal[i] = (distances[row + Math.max(0, x - 2)]
+      + 4 * distances[row + Math.max(0, x - 1)] + 6 * distances[i]
+      + 4 * distances[row + Math.min(width - 1, x + 1)]
+      + distances[row + Math.min(width - 1, x + 2)]) / 16;
+  }
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const i = x + y * width;
+    if (Math.abs(distances[i]) > cell * 3) continue;
+    smooth[i] = (horizontal[x + Math.max(0, y - 2) * width]
+      + 4 * horizontal[x + Math.max(0, y - 1) * width] + 6 * horizontal[i]
+      + 4 * horizontal[x + Math.min(height - 1, y + 1) * width]
+      + horizontal[x + Math.min(height - 1, y + 2) * width]) / 16;
+  }
+  return smooth;
 }
 
 export function cutDistance(x, y, z, region) {
