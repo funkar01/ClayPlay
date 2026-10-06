@@ -120,12 +120,22 @@ These are design expectations to validate through a prototype, not measured find
 
 ### Current prototype controls
 
-The studio currently focuses on one sculpting tool: **Pinch**. Carve, Bulge,
-Knife, and their editing implementations have been removed to keep this
-prototype focused. The full-face, half-face, and animal starters remain available.
+The studio currently offers **Pinch** for shaping and **Cut** for trimming.
+Carve, Bulge, and the old palm-based Knife remain removed. The full-face,
+half-face, and animal starters remain available.
+
+In Cut mode, pinch to start, trace with the index fingertip, and release to finish.
+Mouse users click, trace, and release. Draw from edge to edge to trim the shell,
+or draw a closed loop to cut out a patch. Endpoints near an edge extend to it,
+and nearly closed loops snap shut. The red
+outline turns green when the loop is ready. The smaller separated piece vanishes;
+incomplete strokes keep the mask unchanged and show a completion hint. Cut uses
+a fixed fine width, so the brush Size and Strength sliders are disabled in this mode.
+Processing happens in a background worker, retaining the old mask until the cut
+is ready. The newly cut edges have thickness and support further sculpting.
 
 Use the **V-shaped Symmetry button** to mirror new pinch drags across the selected
-mask's vertical center. It starts off; when enabled, the button shows On, a dashed
+mask's vertical center, including Cut outlines. It starts off; when enabled, the button shows On, a dashed
 center guide appears, and a second brush ring previews the opposite side.
 Symmetry works with hand tracking and mouse sculpting, follows the mask when it
 moves or scales, and keeps each two-sided drag as one Undo/Redo action. Centered

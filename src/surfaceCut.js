@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { checkpoint } from './sculptHistory.js';
+import { diagnostics } from './diagnostics.js';
 
 export class SurfaceCut {
   constructor(volume, onComplete) { this.volume = volume; this.onComplete = onComplete; }
@@ -16,6 +17,7 @@ export class SurfaceCut {
       clearTimeout(this.timer);
       if (data.error) { fail(data.error); return; }
       if (data.valid) {
+        diagnostics.cutWorkerMs = data.duration;
         // Checkpoint only a valid cut. An incomplete outline changes neither
         // geometry nor Undo/Redo, and the old mesh stays visible while working.
         checkpoint(volume);

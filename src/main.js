@@ -172,7 +172,7 @@ function resetClay() {
   pinchCue.visible = false;
   resetButton.hidden = true;
   lastPinchHint = false;
-  resetPinchControls();
+  resetToolControls();
   setPrompt('Fresh mask, ready to shape.', toolDetails().body, 'success');
 }
 
@@ -184,7 +184,7 @@ function selectClayObject(id) {
   resetButton.hidden = !item.edited;
   resetButton.title = `Reset ${item.label}`;
   clayMenu?.refresh();
-  resetPinchControls();
+  resetToolControls();
 }
 
 function markClayEdited() {
@@ -469,7 +469,7 @@ sizeInput.addEventListener('input', () => {
 });
 updateSizeControl();
 
-function resetPinchControls() {
+function resetToolControls() {
   cutStroke = null; cutPreview.visible = false; mirroredCutPreview.visible = false;
   clayVolume.surfacePull?.finish();
   brushCue.visible = false; grabTether.visible = false;
@@ -477,7 +477,7 @@ function resetPinchControls() {
   pinchGesture.reset();
   const details = toolDetails();
   strengthInput.disabled = activeTool === 'cut'; sizeInput.disabled = activeTool === 'cut';
-  document.querySelector('#size-context').textContent = activeTool === 'cut' ? 'Cut follows your line · no brush needed' : 'Brush width · % of starting shape';
+  document.querySelector('#size-context').textContent = activeTool === 'cut' ? 'Cut follows your index' : 'Brush width · % of starting shape';
   toolButtons.forEach(button => {
     const selected = button.dataset.tool === activeTool;
     button.classList.toggle('is-active', selected); button.setAttribute('aria-pressed', String(selected));
@@ -489,14 +489,14 @@ function resetPinchControls() {
   pinchCue.visible = false;
   stageCaption.textContent = mouseMode ? details.mouseCaption : details.caption;
   sceneHint.innerHTML = mouseMode ? `<span class="hint-icon">✦</span> ${details.mouseHint}` : details.hint;
-  setPrompt(mouseMode ? 'Mouse sculpting is ready.' : details.title, mouseMode ? `${details.mouseHint}. Release to stop. Adjust ${details.context.toLowerCase()} above.` : details.body, 'success');
+  setPrompt(mouseMode ? 'Mouse sculpting is ready.' : details.title, mouseMode ? `${details.mouseHint}.${activeTool === 'pinch' ? ` Adjust ${details.context.toLowerCase()} above.` : ' The smaller piece disappears; Undo brings it back.'}` : details.body, 'success');
   tipHeading.textContent = details.tipHeading;
   tipCopy.textContent = details.tipCopy;
 }
 
 toolButtons.forEach((button) => {
   button.addEventListener('pointerdown', (event) => event.stopPropagation());
-  button.addEventListener('click', () => { cancelMouseStroke(); activeTool = button.dataset.tool; lastPinchHint = false; resetPinchControls(); });
+  button.addEventListener('click', () => { cancelMouseStroke(); activeTool = button.dataset.tool; lastPinchHint = false; resetToolControls(); });
 });
 
 symmetryButton.addEventListener('pointerdown', event => event.stopPropagation());
@@ -576,7 +576,7 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null, worldLandmark
     // webcam depth. Freeze edits during missing frames but keep a brief grab.
     if (gapStartedAt !== null) {
       const midpointShift = poseTarget ? new THREE.Vector3(mappedPoints[8].x, mappedPoints[8].y, mappedPoints[8].z).distanceTo(poseTarget[8]) : 0;
-      if (now - gapStartedAt > 700 || midpointShift > 1.2) cancelMouseStroke();
+      if (now - gapStartedAt > 700 || midpointShift > (activeTool === 'cut' ? 0.2 : 1.2)) cancelMouseStroke();
       grabCursorOrigin = null; previousPullCursorPoint = null;
       gapStartedAt = null; poseDisplayed = null;
     }
@@ -588,6 +588,71 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null, worldLandmark
     return;
   }
   processHandPose(mappedPoints, pinchOverride);
+}
+
+function processCut(handPoint, held, wasHeld) {
+  brushCue.visible = false; grabTether.visible = false; pinchCue.visible = false; mirroredBrush.visible = false;
+  const planeZ = 0.9;
+  const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -clay.localToWorld(new THREE.Vector3(0, 0, planeZ)).z);
+  clayRaycaster.set(camera.position, new THREE.Vector3(handPoint.x, handPoint.y, 0).sub(camera.position).normalize());
+  const world = clayRaycaster.ray.intersectPlane(plane, new THREE.Vector3());
+  if (!world) return;
+  const cursor = clay.worldToLocal(world.clone());
+  contactCue.visible = true; contactCue.position.copy(world); contactCue.scale.setScalar(0.42);
+  contactCue.material.color.set('#c86348');
+  if (held && !wasHeld && !cutStroke) {
+    if (clayVolume.meshQueue?.pending) { sceneHint.textContent = 'Mask is getting ready · open your fingers, then pinch again'; return; }
+    cutStroke = { points: [], length: 0, volume: clayVolume, item: clayObjects.active,
+      eye: clay.worldToLocal(camera.position.clone()).toArray(), planeZ, symmetry: symmetryEnabled };
+  }
+  if (held && cutStroke) {
+    const point = [cursor.x, cursor.y], previous = cutStroke.points.at(-1);
+    const distance = previous ? Math.hypot(point[0] - previous[0], point[1] - previous[1]) : 0;
+    if (!previous || distance >= 0.007) {
+      if (cutStroke.points.length >= 2048) { cancelMouseStroke(); sceneHint.textContent = 'Try a shorter outline'; return; }
+      cutStroke.points.push(point); cutStroke.length += distance;
+      for (const [line, mirrored] of [[cutPreview, false], [mirroredCutPreview, true]]) {
+        const positions = line.geometry.attributes.position;
+        cutStroke.points.forEach(([x, y], i) => {
+          const p = clay.localToWorld(new THREE.Vector3(mirrored ? -x : x, y, planeZ)); positions.setXYZ(i, p.x, p.y, p.z);
+        });
+        positions.needsUpdate = true; line.geometry.setDrawRange(0, cutStroke.points.length);
+        line.visible = !mirrored || cutStroke.symmetry;
+      }
+    }
+    const first = cutStroke.points[0];
+    const loopReady = cutStroke.length > 0.22 && cutStroke.points.length >= 6 && Math.hypot(cursor.x - first[0], cursor.y - first[1]) < 0.08;
+    cutPreview.material.color.set(loopReady ? '#538c68' : '#c86348');
+    mirroredCutPreview.material.color.copy(cutPreview.material.color);
+    contactLabel.textContent = loopReady ? 'Loop ready · release to cut' : 'Tracing · release to cut';
+    sceneHint.textContent = loopReady ? 'Loop closed · release to remove the smaller piece' : 'Trace to the other edge, or back to the start · release to cut';
+    stageCaption.textContent = 'CUT OUTLINE · FOLLOW YOUR INDEX'; lastPinchHint = true;
+  } else if (!held && cutStroke) {
+    const stroke = cutStroke; cutStroke = null;
+    cutPreview.visible = false; mirroredCutPreview.visible = false;
+    if (stroke.points.length < 2 || stroke.length < 0.12) {
+      sceneHint.textContent = 'Trace a longer cut, then release.'; stageCaption.textContent = 'CUT · TRACE AN OUTLINE';
+      contactLabel.textContent = 'Mask kept unchanged'; return;
+    }
+    const { volume, item } = stroke;
+    volume.surfaceCut ??= new SurfaceCut(volume, data => {
+      if (data.valid) { item.edited = true; if (volume === clayVolume) markClayEdited(); }
+      if (volume !== clayVolume || activeTool !== 'cut') return;
+      if (data.progress !== undefined) { sceneHint.textContent = 'Finishing your cut…'; return; }
+      if (data.valid) {
+        sceneHint.textContent = 'Smaller piece removed · Undo brings it back'; stageCaption.textContent = 'CUT COMPLETE';
+        contactLabel.textContent = 'Cut complete';
+        setPrompt('Cut complete.', 'The smaller piece has disappeared. Trace another cut or use Undo to bring it back.', 'success');
+      } else {
+        sceneHint.textContent = data.reason ?? 'Cut could not finish · try again'; contactLabel.textContent = 'Mask kept unchanged';
+        setPrompt('Complete the outline.', data.reason ?? 'Try the cut again. Your mask is unchanged.', 'neutral');
+      }
+    });
+    volume.surfaceCut.finish(stroke.points, stroke.eye, stroke.planeZ, stroke.symmetry);
+    sceneHint.textContent = 'Finishing your cut…'; stageCaption.textContent = 'FINISHING CUT';
+  } else {
+    contactLabel.textContent = 'Pinch to start a cut';
+  }
 }
 
 function processHandPose(mappedPoints, pinchOverride = null) {
@@ -634,6 +699,7 @@ function processHandPose(mappedPoints, pinchOverride = null) {
     diagnostics.pinch = pinchActive ? 'held' : 'open'; diagnostics.pause = 'none';
     return;
   }
+  contactCue.material.color.set('#7cb58b');
   let surfaceHit = previousPullPoint ? null : getClaySurfaceHit(sculptPoint);
   if (!previousPullPoint) {
     const now = performance.now();
@@ -722,6 +788,10 @@ function pauseTracking(now) {
   contactCue.visible = false;
   brushCue.visible = false;
   pinchCue.material.color.set('#d6a355'); grabTether.material.color.set('#d6a355');
+  if (cutStroke) {
+    contactLabel.textContent = 'Cut paused · bring your hand back';
+    sceneHint.textContent = 'Hand briefly lost · your outline is held, cutting is paused';
+  }
   if (previousPullPoint) {
     contactLabel.textContent = 'Grab paused · bring your hand back';
     sceneHint.textContent = 'Hand briefly lost · your patch is held, edits are paused';
@@ -991,10 +1061,10 @@ mouseButton.addEventListener('click', () => {
   setStatus('ready', 'MOUSE SCULPTING');
   landmarkCount.textContent = '21 LANDMARKS · MOUSE';
   scenePlaceholder.classList.add('is-hidden');
-  const details = pinchDetails;
+  const details = toolDetails();
   stageCaption.textContent = details.mouseCaption;
   sceneHint.innerHTML = `<span class="hint-icon">✦</span> ${details.mouseHint}`;
-  setPrompt('Mouse sculpting is ready.', `${details.mouseHint}. Release to stop. Adjust ${details.context.toLowerCase()} above.`, 'success');
+  setPrompt('Mouse sculpting is ready.', `${details.mouseHint}.${activeTool === 'pinch' ? ` Adjust ${details.context.toLowerCase()} above.` : ' The smaller piece disappears; Undo brings it back.'}`, 'success');
   tipHeading.textContent = 'Camera optional';
   tipCopy.textContent = 'Drag across the clay, then release to let it settle.';
   mouseButton.textContent = 'Exit mouse sculpting';

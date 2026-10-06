@@ -67,6 +67,25 @@ export function separateCut(footprint, points, symmetry = false) {
   const { mask, min, width, height, cell } = footprint;
   const { path, closed, length } = prepareCutPath(points, cell);
   if (length < 0.12) return { valid: false, reason: 'Trace a longer cut, then release.' };
+  if (!closed) {
+    // A fingertip need only reach the edge, rather than land on its exact
+    // last pixel. Extend a nearby endpoint in its existing stroke direction.
+    const occupied = ([x, y]) => {
+      const ix = Math.floor((x - min[0]) / cell), iy = Math.floor((y - min[1]) / cell);
+      return ix >= 0 && iy >= 0 && ix < width && iy < height && mask[ix + iy * width];
+    };
+    for (const at of [0, path.length - 1]) {
+      const point = path[at], next = path[at === 0 ? 1 : at - 1];
+      if (!occupied(point)) continue;
+      const length = Math.hypot(point[0] - next[0], point[1] - next[1]);
+      if (!length) continue;
+      const dx = (point[0] - next[0]) / length, dy = (point[1] - next[1]) / length;
+      for (let reach = cell; reach <= 0.09; reach += cell) {
+        const end = [point[0] + dx * reach, point[1] + dy * reach];
+        if (!occupied(end)) { path[at] = [end[0] + dx * cell, end[1] + dy * cell]; break; }
+      }
+    }
+  }
   const barrier = new Uint8Array(mask.length), paths = symmetry ? [path, path.map(([x, y]) => [-x, y])] : [path];
   const radius = Math.max(0.018, cell * 1.05);
   for (const stroke of paths) for (let i = 1; i < stroke.length; i++) {
