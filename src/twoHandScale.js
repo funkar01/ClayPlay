@@ -7,7 +7,7 @@ export function palmCenter(points) {
     y: indices.reduce((sum, i) => sum + points[i].y, 0) / 5 };
 }
 
-export function closedFist(points, aspect = 1) {
+export function closedFist(points, aspect = 1, minimumCurled = 3) {
   const palm = palmCenter(points);
   if (!palm) return false;
   const distance = (a, b) => Math.hypot((a.x - b.x) * aspect, a.y - b.y);
@@ -18,7 +18,7 @@ export function closedFist(points, aspect = 1) {
     if (distance(points[tip], points[0]) < distance(points[joint], points[0]) * 0.95
       && distance(points[tip], palm) < length * 0.85) curled++;
   }
-  return curled >= 3;
+  return curled >= minimumCurled;
 }
 
 export class TwoHandScale {

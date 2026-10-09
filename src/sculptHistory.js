@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 function capture(volume) {
-  return { userScale: volume.userScale ?? 1, state: volume.snapshot(), bricks: [...volume.bricks].map(([key, { mesh }]) => ({ key,
+  return { userScale: volume.userScale ?? 1, userOffset: [...(volume.userOffset ?? [0, 0])], state: volume.snapshot(), bricks: [...volume.bricks].map(([key, { mesh }]) => ({ key,
     positions: mesh.geometry.attributes.position.array.slice(), normals: mesh.geometry.attributes.normal.array.slice() })) };
 }
 
@@ -14,6 +14,20 @@ export function applyMaskScale(volume, scale) {
 export function checkpointScale(volume) {
   volume.undoStack ??= []; volume.redoStack = [];
   volume.undoStack.push({ scaleOnly: true, userScale: volume.userScale ?? 1 });
+  if (volume.undoStack.length > 8) volume.undoStack.shift();
+  document.dispatchEvent(new Event('sculpt-history-change'));
+}
+
+export function applyMaskPosition(volume, offset) {
+  volume.userOffset = [...offset];
+  const base = volume.layoutPosition ?? [0, 0, 0];
+  volume.parent.position.set(base[0] + offset[0], base[1] + offset[1], base[2]);
+  volume.parent.updateMatrixWorld(true);
+}
+
+export function checkpointPosition(volume) {
+  volume.undoStack ??= []; volume.redoStack = [];
+  volume.undoStack.push({ positionOnly: true, userOffset: [...(volume.userOffset ?? [0, 0])] });
   if (volume.undoStack.length > 8) volume.undoStack.shift();
   document.dispatchEvent(new Event('sculpt-history-change'));
 }
@@ -31,9 +45,15 @@ export function restoreHistory(volume, redo = false) {
   if (!from?.length) return false;
   const to = redo ? (volume.undoStack ??= []) : (volume.redoStack ??= []);
   const saved = from.pop();
+  if (saved.positionOnly) {
+    to.push({ positionOnly: true, userOffset: [...(volume.userOffset ?? [0, 0])] });
+    applyMaskPosition(volume, saved.userOffset);
+    document.dispatchEvent(new Event('sculpt-history-change')); return true;
+  }
   to.push(saved.scaleOnly ? { scaleOnly: true, userScale: volume.userScale ?? 1 } : capture(volume));
   applyMaskScale(volume, saved.userScale ?? 1);
   if (saved.scaleOnly) { document.dispatchEvent(new Event('sculpt-history-change')); return true; }
+  applyMaskPosition(volume, saved.userOffset ?? [0, 0]);
   Object.assign(volume, { shape: saved.state.shape, field: new Map(saved.state.field),
     pullSource: saved.state.pullSource, pullWarp: saved.state.pullWarp,
     cutSource: saved.state.cutSource, cutRegion: saved.state.cutRegion });

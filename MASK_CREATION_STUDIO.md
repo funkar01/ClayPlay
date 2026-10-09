@@ -155,6 +155,22 @@ Switching symmetry affects subsequent grabs and preserves existing details.
 Brush size remains adjustable from 0% to 90%; 0% turns the brush off. Strength,
 colors, the mask collection, camera controls, reset, and fullscreen remain available.
 
+**Move the mask:** close your palm over a solid part of the selected mask, then
+move your hand across the screen. Open your palm to leave the mask at that position
+and continue pinching or cutting. This works in the studio and AR view without a
+separate tool switch. Opening the palm or losing tracking immediately stops movement;
+a whole-hand closure takes priority even when the thumb and index touch. Movement
+stays reserved while closing or opening the palm, including uncertain tracking
+frames. Fully open the hand, then pinch with the other fingers open to resume
+sculpting; normal pinch confirmation remains fast.
+
+**Reset position** returns the selected mask to its starting place, preserving its
+shape, color, and size. Movement and position resets support Undo/Redo, and each
+mask keeps its offset when the view changes. Moving only changes the mask's scene
+position; it reuses one-hand tracking and does not remesh or copy the geometry.
+Resize retains its existing two-hand gesture, and Try it temporarily fits the mask
+to the face before returning to the studio position.
+
 Turn on **AR mode** above Masks & color to show the live camera behind the mask.
 It reuses the camera stream, requesting camera access if it is not already on.
 The background is mirrored like the camera preview. Pinch, Cut, symmetry, color,

@@ -66,7 +66,10 @@ export class ClayObjects {
     this.items.forEach((item, index) => {
       const row = Math.floor(index / columns);
       const rowCount = Math.min(columns, count - row * columns);
-      item.group.position.set(((index % columns) - (rowCount - 1) / 2) * cell, ((rows - 1) / 2 - row) * cell - 0.08, 0);
+      const position = [((index % columns) - (rowCount - 1) / 2) * cell, ((rows - 1) / 2 - row) * cell - 0.08, 0];
+      item.volume.layoutPosition = position;
+      const offset = item.volume.userOffset ?? [0, 0];
+      item.group.position.set(position[0] + offset[0], position[1] + offset[1], position[2]);
       item.volume.layoutScale = scale;
       item.group.scale.setScalar(scale * (item.volume.userScale ?? 1));
       item.group.updateMatrixWorld(true);
