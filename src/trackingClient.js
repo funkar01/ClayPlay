@@ -86,7 +86,7 @@ export class TrackingClient {
     const client = new TrackingClient('hand');
     try {
       await client.request('init', { task: 'hand', numHands: 2 });
-      client.handCount = 2; client.minInterval = 50; client.resizeOnly = true;
+      client.handCount = 2; client.minInterval = 50;
       return client;
     } catch (error) { client.close(); throw error; }
   }

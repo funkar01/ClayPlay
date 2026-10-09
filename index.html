@@ -35,7 +35,7 @@
           </div>
 
           <div class="stage-wrap">
-            <div class="stage" id="stage">
+            <div class="stage is-expanded" id="stage">
               <div class="stage-grain"></div>
               <div class="stage-label"><span class="live-dot"></span><span id="stage-caption">YOUR HAND WILL APPEAR HERE</span></div>
               <div class="tool-switch" role="group" aria-label="Mask sculpting controls">
@@ -46,7 +46,7 @@
                   <span>Symmetry</span><span id="symmetry-state">On</span>
                 </button>
               </div>
-              <div class="strength-control" aria-label="Sculpt strength control">
+              <div class="strength-control" aria-label="Sculpt strength control" hidden>
                 <div class="strength-heading">
                   <label for="tool-strength">STRENGTH</label>
                   <output id="strength-value" for="tool-strength">55</output>
@@ -62,7 +62,7 @@
                   <span class="strength-context" id="size-context">Brush width · % of starting shape</span>
                 </div>
               </div>
-              <div class="axis-gizmo" role="img" aria-label="Scene axes: X points right, Y points up, Z points toward you">
+              <div class="axis-gizmo" role="img" aria-label="Scene axes: X points right, Y points up, Z points toward you" hidden>
                 <svg viewBox="0 0 76 76" aria-hidden="true">
                   <circle class="gizmo-face" cx="38" cy="38" r="35"></circle>
                   <path class="gizmo-axis gizmo-x" d="M24 45H57"></path>
@@ -115,20 +115,23 @@
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5q8-5 16 0v7q0 7-8 10-8-3-8-10Z"/><path d="M7 10h3m4 0h3"/></svg>
                 <span>Try it</span><span class="try-state">Off</span>
               </button>
-              <button class="ar-toggle resize-toggle" id="resize-toggle" type="button" aria-pressed="false" title="Hold with two fists to resize your mask">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4H4v4m12-4h4v4M4 16v4h4m12-4v4h-4M4 4l5 5m11-5-5 5M4 20l5-5m11 5-5-5"/></svg>
-                <span>Resize</span><span class="resize-state">Off</span>
-              </button>
-              <button class="ar-toggle position-reset" id="position-reset" type="button" disabled title="Return the selected mask to its starting position without changing its shape or size">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8V3m0 5h5M5 8a8 8 0 1 1-1 8M12 8v8m-4-4h8"/></svg>
-                <span>Reset position</span>
-              </button>
+              <div class="mask-transform-controls">
+                <span class="resize-help" id="resize-help" hidden>Automatic · show two hands to resize</span>
+                <div class="ar-toggle resize-toggle" id="resize-toggle" role="status" aria-live="polite" aria-describedby="resize-help" aria-label="2-hand Resize: Off. Automatic." title="Automatic: two hands resize; one hand moves, pinches or cuts" hidden>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4H4v4m12-4h4v4M4 16v4h4m12-4v4h-4M4 4l5 5m11-5-5 5M4 20l5-5m11 5-5-5"/></svg>
+                  <span>2-hand Resize</span><span class="resize-state">Off</span>
+                </div>
+                <button class="ar-toggle position-reset" id="position-reset" type="button" disabled title="Return the selected mask to its starting position without changing its shape or size">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8V3m0 5h5M5 8a8 8 0 1 1-1 8M12 8v8m-4-4h8"/></svg>
+                  <span>Reset position</span>
+                </button>
+              </div>
               <button class="fullscreen-button" id="fullscreen-button" type="button" aria-controls="stage" aria-pressed="false" title="Expand the play area">
                 <svg viewBox="0 0 20 20" aria-hidden="true"><path class="expand-icon" d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4"/><path class="collapse-icon" d="M3 7h4V3m6 0v4h4M7 17v-4H3m14 0h-4v4"/></svg>
                 <span id="fullscreen-label">Full screen</span>
               </button>
               <span class="sr-only" id="fullscreen-status" role="status"></span>
-              <details class="reach-calibration" id="reach-calibration">
+              <details class="reach-calibration" id="reach-calibration" hidden>
                 <summary id="reach-label">Calibrate reach</summary>
                 <div class="reach-calibration-panel">
                   <strong>Place the clay in your reach</strong>
@@ -192,7 +195,7 @@
             </ul>
           </div>
 
-          <button class="quiet-button" id="mouse-button">Preview with mouse <span>→</span></button>
+          <button class="quiet-button" id="mouse-button" hidden>Use cursor <span>→</span></button>
         </aside>
       </main>
       <footer class="footer"><span>MADE FOR CURIOUS HANDS</span><span class="footer-center"><i></i> TAKE YOUR TIME · THERE’S NO WRONG WAY TO BEGIN</span><span>CLAYPLAY STUDIO <b>✳</b></span></footer>

@@ -94,6 +94,8 @@ body.play-area-fullscreen { overflow: hidden; }
 .stage.is-expanded { position: fixed; inset: 0; z-index: 1000; }
 .stage::backdrop { background: #eadfd2; }
 .is-fullscreen .fullscreen-button { right: max(17px, env(safe-area-inset-right)); bottom: max(17px, env(safe-area-inset-bottom)); }
+.stage-session-controls { position: absolute; z-index: 6; top: 146px; left: 19px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.stage-session-controls[hidden] { display: none; }
 
 .selected-clay-name { position: absolute; z-index: 4; top: 117px; left: 19px; max-width: 150px; color: #8b7361; font-size: 10px; pointer-events: none; }
 .clay-menu { position: absolute; z-index: 8; bottom: 17px; left: 17px; color: #806550; }
@@ -122,6 +124,7 @@ body.play-area-fullscreen { overflow: hidden; }
 .clay-menu-footer button { padding: 4px 0; border: 0; background: transparent; color: #ad6045; font-size: 9px; cursor: pointer; }
 .clay-menu-status { margin: 9px 0 0; color: #9f8976; font-size: 9px; line-height: 1.5; }
 .reach-calibration { position: absolute; z-index: 9; top: 210px; right: 17px; width: 162px; color: #806550; font-size: 10px; }
+.reach-calibration[hidden] { display: none; }
 .reach-calibration summary { cursor: pointer; padding: 10px; border: 1px solid #fff9ef; border-radius: 5px; background: #fcf6ec; }
 .reach-calibration-panel { position: absolute; top: 40px; right: 0; width: 280px; max-height: min(440px, calc(clamp(440px, 62vh, 740px) - 271px)); overflow: auto; overscroll-behavior: contain; padding: 16px; border: 1px solid #deccba; border-radius: 8px; background: #fffaf3; box-shadow: 0 8px 28px #55362025; }
 .reach-calibration-panel strong { color: #604b3b; font-size: 13px; }
@@ -175,7 +178,7 @@ body.play-area-fullscreen { overflow: hidden; }
 
 #ar-camera-video { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); pointer-events: none; }
 #ar-camera-video[hidden] { display: none; }
-#three-scene > canvas { position: relative; z-index: 1; }
+#three-scene > canvas { position: relative; z-index: 1; touch-action: none; }
 .ar-toggle { position: absolute; z-index: 6; left: 17px; bottom: 66px; display: flex; align-items: center; gap: 7px; min-height: 34px; padding: 8px 10px; border: 1px solid rgba(255,255,255,.8); border-radius: 5px; background: rgba(255,251,246,.9); color: #806550; font: inherit; font-size: 10px; cursor: pointer; backdrop-filter: blur(8px); }
 .ar-toggle svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .ar-toggle .ar-state { font-size: 8px; opacity: .75; }
@@ -186,12 +189,14 @@ body.play-area-fullscreen { overflow: hidden; }
 @media (max-width: 440px) { .ar-toggle { left: 12px; } }
 
 .try-toggle { left: 130px; }
-.resize-toggle { left: 17px; bottom: 108px; }
-.position-reset { left: 121px; bottom: 108px; }
+.mask-transform-controls { position: absolute; z-index: 6; left: 17px; bottom: 108px; display: flex; gap: 8px; }
+.mask-transform-controls .ar-toggle { position: static; }
+.resize-help { position: absolute; left: 0; bottom: calc(100% + 7px); padding: 3px 6px; border-radius: 3px; background: rgba(255,251,246,.9); color: #806550; font-size: 9px; white-space: nowrap; pointer-events: none; }
 .position-reset:disabled { opacity: .5; cursor: default; }
-.resize-toggle:disabled { opacity: .6; cursor: wait; }
+.resize-toggle { cursor: default; }
+.resize-toggle[hidden], .resize-help[hidden] { display: none; }
 .is-resizing .tool-switch, .is-resizing .strength-control, .is-resizing .reach-calibration { display: none; }
-.is-trying .resize-toggle, .is-trying .position-reset { display: none; }
+.is-trying .mask-transform-controls { display: none; }
 .is-trying .tool-switch, .is-trying .strength-control, .is-trying .reach-calibration,
 .is-trying .sculpt-history, .is-trying .clay-reset, .is-trying .axis-gizmo { display: none; }
-@media (max-width: 440px) { .try-toggle { left: 124px; } .resize-toggle { left: 12px; } .position-reset { left: 116px; } }
+@media (max-width: 440px) { .try-toggle { left: 124px; } .mask-transform-controls { left: 12px; } }

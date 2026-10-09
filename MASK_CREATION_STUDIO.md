@@ -51,11 +51,21 @@ Freeze edits when tracking is lost. Use movement smoothing and a forgiving brush
 
 ### Two-hand resize (local prototype)
 
-Turn **Resize** on, place both hands on opposite sides of the selected mask, and close both fists briefly. Move apart to enlarge or together to shrink. Open either hand to keep the visible size; a lost hand also freezes the size. The range is 40–250% of the original studio size. Undo and redo include resizing, and size survives viewport changes.
+**2-hand Resize** turns On automatically when two hands are detected and Off when fewer are detected. Its label is a status indicator, with no manual toggle. Place both hands on opposite sides of the selected mask, and close both fists briefly. Move apart to enlarge or together to shrink. Open either hand to keep the visible size; a lost hand also freezes the size. The range is 40–250% of the original studio size. Undo and redo include resizing, and size survives viewport changes.
+
+Use one hand for closed-palm movement, pinch sculpting, and cuts. Show both
+hands to switch to Resize automatically. Detection alone never changes the
+size: both fists still need to grip. After leaving two-hand mode, fully open
+the remaining hand before starting a new edit, so a lost hand cannot turn
+a resize into an accidental move, pinch or cut.
+Both grips need to straddle the selected mask, with a comfortable gap allowed;
+there is no hidden distance limit tied to the mask size. Guidance distinguishes
+missing hands, same-side placement, detected grips, and an active hold.
+These gestures stay separate, and resizing preserves the mask's position and edits.
 
 Resize changes the mask's studio display scale and preserves its sculpted geometry. Try it continues to fit the mask to the detected face automatically.
 
-Normal sculpting still tracks one hand at the existing resolution and cadence. Resize uses background CPU inference with two hands, a 512-pixel capture width, and at most 20 tracking updates per second, backing off when inference is slow. The existing worker is reused; if normal sculpting needed main-thread compatibility tracking, Resize replaces it with one background worker. Rendering interpolates size between results, stopping immediately when either fist opens. Sustained inference above 120 ms for five frames pauses Resize and restores one-hand sculpting. Scaling and its undo entries do not rebuild or copy the surface. Two-hand inference still has a device-dependent cost; measure responsiveness on target devices before enabling this mode by default.
+Automatic switching uses one background CPU tracker configured for up to two hands throughout camera editing, with a 512-pixel capture width and at most 20 tracking updates per second, backing off when inference is slow. Changing between one- and two-hand gestures does not load models, recreate workers or reconfigure inference. Rendering interpolates between results, stopping immediately when a grip opens. Sustained inference above 120 ms for five frames pauses automatic resizing and restores one-hand tracking; restarting the camera retries automatic detection. If background tracking is unavailable, one-hand compatibility tracking remains usable. Scaling and its undo entries do not rebuild or copy the surface. Looking for a second hand has a device-dependent inference cost, even during one-hand editing; measure responsiveness on target devices.
 
 ### Essential assistance
 
@@ -154,6 +164,21 @@ Switching symmetry affects subsequent grabs and preserves existing details.
 
 Brush size remains adjustable from 0% to 90%; 0% turns the brush off. Strength,
 colors, the mask collection, camera controls, reset, and fullscreen remain available.
+
+The studio opens in a view that fills the browser window. **Exit full screen**
+or Escape returns to the page layout. Camera setup and cursor controls remain
+accessible inside the expanded studio. Reach calibration is hidden for now.
+
+**Create with the cursor:** when the camera is off, Pinch and Cut are ready
+automatically, including after a camera permission failure or disconnection.
+With Pinch selected, click a solid mask patch and drag; releasing keeps the
+visible shape immediately. With Cut selected, hold the mouse button and trace
+edge to edge or a closed loop, then release to remove the smaller piece.
+Symmetry and Undo/Redo work the same way as hand input. Pointer capture keeps
+drags continuous, and cancelled pointers or focus loss safely end a pull or
+discard an unfinished cut. No virtual hand or tracking model is needed for
+cursor editing. Camera controls remain accessible; starting the camera switches
+editing back to hand tracking, and Try it pauses editing while wearing the mask.
 
 **Move the mask:** close your palm over a solid part of the selected mask, then
 move your hand across the screen. Open your palm to leave the mask at that position

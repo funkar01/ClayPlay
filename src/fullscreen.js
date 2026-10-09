@@ -1,11 +1,17 @@
 // Keep the existing stage (and its clay/camera state) when changing view size.
-export function setupFullscreen(stage, cancelStroke) {
+export function setupFullscreen(stage, cancelStroke, { startExpanded = true, controls = [] } = {}) {
   const button = stage.querySelector('#fullscreen-button');
   const label = stage.querySelector('#fullscreen-label');
   const status = stage.querySelector('#fullscreen-status');
-  let expanded = false;
+  // Fill the browser tab immediately; native fullscreen requires a click.
+  let expanded = startExpanded;
   let pending = false;
   let background = [];
+  const placements = controls.map(element => ({ element, parent: element.parentNode, next: element.nextSibling }));
+  const controlDock = document.createElement('div');
+  controlDock.className = 'stage-session-controls';
+  controlDock.hidden = true;
+  stage.append(controlDock);
 
   function syncView() {
     const active = document.fullscreenElement === stage || expanded;
@@ -20,6 +26,10 @@ export function setupFullscreen(stage, cancelStroke) {
     if (active === wasActive) return;
     cancelStroke();
     if (active) {
+      // Keep the original camera/mouse buttons and their handlers available
+      // inside the expanded view rather than trapping them in the background.
+      for (const { element } of placements) controlDock.append(element);
+      controlDock.hidden = false;
       // Also constrain keyboard focus in browsers using the viewport fallback.
       for (let node = stage; node.parentElement && node !== document.body; node = node.parentElement) {
         for (const sibling of node.parentElement.children) {
@@ -31,6 +41,8 @@ export function setupFullscreen(stage, cancelStroke) {
       }
       status.textContent = 'Play area expanded. Press Escape to return.';
     } else {
+      for (const { element, parent, next } of placements) parent.insertBefore(element, next);
+      controlDock.hidden = true;
       for (const [element, wasInert] of background) element.inert = wasInert;
       background = [];
       status.textContent = 'Returned to the studio.';
@@ -74,4 +86,5 @@ export function setupFullscreen(stage, cancelStroke) {
       void toggleFullscreen();
     }
   });
+  syncView();
 }
