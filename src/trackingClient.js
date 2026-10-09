@@ -1,4 +1,5 @@
 import { trackingOptions, visionRuntime } from './trackingOptions.js';
+import { handTrackingBudget } from './twoHandScale.js';
 const preferCompatibility = new Set();
 
 export class TrackingClient {
@@ -34,11 +35,19 @@ export class TrackingClient {
     });
   }
   async detectForVideo(video, timestamp) {
-    const width = Math.min(640, video.videoWidth);
+    const budget = handTrackingBudget(this.handCount ?? 1, this.duration);
+    if (this.task !== 'face') this.minInterval = budget.interval;
+    const width = Math.min(this.task === 'face' ? 640 : budget.width, video.videoWidth);
     const bitmap = await createImageBitmap(video, { resizeWidth: width,
       resizeHeight: Math.max(1, Math.round(video.videoHeight * width / video.videoWidth)), resizeQuality: 'low' });
     if (this.closed) { bitmap.close(); throw new Error('Tracking stopped'); }
     return this.request('frame', { bitmap, timestamp }, [bitmap]);
+  }
+  async setHandCount(count) {
+    if (this.task === 'face' || ![1, 2].includes(count)) throw new Error('Invalid hand tracking mode');
+    if (this.handCount === count) return;
+    await this.request('configure', { numHands: count });
+    this.handCount = count; this.minInterval = handTrackingBudget(count, this.duration).interval;
   }
   close(error = new Error('Tracking stopped')) {
     this.closed = true;
@@ -72,12 +81,22 @@ export class TrackingClient {
     preferCompatibility.add(task);
     return CompatibilityTracker.create(task, signal);
   }
+
+  static async createBackgroundHands() {
+    const client = new TrackingClient('hand');
+    try {
+      await client.request('init', { task: 'hand', numHands: 2 });
+      client.handCount = 2; client.minInterval = 50; client.resizeOnly = true;
+      return client;
+    } catch (error) { client.close(); throw error; }
+  }
 }
 
 // Preserve the previously working browser path if worker/WebGL setup fails.
 class CompatibilityTracker {
-  constructor(tracker) {
+  constructor(tracker, task) {
     this.tracker = tracker;
+    this.task = task;
     this.mode = 'compatibility';
     this.minInterval = 33;
     this.duration = 0;
@@ -86,7 +105,14 @@ class CompatibilityTracker {
     const start = performance.now();
     const result = this.tracker.detectForVideo(video, timestamp);
     this.duration = performance.now() - start;
+    if (this.task !== 'face') this.minInterval = Math.max(33, handTrackingBudget(this.handCount ?? 1, this.duration).interval);
     return result;
+  }
+  async setHandCount(count) {
+    if (this.task === 'face' || ![1, 2].includes(count)) throw new Error('Invalid hand tracking mode');
+    if (this.handCount === count) return;
+    await this.tracker.setOptions({ numHands: count });
+    this.handCount = count; this.minInterval = Math.max(33, handTrackingBudget(count, this.duration).interval);
   }
   close() { this.tracker.close(); }
   static async create(task = 'hand', signal) {
@@ -102,6 +128,6 @@ class CompatibilityTracker {
       options.baseOptions.delegate = 'CPU'; tracker = await Tracker.createFromOptions(vision, options);
     }
     if (signal?.aborted) { tracker.close(); throw new DOMException('Tracking canceled', 'AbortError'); }
-    return new CompatibilityTracker(tracker);
+    return new CompatibilityTracker(tracker, task);
   }
 }

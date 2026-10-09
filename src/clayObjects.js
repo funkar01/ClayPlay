@@ -67,7 +67,8 @@ export class ClayObjects {
       const row = Math.floor(index / columns);
       const rowCount = Math.min(columns, count - row * columns);
       item.group.position.set(((index % columns) - (rowCount - 1) / 2) * cell, ((rows - 1) / 2 - row) * cell - 0.08, 0);
-      item.group.scale.setScalar(scale);
+      item.volume.layoutScale = scale;
+      item.group.scale.setScalar(scale * (item.volume.userScale ?? 1));
       item.group.updateMatrixWorld(true);
     });
     this.updateMarker();

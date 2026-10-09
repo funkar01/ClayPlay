@@ -49,6 +49,14 @@ Keep gestures simple and give visible feedback about the active tool and editing
 
 Freeze edits when tracking is lost. Use movement smoothing and a forgiving brush to reduce accidental changes. Gesture thresholds and depth behaviour need prototype testing rather than being treated as settled specifications.
 
+### Two-hand resize (local prototype)
+
+Turn **Resize** on, place both hands on opposite sides of the selected mask, and close both fists briefly. Move apart to enlarge or together to shrink. Open either hand to keep the visible size; a lost hand also freezes the size. The range is 40–250% of the original studio size. Undo and redo include resizing, and size survives viewport changes.
+
+Resize changes the mask's studio display scale and preserves its sculpted geometry. Try it continues to fit the mask to the detected face automatically.
+
+Normal sculpting still tracks one hand at the existing resolution and cadence. Resize uses background CPU inference with two hands, a 512-pixel capture width, and at most 20 tracking updates per second, backing off when inference is slow. The existing worker is reused; if normal sculpting needed main-thread compatibility tracking, Resize replaces it with one background worker. Rendering interpolates size between results, stopping immediately when either fist opens. Sustained inference above 120 ms for five frames pauses Resize and restores one-hand sculpting. Scaling and its undo entries do not rebuild or copy the surface. Two-hand inference still has a device-dependent cost; measure responsiveness on target devices before enabling this mode by default.
+
 ### Essential assistance
 
 - Symmetry toggle for editing both sides together.

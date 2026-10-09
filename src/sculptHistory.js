@@ -1,8 +1,21 @@
 import * as THREE from 'three';
 
 function capture(volume) {
-  return { state: volume.snapshot(), bricks: [...volume.bricks].map(([key, { mesh }]) => ({ key,
+  return { userScale: volume.userScale ?? 1, state: volume.snapshot(), bricks: [...volume.bricks].map(([key, { mesh }]) => ({ key,
     positions: mesh.geometry.attributes.position.array.slice(), normals: mesh.geometry.attributes.normal.array.slice() })) };
+}
+
+export function applyMaskScale(volume, scale) {
+  volume.userScale = scale;
+  volume.parent.scale.setScalar((volume.layoutScale ?? 1) * scale);
+  volume.parent.updateMatrixWorld(true);
+}
+
+export function checkpointScale(volume) {
+  volume.undoStack ??= []; volume.redoStack = [];
+  volume.undoStack.push({ scaleOnly: true, userScale: volume.userScale ?? 1 });
+  if (volume.undoStack.length > 8) volume.undoStack.shift();
+  document.dispatchEvent(new Event('sculpt-history-change'));
 }
 
 export function checkpoint(volume) {
@@ -17,8 +30,10 @@ export function restoreHistory(volume, redo = false) {
   const from = redo ? volume.redoStack : volume.undoStack;
   if (!from?.length) return false;
   const to = redo ? (volume.undoStack ??= []) : (volume.redoStack ??= []);
-  to.push(capture(volume));
   const saved = from.pop();
+  to.push(saved.scaleOnly ? { scaleOnly: true, userScale: volume.userScale ?? 1 } : capture(volume));
+  applyMaskScale(volume, saved.userScale ?? 1);
+  if (saved.scaleOnly) { document.dispatchEvent(new Event('sculpt-history-change')); return true; }
   Object.assign(volume, { shape: saved.state.shape, field: new Map(saved.state.field),
     pullSource: saved.state.pullSource, pullWarp: saved.state.pullWarp,
     cutSource: saved.state.cutSource, cutRegion: saved.state.cutRegion });

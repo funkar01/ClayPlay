@@ -9,9 +9,10 @@ import { PinchGesture } from './pinchGesture.js';
 import { diagnostics } from './diagnostics.js';
 import { SurfacePull } from './surfacePull.js';
 import { SurfaceCut } from './surfaceCut.js';
-import { checkpoint, restoreHistory } from './sculptHistory.js';
+import { checkpoint, checkpointScale, applyMaskScale, restoreHistory } from './sculptHistory.js';
 import { CameraBackdrop, cameraCoverPoint } from './arView.js';
 import { MaskTryOn } from './tryOn.js';
+import { TwoHandScale, palmCenter } from './twoHandScale.js';
 
 const video = document.querySelector('#camera-video');
 const previewCanvas = document.querySelector('#preview-overlay');
@@ -58,6 +59,12 @@ const connectionLines = [
 ];
 
 const pinchGesture = new PinchGesture();
+const twoHandScale = new TwoHandScale();
+let resizeEnabled = false, resizeChanging = false, resizeSaved = false;
+let resizeAutoPaused = false;
+let resizeTargetScale = null;
+let resizePhase = null, lastResizeHandAt = 0, resizeSlowFrames = 0;
+const resizeButton = document.querySelector('#resize-toggle');
 let poseTarget = null;
 let poseDisplayed = null;
 let poseReceivedAt = 0;
@@ -167,6 +174,8 @@ const tryOn = new MaskTryOn(scene.children.filter(child => child.isLight));
 const tryButton = document.querySelector('#try-toggle');
 tryButton.addEventListener('pointerdown', event => event.stopPropagation());
 tryButton.addEventListener('click', async () => {
+  if (resizeChanging) return;
+  if (resizeEnabled) await setResizeMode(false);
   if (tryOn.enabled) { endTryOn(); return; }
   if (clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending) {
     sceneHint.textContent = 'Finishing your mask · try it in a moment'; return;
@@ -291,13 +300,141 @@ mirroredCutPreview.material = cutPreview.material.clone(); mirroredCutPreview.ma
 mirroredCutPreview.visible = false; scene.add(mirroredCutPreview);
 const contactLabel = document.querySelector('#reach-contact');
 const depthGuide = document.querySelector('#reach-depth');
+const resizeCues = new THREE.Group(); resizeCues.visible = false; scene.add(resizeCues);
+const resizeCueMaterial = new THREE.LineBasicMaterial({ color: '#538c68', depthTest: false });
+const resizeCueGeometry = new THREE.BufferGeometry().setFromPoints(Array.from({ length: 24 }, (_, i) =>
+  new THREE.Vector3(Math.cos(i / 24 * Math.PI * 2) * 0.12, Math.sin(i / 24 * Math.PI * 2) * 0.12, 0)));
+const resizeRings = [0, 1].map(() => {
+  const ring = new THREE.LineLoop(resizeCueGeometry, resizeCueMaterial); ring.renderOrder = 7;
+  resizeCues.add(ring); return ring;
+});
+const resizeLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), resizeCueMaterial);
+resizeLine.frustumCulled = false; resizeLine.renderOrder = 7; resizeCues.add(resizeLine);
 document.querySelector('#restart-reach').addEventListener('click', () => { cancelMouseStroke(); reachCalibration.reset(); });
+
+function updateResizeControl() {
+  resizeButton.setAttribute('aria-pressed', String(resizeEnabled));
+  resizeButton.classList.toggle('is-active', resizeEnabled);
+  resizeButton.querySelector('.resize-state').textContent = resizeChanging ? 'Starting…' : resizeEnabled ? 'On' : resizeAutoPaused ? 'Paused' : 'Off';
+  resizeButton.title = resizeAutoPaused ? 'Two-hand tracking was slow on this device. Click to try again.' : 'Hold with two fists to resize your mask';
+  resizeButton.disabled = resizeChanging; tryButton.disabled = resizeChanging;
+  document.querySelector('#stage').classList.toggle('is-resizing', resizeEnabled);
+  document.querySelector('#check-hand').children[1].textContent = resizeEnabled ? 'Show both hands' : 'Show one hand';
+}
+
+function finishScaleStroke() {
+  twoHandScale.reset(); resizeSaved = false; resizePhase = null;
+  resizeTargetScale = null;
+  resizeCues.visible = false;
+}
+
+async function setResizeMode(enabled) {
+  if (resizeChanging || tryOn.enabled || enabled === resizeEnabled) return;
+  if (enabled && (clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending)) {
+    sceneHint.textContent = 'Finishing your mask · resize in a moment'; return;
+  }
+  cancelMouseStroke(); resizeEnabled = enabled; resizeChanging = true;
+  resizeSlowFrames = 0; resizeAutoPaused = false;
+  poseTarget = null; poseDisplayed = null; smoothedPoints = null;
+  handModel.visible = false; clearPreview(); updateResizeControl();
+  try {
+    if (enabled && !stream) await startCamera();
+    if (enabled && (!stream || !landmarker)) throw new Error('Camera tracking is unavailable');
+    let tracker = landmarker;
+    const epoch = ++trackingEpoch;
+    cancelAnimationFrame(retryTimer);
+    // Compatibility inference runs on the UI thread. Replace it with one CPU
+    // worker for Resize rather than doubling that UI-thread workload.
+    if (enabled && tracker?.mode === 'compatibility') {
+      tracker.close(); landmarker = null;
+      tracker = await TrackingClient.createBackgroundHands();
+      tracker.resumeCompatibility = true;
+      if (epoch !== trackingEpoch || !stream) { tracker.close(); return; }
+      landmarker = tracker; diagnostics.trackingMode = tracker.mode;
+    }
+    if (!enabled && tracker?.resizeOnly) {
+      const compatible = tracker.resumeCompatibility;
+      tracker.close(); landmarker = null;
+      tracker = compatible ? await TrackingClient.createCompatibility() : await TrackingClient.create();
+      if (epoch !== trackingEpoch || !stream) { tracker.close(); return; }
+      landmarker = tracker; diagnostics.trackingMode = tracker.mode;
+    }
+    if (tracker) await tracker.setHandCount(enabled ? 2 : 1);
+    if (epoch !== trackingEpoch || (tracker && tracker !== landmarker)) return;
+    nextTrackingAt = 0; lastVideoTime = -1;
+    if (stream && tracker) trackingLoop(epoch);
+    if (enabled) {
+      tipHeading.textContent = 'Hold with two hands';
+      tipCopy.textContent = 'Close both fists on opposite sides of the mask. Move apart or together to resize, then open either hand to keep the size.';
+      setPrompt('Hold your mask with both hands.', 'Place your hands on opposite sides, then close both fists. Move apart to enlarge, together to shrink. Open either hand to keep the size.', 'success');
+      stageCaption.textContent = 'TWO HANDS · HOLD TO RESIZE';
+      sceneHint.textContent = 'Close both fists on opposite sides of the mask';
+    } else resetToolControls();
+  } catch (error) {
+    console.warn('Two-hand resize could not start:', error);
+    resizeEnabled = false; finishScaleStroke();
+    if (stream) await startTracking();
+    setPrompt('Resize could not start.', 'Your mask is unchanged. Keep sculpting, or try Resize again when the camera is ready.', 'neutral');
+  } finally {
+    resizeChanging = false; updateResizeControl(); updateHistoryButtons();
+  }
+}
+resizeButton.addEventListener('pointerdown', event => event.stopPropagation());
+resizeButton.addEventListener('click', () => setResizeMode(!resizeEnabled));
+
+function resizeScenePoint(point) {
+  if (arView.live) {
+    const p = cameraCoverPoint(point, video.videoWidth, video.videoHeight, sceneHost.clientWidth, sceneHost.clientHeight);
+    const height = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.position.z;
+    return new THREE.Vector3((p.x - 0.5) * height * camera.aspect, (0.5 - p.y) * height, 0.05);
+  }
+  return new THREE.Vector3((0.5 - point.x) * 4.8,
+    (0.5 - point.y) * Math.min(4.8 * sceneHost.clientHeight / sceneHost.clientWidth, 3.5), 0.05);
+}
+
+function showResizeHands(hands, now) {
+  if (!resizeEnabled || resizeChanging || tryOn.enabled) return;
+  lastResizeHandAt = now;
+  const aspect = video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 1;
+  const palms = hands.slice(0, 2).map(palmCenter);
+  const points = palms.map(p => p && resizeScenePoint(p));
+  const radius = ({ full: 1.4, half: 1.04, animal: 1.77 }[clayVolume.shape] ?? 1.4) * clay.scale.x;
+  const canStart = points.length === 2 && points.every(Boolean)
+    && Math.min(points[0].x, points[1].x) < clay.position.x
+    && Math.max(points[0].x, points[1].x) > clay.position.x
+    && points.every(p => Math.abs(p.x - clay.position.x) < radius * 2.5 && Math.abs(p.y - clay.position.y) < radius * 1.8)
+    && !clayVolume.meshQueue?.pending && !clayVolume.pulling && !clayVolume.cutting && !clayMenu?.isOpen;
+  const result = twoHandScale.update(hands, now, clayVolume.userScale ?? 1, aspect, canStart);
+  resizeTargetScale = result.phase === 'holding' ? result.scale : null;
+  if (result.finished) resizeSaved = false;
+  resizeCues.visible = points.length === 2 && points.every(Boolean);
+  if (resizeCues.visible) {
+    points.forEach((p, i) => resizeRings[i].position.copy(p));
+    resizeCueMaterial.color.set(result.phase === 'holding' || result.phase === 'ready' ? '#538c68' : '#be914b');
+    const line = resizeLine.geometry.attributes.position;
+    points.forEach((p, i) => line.setXYZ(i, p.x, p.y, p.z)); line.needsUpdate = true;
+  }
+  landmarkCount.textContent = `${hands.length * 21} LANDMARKS · ${hands.length} HAND${hands.length === 1 ? '' : 'S'}`;
+  setStatus(hands.length === 2 ? 'ready' : 'searching', hands.length === 2 ? 'BOTH HANDS DETECTED' : 'SHOW BOTH HANDS');
+  clearPreview(); hands.slice(0, 2).forEach(p => drawPreviewSkeleton(p, false));
+  const phase = result.phase === 'waiting' && resizePhase === 'released' ? 'released' : result.phase;
+  if (phase !== resizePhase) {
+    resizePhase = phase;
+    stageCaption.textContent = phase === 'holding' ? 'MASK HELD · MOVE YOUR HANDS APART OR TOGETHER' : 'TWO HANDS · HOLD TO RESIZE';
+    setPrompt(phase === 'holding' ? 'You’re holding the mask.' : phase === 'released' ? 'Size kept.' : 'Hold with two fists.',
+      phase === 'holding' ? 'Move your hands apart to enlarge, together to shrink. Open either hand to release.' : 'Place both hands on opposite sides of the mask and close your fists. Keep both hands in the camera view.', 'success');
+  }
+  const hint = phase === 'holding' ? `${Math.round(result.scale * 100)}% · move apart or together · open either hand to release`
+    : phase === 'released' ? 'Released · your mask stays this size' : 'Close both fists on opposite sides of the mask';
+  if (sceneHint.textContent !== hint) sceneHint.textContent = hint;
+}
 
 function resetClay() {
   if (tryOn.enabled) return;
   if (clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending) return;
   cancelMouseStroke();
   checkpoint(clayVolume);
+  applyMaskScale(clayVolume, 1);
   clayVolume.reset();
   clayObjects.active.edited = false;
   pinchActive = false;
@@ -491,13 +628,25 @@ function renderScene() {
   const dt = Math.min(0.05, (now - previousRenderAt) / 1000);
   diagnostics.frameMs = now - previousRenderAt;
   previousRenderAt = now;
-  if (!tryOn.enabled && !mouseMode && poseTarget && gapStartedAt === null && now - poseReceivedAt < 200) {
+  if (resizeEnabled && twoHandScale.active && now - lastResizeHandAt >= 200) {
+    finishScaleStroke();
+    sceneHint.textContent = 'Resize paused · bring both hands back';
+  }
+  if (resizeEnabled && twoHandScale.active && resizeTargetScale !== null) {
+    const currentScale = clayVolume.userScale ?? 1;
+    const scale = THREE.MathUtils.lerp(currentScale, resizeTargetScale, 1 - Math.exp(-dt / 0.035));
+    if (Math.abs(scale - currentScale) > 0.0001) {
+      if (!resizeSaved) { checkpointScale(clayVolume); resizeSaved = true; markClayEdited(); }
+      applyMaskScale(clayVolume, scale); clayObjects.updateMarker();
+    }
+  }
+  if (!resizeEnabled && !tryOn.enabled && !mouseMode && poseTarget && gapStartedAt === null && now - poseReceivedAt < 200) {
     poseDisplayed ??= poseTarget.map((p) => p.clone());
     // One short render interpolation shared by the visible hand and tools.
     const blend = 1 - Math.exp(-dt / 0.012);
     poseDisplayed.forEach((p, i) => p.lerp(poseTarget[i], blend));
     processHandPose(poseDisplayed, pinchGesture.held);
-  } else if (!tryOn.enabled && !mouseMode && poseTarget && now - poseReceivedAt >= 200) {
+  } else if (!resizeEnabled && !tryOn.enabled && !mouseMode && poseTarget && now - poseReceivedAt >= 200) {
     pauseTracking(now);
   }
   depthGuide.hidden = true;
@@ -596,7 +745,7 @@ function updateSizeControl() {
 }
 
 function updateHistoryButtons() {
-  const waiting = Boolean(tryOn.enabled || clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending);
+  const waiting = Boolean(resizeChanging || twoHandScale.active || tryOn.enabled || clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending);
   undoButton.disabled = waiting || !clayVolume.undoStack?.length;
   redoButton.disabled = waiting || !clayVolume.redoStack?.length;
   resetButton.disabled = waiting;
@@ -607,6 +756,7 @@ function useHistory(redo = false) {
   if (clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending) return;
   cancelMouseStroke();
   if (!restoreHistory(clayVolume, redo)) return;
+  clayObjects.updateMarker();
   markClayEdited();
   sceneHint.textContent = redo ? 'Change restored · keep creating' : 'Change undone · try another idea';
   setPrompt(redo ? 'Redone.' : 'Undone.', 'Point at a patch and try a new shape.', 'success');
@@ -675,7 +825,7 @@ function clearPreview() {
   previewContext.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
 }
 
-function drawPreviewSkeleton(landmarks) {
+function drawPreviewSkeleton(landmarks, clear = true) {
   if (!video.videoWidth) return;
   const width = previewCanvas.clientWidth;
   const height = previewCanvas.clientHeight;
@@ -684,7 +834,7 @@ function drawPreviewSkeleton(landmarks) {
     previewCanvas.height = Math.round(height * devicePixelRatio);
   }
   previewContext.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-  clearPreview();
+  if (clear) clearPreview();
   const points = landmarks.map(point => {
     const mapped = cameraCoverPoint(point, video.videoWidth, video.videoHeight, width, height);
     return { x: mapped.x * width, y: mapped.y * height };
@@ -829,7 +979,7 @@ function processCut(handPoint, held, wasHeld) {
 }
 
 function processHandPose(mappedPoints, pinchOverride = null) {
-  if (tryOn.enabled) return;
+  if (tryOn.enabled || resizeEnabled) return;
   // In mouse preview, align the sculpting fingertip/grab with the actual cursor.
   if (mouseMode && mouseSculptPoint) {
     const anchor = mappedPoints[8];
@@ -978,6 +1128,7 @@ function pauseTracking(now) {
 }
 
 function showNoHand(now) {
+  if (resizeEnabled) { showResizeHands([], now); return; }
   pauseTracking(now);
   if (now - gapStartedAt <= 700) {
     contactLabel.textContent = 'Tracking paused · hold your pose';
@@ -1029,9 +1180,20 @@ async function trackingLoop(epoch = trackingEpoch) {
       if (epoch !== trackingEpoch || tracker !== landmarker || !stream) return;
       diagnostics.inferenceMs = tracker.duration;
       diagnostics.resultAgeMs = performance.now() - capturedAt;
+      if (resizeEnabled && !resizeChanging) {
+        resizeSlowFrames = tracker.duration > 120 ? resizeSlowFrames + 1 : 0;
+        if (resizeSlowFrames >= 5) {
+          await setResizeMode(false);
+          resizeAutoPaused = true; updateResizeControl();
+          setPrompt('Resize paused to keep things responsive.', 'Two-hand tracking is taking too long on this device. One-hand sculpting is ready; your mask keeps its size.', 'neutral');
+          return;
+        }
+      }
+      if (resizeEnabled) nextTrackingAt = Math.max(nextTrackingAt, capturedAt + Math.max(50, Math.min(200, tracker.duration * 1.5)));
       phase = 'landmark processing';
       // Never sculpt using an old result after a long inference stall.
       if (performance.now() - capturedAt > 250) showNoHand(performance.now());
+      else if (resizeEnabled) showResizeHands(result.landmarks ?? [], performance.now());
       else if (result.landmarks?.length) showTracking(result.landmarks[0], performance.now(), result.worldLandmarks?.[0], result.handedness?.[0]?.[0]?.categoryName ?? '');
       else showNoHand(performance.now());
     }
@@ -1049,12 +1211,16 @@ async function trackingLoop(epoch = trackingEpoch) {
     poseDisplayed = null;
     handModel.visible = false;
     if (tracker.mode === 'worker' && phase === 'frame capture / inference') {
+      if (resizeEnabled) {
+        resizeEnabled = false; resizeAutoPaused = true; updateResizeControl();
+      }
       setStatus('loading', 'RECONNECTING TRACKING');
       buttonLabel.textContent = 'Reconnecting…';
       cameraButton.disabled = true;
       setPrompt('Reconnecting hand tracking…', 'Background tracking stopped responding. Switching to compatibility mode; keep your hand in view.', 'neutral');
       try {
         const replacement = await TrackingClient.createCompatibility();
+        if (resizeEnabled) await replacement.setHandCount(2);
         if (epoch !== trackingEpoch || !stream) { replacement.close(); return; }
         landmarker = replacement;
         diagnostics.trackingMode = replacement.mode;
@@ -1089,7 +1255,9 @@ async function trackingLoop(epoch = trackingEpoch) {
   if (epoch === trackingEpoch && stream) retryTimer = requestAnimationFrame(() => trackingLoop(epoch));
 }
 
-async function createLandmarker() { return TrackingClient.create(); }
+async function createLandmarker() {
+  return resizeEnabled ? TrackingClient.createBackgroundHands() : TrackingClient.create();
+}
 
 async function startTracking() {
   if (tryOn.enabled) return;
@@ -1100,6 +1268,7 @@ async function startTracking() {
   const epoch = ++trackingEpoch;
   try {
     const tracker = await createLandmarker();
+    if (resizeEnabled) await tracker.setHandCount(2);
     if (epoch !== trackingEpoch || !stream) { tracker.close(); return; }
     landmarker?.close();
     landmarker = tracker;
@@ -1190,6 +1359,7 @@ async function openCamera() {
 }
 
 function stopCamera(resetLandmarker = true) {
+  resizeEnabled = false; updateResizeControl();
   endTryOn({ restoreView: false, resumeTracking: false });
   cameraRequestEpoch++; cameraOpening = false;
   arView.setEnabled(false);
@@ -1347,6 +1517,7 @@ sceneHost.addEventListener('pointerup', (event) => {
 });
 
 function cancelMouseStroke() {
+  finishScaleStroke();
   cutStroke = null; cutPreview.visible = false; mirroredCutPreview.visible = false;
   recentGrabHit = null;
   clayVolume.surfacePull?.finish();
@@ -1406,9 +1577,12 @@ document.addEventListener('mask-pull-error', () => {
 // and mesh state. Camera data is never retained or transmitted by this hook.
 if (new URLSearchParams(location.search).has('diagnostics')) {
   window.clayPlayDebug = { objects: clayObjects, camera, tryOn,
+    feedHands: showResizeHands, setResizeMode,
     feedHand: updateThreeSkeleton, pauseHand: pauseTracking, cancel: cancelMouseStroke,
     getState: () => ({ arEnabled: arView.enabled, arLive: arView.live, cameraOn: Boolean(stream),
       trying: tryOn.enabled, wearing: tryOn.mask.visible, faceReady: Boolean(faceTracker),
+      resizeEnabled, resizeChanging, resizeAutoPaused, resizing: twoHandScale.active, maskScale: clayVolume.userScale ?? 1,
+      handCount: landmarker?.handCount ?? 1, trackingInterval: landmarker?.minInterval ?? 0,
       virtualHandVisible: handModel.visible, tool: activeTool, cutting: Boolean(clayVolume.cutting), cutPoints: cutStroke?.points.length ?? 0,
       cutPreview: cutPreview.visible, pulling: Boolean(clayVolume.pulling), pending: Boolean(clayVolume.meshQueue?.pending),
       symmetry: symmetryEnabled, brushSize: activeSize, brushRadius: brushRadius(), hoverRadius: brushCue.visible ? brushCue.scale.x / clay.scale.x : 0,

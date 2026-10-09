@@ -186,6 +186,10 @@ body.play-area-fullscreen { overflow: hidden; }
 @media (max-width: 440px) { .ar-toggle { left: 12px; } }
 
 .try-toggle { left: 130px; }
+.resize-toggle { left: 17px; bottom: 108px; }
+.resize-toggle:disabled { opacity: .6; cursor: wait; }
+.is-resizing .tool-switch, .is-resizing .strength-control, .is-resizing .reach-calibration { display: none; }
+.is-trying .resize-toggle { display: none; }
 .is-trying .tool-switch, .is-trying .strength-control, .is-trying .reach-calibration,
 .is-trying .sculpt-history, .is-trying .clay-reset, .is-trying .axis-gizmo { display: none; }
-@media (max-width: 440px) { .try-toggle { left: 124px; } }
+@media (max-width: 440px) { .try-toggle { left: 124px; } .resize-toggle { left: 12px; } }
