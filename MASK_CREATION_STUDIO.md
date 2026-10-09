@@ -169,6 +169,12 @@ The studio opens in a view that fills the browser window. **Exit full screen**
 or Escape returns to the page layout. Camera setup and cursor controls remain
 accessible inside the expanded studio. Reach calibration is hidden for now.
 
+The first bottom-center message says **"Enable the AR mode for better experience!"**
+with an **OK** button. Selecting OK enables AR mode and starts camera setup if
+needed, reusing an existing camera session when available. The welcome message
+then gives way to the current editing hints. Enabling AR directly also dismisses
+it. Cursor editing remains available if camera access is declined.
+
 **Create with the cursor:** when the camera is off, Pinch and Cut are ready
 automatically, including after a camera permission failure or disconnection.
 With Pinch selected, click a solid mask patch and drag; releasing keeps the

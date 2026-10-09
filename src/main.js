@@ -27,6 +27,8 @@ const promptBody = document.querySelector('#prompt-body');
 const promptCard = document.querySelector('#prompt-card');
 const buttonLabel = document.querySelector('#button-label');
 const sceneHint = document.querySelector('#scene-hint');
+const studioMessage = document.querySelector('#studio-message');
+const studioMessageOK = document.querySelector('#studio-message-ok');
 const scenePlaceholder = document.querySelector('#scene-placeholder');
 const stageCaption = document.querySelector('#stage-caption');
 const cameraStatus = document.querySelector('#camera-status');
@@ -135,6 +137,7 @@ const arButton = document.querySelector('#ar-toggle');
 const arView = new CameraBackdrop({ video: document.querySelector('#ar-camera-video'), button: arButton,
   stage: document.querySelector('#stage'), scene, renderer,
   onChange: () => {
+    if (arView.live) dismissStudioMessage();
     if (tryOn.enabled && !arView.enabled) endTryOn({ restoreView: false });
     cancelMouseStroke(); poseTarget = null; poseDisplayed = null; smoothedPoints = null;
     sceneHost.setAttribute('aria-label', arView.live ? 'Camera view with editable mask' : 'Three dimensional hand tracking view');
@@ -147,6 +150,7 @@ arButton.addEventListener('click', async () => {
   const action = ++arAction;
   cancelMouseStroke();
   const enabled = !arView.enabled;
+  if (enabled) dismissStudioMessage();
   arView.setEnabled(enabled);
   if (!enabled) {
     if (arStartedCamera && cameraOpening) stopCamera();
@@ -163,6 +167,16 @@ arButton.addEventListener('click', async () => {
     if (action === arAction) arStartedCamera = false;
   }
   if (arView.live && !tryOn.enabled) sceneHint.textContent = 'AR mode on · point at the mask to shape or cut';
+});
+function dismissStudioMessage() {
+  studioMessage.hidden = true;
+  sceneHint.hidden = false;
+}
+studioMessageOK.addEventListener('pointerdown', event => event.stopPropagation());
+studioMessageOK.addEventListener('click', () => {
+  dismissStudioMessage();
+  arButton.focus({ preventScroll: true });
+  if (!arView.enabled) arButton.click();
 });
 video.addEventListener('resize', () => {
   if (arView.live) { cancelMouseStroke(); poseTarget = null; poseDisplayed = null; smoothedPoints = null; }
