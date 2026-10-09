@@ -62,7 +62,7 @@ test('All starter mask fields remain symmetric through saved mirrored strokes', 
   }
 });
 
-test('Visible pinch survives depth jitter and a brief noisy open frame', () => {
+test('Pinch ignores depth jitter but releases on the first clearly open frame', () => {
   const points = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5, z: 0 }));
   points[5].x = 0.45; points[17].x = 0.55; points[4].x = 0.51;
   const gesture = new PinchGesture();
@@ -70,11 +70,15 @@ test('Visible pinch survives depth jitter and a brief noisy open frame', () => {
   assert.equal(gesture.held, true);
   points[4].z = 10; points[8].z = -10;
   gesture.update(points, 66, 1.78); assert.equal(gesture.held, true);
-  points[4].x = 0.65; gesture.update(points, 99, 1.78);
-  points[4].x = 0.51; gesture.update(points, 132, 1.78); assert.equal(gesture.held, true);
-  points[4].x = 0.65;
-  for (let now = 165; now <= 330; now += 33) gesture.update(points, now, 1.78);
+  points[4].x = 0.545; gesture.update(points, 99, 1.78);
+  assert.equal(gesture.held, true, 'Small separation noise within the hold band is tolerated');
+  points[4].x = 0.56; gesture.update(points, 132, 1.78);
   assert.equal(gesture.held, false);
+  points[4].x = 0.545; gesture.update(points, 165, 1.78);
+  assert.equal(gesture.held, false, 'A fresh pinch is required to grab again');
+  points[4].x = 0.51;
+  for (let now = 198; now <= 330; now += 33) gesture.update(points, now, 1.78);
+  assert.equal(gesture.held, true);
 });
 
 test('Mask patch follows the hand one-to-one and returns to its original shape', () => {

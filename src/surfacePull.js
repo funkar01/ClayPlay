@@ -9,6 +9,7 @@ export class SurfacePull {
     this.source = this.volume.snapshot();
     this.anchor = anchor.clone(); this.radius = radius; this.softness = softness; this.symmetry = symmetry;
     this.lastWarp = makeWarp(anchor.toArray(), [0, 0, 0], radius, softness, symmetry);
+    this.appliedWarp = this.lastWarp; this.pending = null;
     this.worker = new Worker(new URL('./pullWorker.js', import.meta.url), { type: 'module' });
     this.volume.pulling = true; this.active = true; this.busy = false; this.released = false;
     this.worker.onmessage = ({ data }) => {
@@ -16,6 +17,9 @@ export class SurfacePull {
       if (data.error) { this.fail(data.error); return; }
       this.busy = false;
       diagnostics.pullWorkerMs = data.duration;
+      // A preview already in flight may belong to a newer cursor position.
+      // Once released, keep the visible shape and only finalize that shape.
+      if (this.released && !data.final) { this.pump(); return; }
       const started = performance.now();
       if (data.repartition) {
         for (const { mesh } of this.volume.bricks.values()) { this.volume.parent.remove(mesh); mesh.geometry.dispose(); }
@@ -42,6 +46,7 @@ export class SurfacePull {
         mesh.frustumCulled = false;
       }
       diagnostics.pullInstallMs = performance.now() - started;
+      this.appliedWarp = data.warp;
       if (data.final) {
         if (Math.hypot(...data.warp.delta) > 0.0005) {
           this.volume.pullSource = this.source;
@@ -79,7 +84,8 @@ export class SurfacePull {
   }
   finish() {
     if (!this.active || this.released) return;
-    this.released = true; this.pending = this.lastWarp; this.pump();
+    this.released = true; this.lastWarp = this.appliedWarp;
+    this.pending = this.appliedWarp; this.pump();
   }
   abort() {
     clearTimeout(this.timer);

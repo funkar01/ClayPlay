@@ -748,6 +748,12 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null, worldLandmark
       gapStartedAt = null; poseDisplayed = null;
     }
     pinchGesture.update(landmarks, now, video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 1);
+    // End the grab before this open-hand pose can enter render interpolation.
+    if (activeTool === 'pinch' && previousPullPoint && !pinchGesture.held) {
+      pinchActive = false;
+      pullClayAlongPath(null, false);
+      pinchCue.visible = false;
+    }
     poseTarget = mappedPoints.map(p => new THREE.Vector3(p.x, p.y, p.z));
     poseReceivedAt = now;
     reachCalibration.panel.open = false;
