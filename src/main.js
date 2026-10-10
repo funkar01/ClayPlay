@@ -12,8 +12,9 @@ import { SurfaceCut } from './surfaceCut.js';
 import { checkpoint, checkpointScale, applyMaskScale, checkpointPosition, applyMaskPosition, restoreHistory } from './sculptHistory.js';
 import { CameraBackdrop, cameraCoverPoint } from './arView.js';
 import { MaskTryOn } from './tryOn.js';
-import { TwoHandScale, palmCenter } from './twoHandScale.js';
+import { TwoHandScale, palmCenter, closedFist } from './twoHandScale.js';
 import { PalmMove, PalmGesture } from './palmMove.js';
+import { HandUI } from './handUI.js';
 
 const video = document.querySelector('#camera-video');
 const previewCanvas = document.querySelector('#preview-overlay');
@@ -93,6 +94,8 @@ let faceEpoch = 0, lastFaceVideoTime = -1, nextFaceTrackingAt = 0;
 let tryPreviousAR = false, tryStartedCamera = false;
 let tryHandWasDone = false;
 let tryPhase = null;
+let nextTryHandAt = 0, lastTryHandAt = 0, lastTryHandVideoTime = -1, tryHandBusy = false;
+let handUI = null, handUICaptured = false, editingPaused = false;
 let landmarker;
 let animationFrame = 0;
 let lastVideoTime = -1;
@@ -175,7 +178,7 @@ function dismissStudioMessage() {
 studioMessageOK.addEventListener('pointerdown', event => event.stopPropagation());
 studioMessageOK.addEventListener('click', () => {
   dismissStudioMessage();
-  arButton.focus({ preventScroll: true });
+  (handUI ? document.querySelector('#tool-pinch') : arButton).focus({ preventScroll: true });
   if (!arView.enabled) arButton.click();
 });
 video.addEventListener('resize', () => {
@@ -223,6 +226,12 @@ tryButton.addEventListener('click', async () => {
     const tracker = await TrackingClient.create('face', signal);
     if (epoch !== faceEpoch || !tryOn.enabled) { tracker.close(); return; }
     faceTracker = tracker; lastFaceVideoTime = -1; nextFaceTrackingAt = 0;
+    if (!landmarker) {
+      const hands = await createLandmarker();
+      if (epoch !== faceEpoch || !tryOn.enabled) { hands.close(); return; }
+      landmarker = hands;
+    }
+    nextTryHandAt = 0; lastTryHandAt = 0; lastTryHandVideoTime = -1;
     cameraButton.disabled = false; buttonLabel.textContent = 'Camera on';
     faceTrackingLoop(epoch);
   } catch (error) {
@@ -237,6 +246,7 @@ function endTryOn({ restoreView = true, resumeTracking = true } = {}) {
   if (!tryOn.enabled) return;
   faceEpoch++; faceAbort?.abort(); faceTracker?.close(); faceTracker = null;
   cancelAnimationFrame(faceFrame); tryOn.setEnabled(false);
+  handUI?.reset(); handUICaptured = false;
   document.querySelector('#stage').classList.remove('is-trying');
   tryButton.setAttribute('aria-pressed', 'false'); tryButton.classList.remove('is-active');
   tryButton.querySelector('.try-state').textContent = 'Off';
@@ -260,8 +270,22 @@ async function faceTrackingLoop(epoch) {
   if (!tryOn.enabled || !stream || !tracker || epoch !== faceEpoch) return;
   try {
     const now = performance.now();
-    if (now >= nextFaceTrackingAt && video.readyState >= 2 && video.currentTime !== lastFaceVideoTime) {
-      lastFaceVideoTime = video.currentTime; nextFaceTrackingAt = now + (tracker.minInterval ?? 33);
+    // Share one inference schedule: probe for hands at 4 Hz, then give menu
+    // selection more frames while a hand is present. Never run both at once.
+    if (landmarker && now >= nextTryHandAt && video.readyState >= 2 && video.currentTime !== lastTryHandVideoTime) {
+      const hands = landmarker; lastTryHandVideoTime = video.currentTime; tryHandBusy = true;
+      let result;
+      try { result = await hands.detectForVideo(video, now); }
+      finally { tryHandBusy = false; }
+      if (epoch !== faceEpoch || !tryOn.enabled || hands !== landmarker) return;
+      const receivedAt = performance.now();
+      if (result.landmarks?.length) lastTryHandAt = receivedAt;
+      nextTryHandAt = receivedAt + Math.max(receivedAt - lastTryHandAt < 800 ? 80 : 250, (hands.duration ?? 0) * 2);
+      if (receivedAt - now < 350) processHandResult(result, receivedAt);
+      else handUI?.lose();
+    } else if (now >= nextFaceTrackingAt && video.readyState >= 2 && video.currentTime !== lastFaceVideoTime) {
+      lastFaceVideoTime = video.currentTime;
+      nextFaceTrackingAt = now + Math.max(tracker.minInterval ?? 33, now - lastTryHandAt < 800 ? 100 : 33);
       const result = await tracker.detectForVideo(video, now);
       if (epoch !== faceEpoch || !tryOn.enabled || tracker !== faceTracker) return;
       diagnostics.faceInferenceMs = tracker.duration;
@@ -340,7 +364,7 @@ function finishMoveStroke(blockUntilOpen = false) {
   moveCue.visible = false;
 }
 
-function showPalmMove(landmarks, now, aspect) {
+function showPalmMove(landmarks, now, aspect, screenSpace = false) {
   const gesture = palmGesture.update(landmarks, now, aspect), held = gesture.held, wasMoving = palmMove.active;
   const offset = clayVolume.userOffset ?? [0, 0];
   moveIntent = gesture.blocksPinch;
@@ -349,8 +373,8 @@ function showPalmMove(landmarks, now, aspect) {
     return false;
   }
   const palm = held ? palmCenter(landmarks) : null;
-  const aim = palm && resizeScenePoint(palm);
-  const available = !clayMenu?.isOpen && !clayVolume.meshFailed && !clayVolume.pulling
+  const aim = palm && resizeScenePoint(palm, screenSpace);
+  const available = !handUI?.isOpen && !editingPaused && !clayMenu?.isOpen && !clayVolume.meshFailed && !clayVolume.pulling
     && !clayVolume.cutting && !clayVolume.meshQueue?.pending;
   // Test the surface only when picking it up. Once held, the cursor may move
   // beyond the silhouette, without needing to find another piece of material.
@@ -448,15 +472,38 @@ resizeButton.addEventListener('pointerdown', event => event.stopPropagation());
 updateResizeControl();
 
 function processHandResult(result, now) {
+  const editingMask = Boolean(previousPullPoint || cutStroke || palmMove.active || twoHandScale.active || pinchActive);
+  const active = editingMask || moveIntent;
+  // Curled outer fingers can accompany an extended pointing index. Reserve
+  // the UI only for an actual edit; the UI itself rejects a closed palm.
+  const ui = handUI?.receive(result, now, { blocked: editingMask && !tryOn.enabled, aspect: video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 1 });
   if (tryOn.enabled) return;
+  // Do not transfer a held stroke to a surviving, different hand. Keep the
+  // visible edit and wait for an open hand before accepting another gesture.
+  const lostEditHand = active && !twoHandScale.active && (ui?.index === null || ui?.changed);
+  if (ui?.owns || ui?.missing || lostEditHand || handUI?.isOpen || editingPaused || (handUICaptured && ui?.needsOpen)) {
+    if (!handUICaptured) cancelMouseStroke();
+    setResizeMode(false);
+    poseTarget = null; poseDisplayed = null; smoothedPoints = null;
+    handModel.visible = false; brushCue.visible = false; mirroredBrush.visible = false;
+    handUICaptured = true;
+    return;
+  }
+  if (handUICaptured) {
+    handUICaptured = false; cancelMouseStroke(); palmGesture.reset(true); singleHandNeedsOpen = true;
+  }
   const indices = (result.landmarks ?? []).map((hand, i) => palmCenter(hand) ? i : -1).filter(i => i >= 0).slice(0, 2);
   const hands = indices.map(i => result.landmarks[i]);
-  setResizeMode(hands.length === 2 && !resizeAutoPaused);
+  // Adding the second fist can turn a one-hand move into a two-hand hold.
+  // An existing sculpt or cut keeps ownership until its pinch is released.
+  const pinching = Boolean(previousPullPoint || cutStroke || pinchActive);
+  const resizing = twoHandScale.active || (hands.length === 2 && hands.every(hand => closedFist(hand, video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 1)) && !pinching);
+  setResizeMode(resizing && !resizeAutoPaused);
   if (resizeEnabled) showResizeHands(hands, now);
-  else if (hands.length === 1) {
-    const i = indices[0];
+  else if (hands.length) {
+    const i = indices.includes(ui?.index) ? ui.index : indices[0];
     if (singleHandNeedsOpen) palmMove.reset(true);
-    showTracking(hands[0], now, result.worldLandmarks?.[i], result.handedness?.[i]?.[0]?.categoryName ?? '');
+    showTracking(result.landmarks[i], now, result.worldLandmarks?.[i], result.handedness?.[i]?.[0]?.categoryName ?? '');
     if (!palmGesture.blocked) singleHandNeedsOpen = false;
   } else {
     landmarkCount.textContent = '0 LANDMARKS · WAITING';
@@ -465,9 +512,9 @@ function processHandResult(result, now) {
   }
 }
 
-function resizeScenePoint(point) {
-  if (arView.live) {
-    const p = cameraCoverPoint(point, video.videoWidth, video.videoHeight, sceneHost.clientWidth, sceneHost.clientHeight);
+function resizeScenePoint(point, screenSpace = false) {
+  if (arView.live || screenSpace) {
+    const p = arView.live ? cameraCoverPoint(point, video.videoWidth, video.videoHeight, sceneHost.clientWidth, sceneHost.clientHeight) : { x: 1 - point.x, y: point.y };
     const height = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.position.z;
     return new THREE.Vector3((p.x - 0.5) * height * camera.aspect, (0.5 - p.y) * height, 0.05);
   }
@@ -480,7 +527,7 @@ function showResizeHands(hands, now) {
   lastResizeHandAt = now;
   const aspect = video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 1;
   const palms = hands.slice(0, 2).map(palmCenter);
-  const points = palms.map(p => p && resizeScenePoint(p));
+  const points = palms.map(p => p && resizeScenePoint(p, true));
   // Grips can sit comfortably beside a small mask, especially in a wide AR
   // view. Requiring proximity to its surface made valid two-hand holds fail.
   const oppositeSides = points.length === 2 && points.every(Boolean)
@@ -791,6 +838,7 @@ function renderScene() {
     renderer.render(tryOn.scene, tryOn.camera);
   } else renderer.render(scene, camera);
   updateHistoryButtons();
+  handUI?.tick(now);
   animationFrame = requestAnimationFrame(renderScene);
 }
 renderScene();
@@ -972,7 +1020,7 @@ function drawPreviewSkeleton(landmarks, clear = true) {
   });
 }
 
-function updateThreeSkeleton(landmarks, now, pinchOverride = null, worldLandmarks = null, handedness = '') {
+function updateThreeSkeleton(landmarks, now, pinchOverride = null, worldLandmarks = null, handedness = '', screenSpace = false) {
   if (!smoothedPoints || smoothedPoints.length !== landmarks.length) {
     smoothedPoints = landmarks.map(({ x, y, z }) => ({ x, y, z }));
   } else {
@@ -991,8 +1039,8 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null, worldLandmark
   // Image-space landmarks already carry camera perspective: nearer hands occupy more pixels.
   // MediaPipe landmark Z is relative to the wrist, not a global camera-distance value.
   const pointAt = (point) => {
-    if (arView.live) {
-      const mapped = cameraCoverPoint(point, video.videoWidth, video.videoHeight, sceneHost.clientWidth, sceneHost.clientHeight);
+    if (arView.live || screenSpace) {
+      const mapped = arView.live ? cameraCoverPoint(point, video.videoWidth, video.videoHeight, sceneHost.clientWidth, sceneHost.clientHeight) : { x: 1 - point.x, y: point.y };
       return { x: (mapped.x - 0.5) * arHeight * camera.aspect, y: (0.5 - mapped.y) * arHeight, z: 0 };
     }
     return {
@@ -1012,7 +1060,7 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null, worldLandmark
     gapStartedAt = null; poseDisplayed = null;
   }
   const aspect = video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 1;
-  if (!showPalmMove(landmarks, now, aspect)) pinchGesture.update(landmarks, now, aspect);
+  if (!showPalmMove(landmarks, now, aspect, screenSpace)) pinchGesture.update(landmarks, now, aspect);
   // End the grab before this open-hand pose can enter render interpolation.
   if (activeTool === 'pinch' && previousPullPoint && !pinchGesture.held) {
     pinchActive = false;
@@ -1104,7 +1152,7 @@ function processHandPose(mappedPoints, pinchOverride = null) {
 // Cursor and hand input share geometry, symmetry, history, and release behavior.
 // Cursor input bypasses gesture recognition and the virtual hand entirely.
 function processSculptPoint(sculptPoint, pinchOverride, pinchRatio = 1, cursor = false) {
-  if (tryOn.enabled || resizeEnabled) return;
+  if (tryOn.enabled || resizeEnabled || handUI?.isOpen || editingPaused || handUICaptured) return;
   if (moveIntent || palmMove.active) return;
   if (clayVolume.meshFailed) {
     cancelMouseStroke();
@@ -1212,7 +1260,7 @@ function showTracking(landmarks, now, worldLandmarks, handedness) {
     sceneHint.innerHTML = details.hint;
   }
   document.querySelector('#check-hand').classList.add('is-done');
-  updateThreeSkeleton(landmarks, now, null, worldLandmarks, handedness);
+  updateThreeSkeleton(landmarks, now, null, worldLandmarks, handedness, true);
   drawPreviewSkeleton(smoothedPoints ?? landmarks);
 }
 
@@ -1284,7 +1332,7 @@ async function trackingLoop(epoch = trackingEpoch) {
   if (!stream || !tracker || epoch !== trackingEpoch) return;
   let phase = 'frame capture / inference';
   try {
-    if (performance.now() >= nextTrackingAt && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.currentTime !== lastVideoTime) {
+    if (!tryHandBusy && performance.now() >= nextTrackingAt && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.currentTime !== lastVideoTime) {
       lastVideoTime = video.currentTime;
       const capturedAt = performance.now();
       nextTrackingAt = capturedAt + (tracker.minInterval ?? 0);
@@ -1317,6 +1365,7 @@ async function trackingLoop(epoch = trackingEpoch) {
     diagnostics.pause = 'tracking error';
     try { tracker.close(); } catch (closeError) { console.warn('Tracking cleanup:', closeError); }
     landmarker = null;
+    handUI?.lose();
     poseTarget = null;
     poseDisplayed = null;
     handModel.visible = false;
@@ -1332,6 +1381,7 @@ async function trackingLoop(epoch = trackingEpoch) {
         landmarker = replacement;
         diagnostics.trackingMode = replacement.mode;
         diagnostics.pause = 'none';
+        lastPinchHint = false;
         nextTrackingAt = 0;
         lastVideoTime = -1;
         gapStartedAt = null;
@@ -1352,6 +1402,7 @@ async function trackingLoop(epoch = trackingEpoch) {
     stageCaption.textContent = 'TRACKING STOPPED';
     landmarkCount.textContent = 'TRACKING ERROR · CAMERA STILL ON';
     buttonLabel.textContent = 'Retry tracking';
+    cameraButton.classList.remove('is-secondary');
     cameraButton.disabled = false;
     mouseButton.hidden = false;
     setPrompt('Tracking stopped — error details', `${diagnostics.lastError}. Use Retry tracking to reconnect.`, 'warning');
@@ -1390,6 +1441,9 @@ async function startTracking() {
     landmarker = tracker;
     nextTrackingAt = 0;
     diagnostics.trackingMode = tracker.mode;
+    diagnostics.pause = 'none';
+    delete diagnostics.lastError;
+    lastPinchHint = false;
     buttonLabel.textContent = 'Camera on';
     cameraButton.classList.add('is-secondary');
     cameraButton.disabled = false;
@@ -1401,6 +1455,7 @@ async function startTracking() {
     console.error('ClayPlay hand tracking setup failed:', error);
     cameraButton.disabled = false;
     buttonLabel.textContent = 'Retry tracking';
+    cameraButton.classList.remove('is-secondary');
     mouseButton.hidden = false;
     setStatus('error', 'TRACKING UNAVAILABLE');
     landmarkCount.textContent = '21 LANDMARKS · OFFLINE';
@@ -1496,6 +1551,8 @@ function stopCamera(resetLandmarker = true) {
   cancelAnimationFrame(retryTimer);
   if (stream) stream.getTracks().forEach((track) => track.stop());
   stream = null;
+  handUI?.reset(); handUICaptured = false; editingPaused = false;
+  if (handUI?.isOpen) handUI.close();
   video.srcObject = null;
   if (resetLandmarker && landmarker) {
     landmarker.close();
@@ -1628,6 +1685,41 @@ clayMenu = setupClayMenu(clayObjects, {
   onPause: (open) => { cancelMouseStroke(); if (open) reachCalibration.panel.open = false; },
 });
 
+function pauseForHandUI() {
+  cancelMouseStroke(); poseTarget = null; poseDisplayed = null; smoothedPoints = null;
+  palmGesture.reset(true); singleHandNeedsOpen = true;
+  handModel.visible = false; brushCue.visible = false; mirroredBrush.visible = false;
+}
+
+handUI = new HandUI({
+  stage: document.querySelector('#stage'),
+  mapPoint: point => {
+    const rect = document.querySelector('#stage').getBoundingClientRect();
+    const mapped = arView.live ? cameraCoverPoint(point, video.videoWidth, video.videoHeight, rect.width, rect.height) : { x: 1 - point.x, y: point.y };
+    return { x: rect.left + mapped.x * rect.width, y: rect.top + mapped.y * rect.height };
+  },
+  getState: () => ({
+    active: clayObjects.active.id, color: `#${clayObjects.active.material.color.getHexString()}`,
+    masks: clayObjects.items.map(item => ({ id: item.id, label: item.label, shape: item.shape, color: `#${item.material.color.getHexString()}` })),
+    edited: clayObjects.active.edited, symmetry: symmetryEnabled, ar: arView.enabled, trying: tryOn.enabled,
+    paused: editingPaused, cameraOn: Boolean(stream), positionResetDisabled: positionResetButton.disabled,
+    busy: Boolean(clayMenu?.isBusy || clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending),
+  }),
+  onPause: pauseForHandUI,
+  onAction: (action, value) => {
+    if (action === 'color') clayMenu.setColor(value);
+    else if (action === 'add-mask') clayMenu.addShape(value);
+    else if (action === 'select-mask') selectClayObject(value);
+    else if (action === 'remove') document.querySelector('#remove-clay').click();
+    else if (action === 'reset') resetClay();
+    else if (action === 'camera-off') stopCamera();
+    else if (action === 'pause') {
+      editingPaused = !editingPaused; pauseForHandUI();
+      sceneHint.textContent = editingPaused ? 'Editing paused · choose More, then Resume creating' : 'Ready to create · pinch a patch or choose a tool';
+    } else ({ symmetry: symmetryButton, ar: arButton, try: tryButton, position: positionResetButton })[action]?.click();
+  },
+});
+
 setupFullscreen(document.querySelector('#stage'), cancelMouseStroke, { controls: [cameraButton, mouseButton] });
 scenePlaceholder.classList.add('is-hidden');
 showToolInstructions();
@@ -1661,6 +1753,7 @@ if (new URLSearchParams(location.search).has('diagnostics')) {
     feedHand: updateThreeSkeleton, pauseHand: pauseTracking, cancel: cancelMouseStroke,
     getState: () => ({ arEnabled: arView.enabled, arLive: arView.live, cameraOn: Boolean(stream),
       trying: tryOn.enabled, wearing: tryOn.mask.visible, faceReady: Boolean(faceTracker), cursorEnabled: cursorInputEnabled(),
+      handMenuOpen: handUI.isOpen, handMenuPage: handUI.page, handUICaptured, editingPaused,
       resizeEnabled, resizeAutoPaused, singleHandNeedsOpen, resizing: twoHandScale.active, maskScale: clayVolume.userScale ?? 1,
       moving: palmMove.active, moveIntent, maskPosition: clay.position.toArray(), maskOffset: [...(clayVolume.userOffset ?? [0, 0])],
       handCount: landmarker?.handCount ?? 1, trackingInterval: landmarker?.minInterval ?? 0,

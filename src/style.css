@@ -207,3 +207,58 @@ body.play-area-fullscreen { overflow: hidden; }
 .is-trying .tool-switch, .is-trying .strength-control, .is-trying .reach-calibration,
 .is-trying .sculpt-history, .is-trying .clay-reset, .is-trying .axis-gizmo { display: none; }
 @media (max-width: 440px) { .try-toggle { left: 124px; } .mask-transform-controls { left: 12px; } }
+
+/* A stable toolbar and generous targets keep hand selection within easy reach. */
+.hand-toolbar { position: absolute; z-index: 8; left: 20px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 8px; width: 88px; padding: 7px; border: 1px solid #ffffffb8; border-radius: 14px; background: #fffaf3e8; backdrop-filter: blur(10px); box-shadow: 0 5px 24px #60452e12; }
+.hand-toolbar > button { display: grid; place-items: center; min-width: 0; min-height: 58px; padding: 9px 4px; border: 0; border-radius: 8px; background: #f3e9dd; color: #765844; font: 600 12px 'DM Sans',sans-serif; cursor: pointer; }
+.hand-toolbar > button.is-active, .hand-toolbar > button[aria-expanded="true"] { background: #dcebdd; color: #39734e; }
+.hand-toolbar > button:disabled, .hand-panel button:disabled { opacity: .4; cursor: default; }
+.hand-ui-ready > .tool-switch, .hand-ui-ready > #clay-menu, .hand-ui-ready > #ar-toggle, .hand-ui-ready > #try-toggle, .hand-ui-ready > .mask-transform-controls, .hand-ui-ready #clay-reset { display: none; }
+.hand-ui-ready .stage-session-controls #camera-button.is-secondary { display: none; }
+.hand-panel { position: absolute; z-index: 9; top: 50%; left: 124px; transform: translateY(-50%); display: flex; flex-direction: column; width: min(382px,calc(100% - 260px)); max-height: calc(100% - 160px); overflow: hidden; padding: 14px; border: 1px solid #ffffffc9; border-radius: 14px; background: #fffaf6f5; color: #765844; box-shadow: 0 8px 32px #60452e20; backdrop-filter: blur(12px); }
+.hand-panel[hidden], .hand-ui-cursor[hidden], .hand-feedback[hidden], .hand-try-done[hidden] { display: none; }
+.hand-panel > header { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.hand-panel-body { min-height: 0; overflow-y: auto; padding: 5px; margin: -5px; }
+.hand-panel-scroll { display: flex; flex-shrink: 0; gap: 8px; margin-top: 10px; }
+.hand-panel-scroll[hidden] { display: none; }
+.hand-panel-scroll > button { flex: 1; min-height: 44px; }
+.hand-panel > header strong { font-size: 14px; }
+.hand-panel button { min-height: 52px; padding: 10px 12px; border: 1px solid #e6d8ca; border-radius: 8px; background: #f5ece2; color: #765844; font: 600 11px 'DM Sans',sans-serif; cursor: pointer; }
+.hand-panel button[aria-pressed="true"] { border-color: #7ca586; background: #e7f0e5; color: #39734e; }
+.hand-panel-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
+.hand-panel-caption, .hand-confirm-copy { grid-column: 1 / -1; margin: 4px 0; font-size: 12px; line-height: 1.6; }
+.hand-panel-help { flex-shrink: 0; margin: 14px 0 0; color: #9a8878; font-size: 10px; text-align: center; }
+.hand-mask-card { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+.hand-mask-card svg { width: 38px; height: 38px; stroke: #806550; stroke-width: .9; stroke-linecap: round; stroke-linejoin: round; }
+.hand-symmetry { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.hand-symmetry svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.hand-colors { grid-template-columns: repeat(3,minmax(0,1fr)); }
+.hand-colors > button:last-child { grid-column: 1 / -1; }
+.hand-color::before { content: ''; display: block; width: 30px; height: 22px; margin: 0 auto 7px; border: 1px solid #76584430; border-radius: 8px; background: var(--swatch); }
+.hand-color-preview { grid-column: 1 / -1; display: grid; place-items: center; height: 52px; border-radius: 8px; color: white; text-shadow: 0 1px 3px #000b; font-size: 12px; }
+.hand-hover { outline: 3px solid #6499b8 !important; outline-offset: 3px; }
+.hand-selected { outline-color: #39734e !important; background-color: #dcebdd !important; }
+.hand-ui-cursor { position: absolute; z-index: 20; top: -10px; left: -10px; width: 20px; height: 20px; border: 3px solid #548dad; border-radius: 50%; background: #e5f4ff90; box-shadow: 0 0 0 3px #ffffff9c; pointer-events: none; }
+.hand-ui-cursor::after { content: ''; position: absolute; inset: -9px; border-radius: 50%; background: conic-gradient(#39734e var(--dwell-progress,0deg),#548dad33 0); mask: radial-gradient(farthest-side,transparent calc(100% - 3px),#000 0); opacity: 0; }
+.hand-ui-cursor[data-phase="dwell"]::after, .hand-ui-cursor[data-phase="selected"]::after { opacity: 1; }
+.hand-ui-cursor[data-phase="selected"] { background: #5e9b6d; border-color: #39734e; }
+.hand-feedback { position: absolute; z-index: 10; left: 50%; bottom: 68px; transform: translateX(-50%); max-width: calc(100% - 60px); padding: 10px 16px; border: 1px solid #fffaf4; border-radius: 8px; background: #fffaf3ef; color: #48738a; font-size: 12px; text-align: center; pointer-events: none; }
+.hand-try-done { position: absolute; z-index: 8; top: 50%; right: 24px; min-height: 60px; max-width: 150px; padding: 14px; border: 1px solid #fff; border-radius: 10px; background: #fffaf3ee; color: #39734e; font: 600 13px 'DM Sans',sans-serif; cursor: pointer; }
+.is-trying .hand-toolbar > button:not(#hand-more) { display: none; }
+.hand-ui-ready .scene-hint { max-width: calc(100% - 280px); }
+@media (max-width: 700px) {
+  .hand-toolbar { left: 12px; right: 12px; bottom: 12px; top: auto; width: auto; transform: none; flex-direction: row; gap: 6px; padding: 6px; }
+  .hand-toolbar > button { flex: 1; min-height: 52px; font-size: 11px; }
+  .hand-panel { left: 12px; right: 12px; bottom: 90px; top: auto; width: auto; transform: none; max-height: calc(100% - 210px); }
+  .hand-ui-ready .scene-hint { bottom: 90px; max-width: calc(100% - 30px); }
+  .hand-feedback { bottom: 90px; width: max-content; max-width: calc(100% - 30px); font-size: 11px; }
+  .hand-ui-ready .fullscreen-button { bottom: 90px; right: 12px; min-height: 44px; }
+  .hand-ui-ready .scene-hint.studio-message { bottom: 146px; }
+  .hand-try-done { top: auto; bottom: 156px; right: 12px; min-height: 56px; }
+  .hand-panel:not([hidden]) ~ .hand-feedback { display: none; }
+}
+@media (max-height: 600px) {
+  .hand-panel { max-height: calc(100% - 116px); }
+  .hand-panel-help { display: none; }
+  .hand-panel > header { margin-bottom: 8px; }
+}

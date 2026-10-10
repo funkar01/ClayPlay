@@ -44,18 +44,19 @@ Keep gestures simple and give visible feedback about the active tool and editing
 | Move a tracked finger | Position the active brush. |
 | Hold a pinch | Activate the selected tool; grab and pull when using the pull tool. |
 | Release the pinch | Stop editing. |
-| Select a visible tool button | Choose push, pull, smooth, or paint. |
-| Use view controls | Rotate or zoom the mask without changing its shape. |
+| Hold the index finger over a button for 0.5 seconds | Select a tool or menu option. |
+| Close one palm on the mask | Move the mask in the screen plane. |
+| Close both fists on opposite sides | Resize the mask without changing its sculpted geometry. |
 
 Freeze edits when tracking is lost. Use movement smoothing and a forgiving brush to reduce accidental changes. Gesture thresholds and depth behaviour need prototype testing rather than being treated as settled specifications.
 
 ### Two-hand resize (local prototype)
 
-**2-hand Resize** turns On automatically when two hands are detected and Off when fewer are detected. Its label is a status indicator, with no manual toggle. Place both hands on opposite sides of the selected mask, and close both fists briefly. Move apart to enlarge or together to shrink. Open either hand to keep the visible size; a lost hand also freezes the size. The range is 40–250% of the original studio size. Undo and redo include resizing, and size survives viewport changes.
+Resizing is available automatically, with no manual toggle or status button. Place both hands on opposite sides of the selected mask, and close both fists briefly. Move apart to enlarge or together to shrink. Open either hand to keep the visible size; a lost hand also freezes the size. The range is 40–250% of the original studio size. Undo and redo include resizing, and size survives viewport changes.
 
-Use one hand for closed-palm movement, pinch sculpting, and cuts. Show both
-hands to switch to Resize automatically. Detection alone never changes the
-size: both fists still need to grip. After leaving two-hand mode, fully open
+Use one hand for closed-palm movement, pinch sculpting, and cuts. A second open
+hand leaves one-hand editing and menus available. Closing both fists starts
+Resize automatically, including when the first fist was moving the mask. After leaving two-hand mode, fully open
 the remaining hand before starting a new edit, so a lost hand cannot turn
 a resize into an accidental move, pinch or cut.
 Both grips need to straddle the selected mask, with a comfortable gap allowed;
@@ -170,10 +171,38 @@ or Escape returns to the page layout. Camera setup and cursor controls remain
 accessible inside the expanded studio. Reach calibration is hidden for now.
 
 The first bottom-center message says **"Enable the AR mode for better experience!"**
-with an **OK** button. Selecting OK enables AR mode and starts camera setup if
-needed, reusing an existing camera session when available. The welcome message
-then gives way to the current editing hints. Enabling AR directly also dismisses
-it. Cursor editing remains available if camera access is declined.
+with an **OK** button. Once camera setup is complete, the user can select OK by
+hand. It enables AR mode and reuses the camera session. OK also works with the
+cursor and starts camera setup if needed. The welcome message then gives way to
+editing hints. Camera permission remains a browser-controlled setup step.
+
+**Hand-controlled studio:** a large, fixed toolbar offers Pinch, Cut, Undo, Redo,
+and More. Hold the index finger over a highlighted button for 0.5 seconds to
+select it. The fingertip cursor stays visible while cutting, pulling, or moving;
+blocking button selection during an edit never hides it. A ring around the cursor
+fills during the countdown. Move away before
+selecting again; a rebuilt menu cannot repeat a toggle or select a new button
+beneath a stationary finger. Leaving the button, making a fist, or losing tracking
+cancels an unfinished countdown. Either hand can control the UI; detector ordering and a second
+open hand do not steal the cursor. Losing the controlling hand ends its edit
+instead of transferring a held stroke to the other hand. The toolbar adapts to
+a bottom row on phones.
+
+More opens large choices for Masks, Color, Symmetry, AR, Try it, Reset position,
+Reset mask, Pause editing, and camera shutdown. Mask cards and starter buttons,
+color swatches, custom color mixing, Back, Close, and scrolling are selectable by
+hand. Reset, removal, and camera shutdown require confirmation. Pause editing
+keeps the camera running so Resume remains selectable by hand. Camera shutdown
+explains that restarting will need cursor input.
+
+Menus reserve input and pause mask editing. A sculpt, cut, move, or resize that
+has already begun keeps ownership until release; crossing a button cannot select
+it. A second deliberate fist can transition a move into a resize. UI selection
+must finish and the hand open before editing resumes. Two hands
+make resizing available; both deliberate closed grips start it. Merely showing a
+second hand leaves one-hand editing and menus available. Native camera input maps
+the index and mask interaction to the same screen positions, including AR cover
+cropping, while the retained trace-replay hook supports older local recordings.
 
 **Create with the cursor:** when the camera is off, Pinch and Cut are ready
 automatically, including after a camera permission failure or disconnection.
@@ -202,7 +231,7 @@ position; it reuses one-hand tracking and does not remesh or copy the geometry.
 Resize retains its existing two-hand gesture, and Try it temporarily fits the mask
 to the face before returning to the studio position.
 
-Turn on **AR mode** above Masks & color to show the live camera behind the mask.
+Choose **More → AR mode** to show the live camera behind the mask.
 It reuses the camera stream, requesting camera access if it is not already on.
 The background is mirrored like the camera preview. Pinch, Cut, symmetry, color,
 and Undo/Redo remain available while you work over the camera view. The virtual
@@ -211,18 +240,24 @@ video's cropping and the play area's size, including fullscreen. Turning AR off
 returns to the studio background and keeps the mask and camera session; stopping
 the camera turns AR off as well. Camera video stays on the device.
 
-Turn on **Try it** beside AR mode to wear the selected mask in the camera view.
+Choose **More → Try it** to wear the selected mask in the camera view.
 The mask automatically aligns its eye openings with your eyes and follows head
 movement, tilt, and turns. It uses your actual cuts, sculpting, and color; switch
-masks or colors through Masks & color while wearing it. Sculpting is paused until
+masks or colors through More while wearing it. Sculpting is paused until
 you turn Try it off, which restores your previous view and keeps every edit and
-Undo/Redo action. If your face leaves the frame, the mask hides until you return.
+Undo/Redo action. **Back to creating** is a large hand-selectable button. If your
+face leaves the frame, the mask hides until you return.
 Stopping the camera or AR mode also ends try-on.
 
 Face tracking loads only when requested, reuses the camera stream, and processes
 one face locally with [MediaPipe Face Landmarker](https://developers.google.com/edge/mediapipe/solutions/vision/face_landmarker/web_js).
-Background tracking and shared mask geometry keep preview work small; hand
-inference pauses while wearing the mask. The first use downloads the face model.
+Background tracking and shared mask geometry keep preview work small. Try it
+shares a sequential schedule between face and hand inference: it probes for hands
+at a low rate, then gives UI selection more updates while a hand is present and
+reduces face updates temporarily. It reuses the hand tracker and never schedules
+face and hand inference concurrently in this mode. Cadence adapts to inference
+time; target-device performance and gesture comfort still need user testing. The
+first use downloads the face model.
 
 ### Proposed later scope
 

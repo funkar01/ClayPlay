@@ -42,11 +42,9 @@ export function setupClayMenu(objects, { onSelect, onLayout, onPause }) {
   });
   document.querySelector('#three-scene').addEventListener('pointerdown', () => { menu.open = false; });
 
-  shapeGrid.addEventListener('click', async (event) => {
-    const button = event.target.closest('[data-shape]');
-    if (!button || busy || objects.items.length >= objects.limit) return;
+  async function addShape(shape) {
+    if (!Object.hasOwn(MASK_SHAPES, shape) || busy || objects.items.length >= objects.limit) return;
     busy = true;
-    const shape = button.dataset.shape;
     status.textContent = `Adding ${MASK_SHAPES[shape].label.toLowerCase()}…`;
     refresh();
     // Paint the pending state before generating the sculptable surface.
@@ -63,6 +61,10 @@ export function setupClayMenu(objects, { onSelect, onLayout, onPause }) {
       busy = false;
       refresh();
     }
+  }
+  shapeGrid.addEventListener('click', event => {
+    const button = event.target.closest('[data-shape]');
+    if (button) addShape(button.dataset.shape);
   });
   picker.addEventListener('change', () => onSelect(picker.value));
   function setColor(hex) {
@@ -83,5 +85,5 @@ export function setupClayMenu(objects, { onSelect, onLayout, onPause }) {
     refresh();
   });
   refresh();
-  return { refresh, get isOpen() { return menu.open; } };
+  return { refresh, setColor, addShape, get isBusy() { return busy; }, get isOpen() { return menu.open; } };
 }
