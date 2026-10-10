@@ -173,10 +173,21 @@ accessible inside the expanded studio. Reach calibration is hidden for now.
 The first bottom-center message says **"Enable the AR mode for better experience!"**
 with an **OK** button. Once camera setup is complete, the user can select OK by
 hand. It enables AR mode and reuses the camera session. OK also works with the
-cursor and starts camera setup if needed. The welcome message then gives way to
-editing hints. Camera permission remains a browser-controlled setup step.
+cursor and starts camera setup if needed. OK immediately opens a three-step
+tutorial: selecting a UI button by holding the index over **Next** for half a
+second, **Pinch** deformation, then **Cut**. Each lesson animates the supplied
+Select or Pinch icon with a short heading; explanatory paragraphs and tip boxes
+are omitted. The selection demo shows the half-second hold. Descriptions remain
+available to screen readers. Next activates the lesson's tool, so users can
+practise on their mask and use Undo normally. Move off Next before selecting it
+again; holding it cannot skip lessons. **Start creating** finishes the guide.
+**Skip tutorial** and **More → Replay tutorial** are available by hand or cursor.
+The tutorial leaves existing mask geometry intact and uses the existing tracker;
+no video download or extra inference is needed. Camera permission remains a
+browser-controlled setup step; the guide also works with cursor input if access
+is unavailable.
 
-**Hand-controlled studio:** a large, fixed toolbar offers Pinch, Cut, Undo, Redo,
+**Hand-controlled studio:** a large, fixed toolbar offers Pinch, Cut, Try it, Undo, Redo,
 and More. Hold the index finger over a highlighted button for 0.5 seconds to
 select it. The fingertip cursor stays visible while cutting, pulling, or moving;
 blocking button selection during an edit never hides it. A ring around the cursor
@@ -188,8 +199,9 @@ open hand do not steal the cursor. Losing the controlling hand ends its edit
 instead of transferring a held stroke to the other hand. The toolbar adapts to
 a bottom row on phones.
 
-More opens large choices for Masks, Color, Symmetry, AR, Try it, Reset position,
-Reset mask, Pause editing, and camera shutdown. Mask cards and starter buttons,
+More opens a single column of large choices for Masks, Color, Symmetry, AR,
+Reset position, Reset mask, Pause editing, camera shutdown, and Replay tutorial.
+Try it is directly beside the primary tools. Mask cards and starter buttons,
 color swatches, custom color mixing, Back, Close, and scrolling are selectable by
 hand. Reset, removal, and camera shutdown require confirmation. Pause editing
 keeps the camera running so Resume remains selectable by hand. Camera shutdown
@@ -240,7 +252,7 @@ video's cropping and the play area's size, including fullscreen. Turning AR off
 returns to the studio background and keeps the mask and camera session; stopping
 the camera turns AR off as well. Camera video stays on the device.
 
-Choose **More → Try it** to wear the selected mask in the camera view.
+Choose **Try it** beside Pinch and Cut to wear the selected mask in the camera view.
 The mask automatically aligns its eye openings with your eyes and follows head
 movement, tilt, and turns. It uses your actual cuts, sculpting, and color; switch
 masks or colors through More while wearing it. Sculpting is paused until

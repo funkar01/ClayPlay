@@ -34,7 +34,10 @@ export class HandUI {
     this.custom = [20, 55, 60]; this.lastAt = 0;
     this.dock = document.createElement('nav'); this.dock.id = 'hand-toolbar';
     this.dock.className = 'hand-toolbar'; this.dock.setAttribute('aria-label', 'Mask studio tools');
-    for (const id of ['tool-pinch', 'tool-cut', 'sculpt-undo', 'sculpt-redo']) this.dock.append(document.getElementById(id));
+    for (const id of ['tool-pinch', 'tool-cut']) this.dock.append(document.getElementById(id));
+    this.tryIt = button('Try it', 'try'); this.tryIt.id = 'hand-try';
+    this.tryIt.setAttribute('aria-label', 'Try it: wear your mask'); this.dock.append(this.tryIt);
+    for (const id of ['sculpt-undo', 'sculpt-redo']) this.dock.append(document.getElementById(id));
     this.more = button('More', 'more'); this.more.id = 'hand-more';
     this.more.setAttribute('aria-expanded', 'false'); this.more.setAttribute('aria-controls', 'hand-panel');
     this.dock.append(this.more); stage.append(this.dock);
@@ -85,6 +88,8 @@ export class HandUI {
   }
   sync() {
     const s = this.getState(); this.done.hidden = !s.trying;
+    this.tryIt.disabled = s.busy;
+    this.tryIt.setAttribute('aria-pressed', String(s.trying));
     const signature = JSON.stringify([this.page, this.maskPage, this.custom, s]);
     if (!this.isOpen || signature === this.signature) return;
     this.signature = signature;
@@ -97,18 +102,19 @@ export class HandUI {
     this.body = document.createElement('div'); this.body.className = 'hand-panel-body'; this.body.append(grid);
     this.panel.replaceChildren(header, this.body);
     if (this.page === 'more') {
+      grid.classList.add('hand-options');
       grid.append(button('Masks', 'page', 'masks'), button('Color', 'page', 'colors'));
       const symmetry = button(`Symmetry ${s.symmetry ? 'On' : 'Off'}`, 'symmetry'); symmetry.setAttribute('aria-pressed', String(s.symmetry)); symmetry.disabled = s.trying;
       symmetry.classList.add('hand-symmetry');
       const symmetryIcon = document.querySelector('#vertical-symmetry svg')?.cloneNode(true);
       if (symmetryIcon) symmetry.prepend(symmetryIcon);
       const ar = button(`AR mode ${s.ar ? 'On' : 'Off'}`, 'ar'); ar.setAttribute('aria-pressed', String(s.ar));
-      const tryIt = button(s.trying ? 'Back to creating' : 'Try it', 'try'); tryIt.disabled = s.busy;
       const position = button('Reset position', 'position'); position.disabled = s.positionResetDisabled || s.trying;
       const reset = button('Reset mask', 'reset'); reset.disabled = !s.edited || s.busy || s.trying;
       const pause = button(s.paused ? 'Resume creating' : 'Pause editing', 'pause'); pause.disabled = s.trying;
       const camera = button('Turn camera off', 'camera-off'); camera.disabled = !s.cameraOn;
-      grid.append(symmetry, ar, tryIt, position, reset, pause, camera);
+      const tutorial = button('Replay tutorial', 'tutorial'); tutorial.disabled = s.busy;
+      grid.append(symmetry, ar, position, reset, pause, camera, tutorial);
     } else if (this.page === 'masks') {
       const start = Math.max(0, Math.min(this.maskPage, Math.ceil(s.masks.length / 4) - 1)); this.maskPage = start;
       for (const item of s.masks.slice(start * 4, start * 4 + 4)) {
@@ -160,12 +166,12 @@ export class HandUI {
   }
   reset() { this.lose(); this.selection.reset(); this.identity.reset(); }
   tick(now) { this.sync(); if (this.lastAt && now - this.lastAt > 300) { this.lose(); this.lastAt = 0; } }
-  hit(point) {
-    if (this.highlight?.isConnected && !this.highlight.disabled && this.visible(this.highlight)) {
+  hit(point, overlay = null) {
+    const root = this.isOpen ? this.panel : overlay ?? this.stage;
+    if (this.highlight?.isConnected && root.contains(this.highlight) && !this.highlight.disabled && this.visible(this.highlight)) {
       const b = this.highlight.getBoundingClientRect();
       if (point.x >= b.left - 12 && point.x <= b.right + 12 && point.y >= b.top - 12 && point.y <= b.bottom + 12) return this.highlight;
     }
-    const root = this.isOpen ? this.panel : this.stage;
     const targets = [...root.querySelectorAll('button, summary')].filter(target => !target.disabled && this.visible(target));
     return targets.find(target => {
       const b = target.getBoundingClientRect();
@@ -182,14 +188,20 @@ export class HandUI {
     const hand = this.identity.choose(candidates, now);
     if (!hand) { this.lose(); return { owns: this.isOpen, index: null, missing: candidates.length > 0 }; }
     if (hand.changed) this.selection.reset();
-    const point = this.mapPoint(hand.points[8]); const target = this.hit(point);
+    const point = this.mapPoint(hand.points[8]);
+    const tutorial = this.stage.querySelector('#studio-tutorial:not([hidden])');
+    const tutorialBounds = tutorial?.getBoundingClientRect();
+    const overTutorial = tutorialBounds && point.x >= tutorialBounds.left && point.x <= tutorialBounds.right
+      && point.y >= tutorialBounds.top && point.y <= tutorialBounds.bottom;
+    const target = this.hit(point, overTutorial ? tutorial : null);
     const fist = closedPalm(hand.points, aspect);
     const distance = (a, b) => Math.hypot((hand.points[a].x - hand.points[b].x) * aspect, hand.points[a].y - hand.points[b].y);
     const open = !fist && distance(4, 8) / Math.max(.025, distance(5, 17), distance(0, 9) * .7) >= .55;
     const key = target && (target.id || `${this.page}:${target.dataset.handAction}:${target.dataset.value ?? ''}`);
     const rect = target?.getBoundingClientRect();
     const bounds = rect && { left: rect.left - 12, right: rect.right + 12, top: rect.top - 12, bottom: rect.bottom + 12 };
-    const response = this.selection.update({ point, target, key, bounds, fist, blocked, modal: this.isOpen, now });
+    const response = this.selection.update({ point, target, key, bounds, fist, blocked,
+      modal: this.isOpen || Boolean(overTutorial && !blocked), now });
     this.lastAt = now;
     this.highlight?.classList.remove('hand-hover', 'hand-selected');
     this.highlight = response.target ?? null;

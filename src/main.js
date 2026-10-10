@@ -15,6 +15,7 @@ import { MaskTryOn } from './tryOn.js';
 import { TwoHandScale, palmCenter, closedFist } from './twoHandScale.js';
 import { PalmMove, PalmGesture } from './palmMove.js';
 import { HandUI } from './handUI.js';
+import { StudioTutorial } from './studioTutorial.js';
 
 const video = document.querySelector('#camera-video');
 const previewCanvas = document.querySelector('#preview-overlay');
@@ -96,6 +97,7 @@ let tryHandWasDone = false;
 let tryPhase = null;
 let nextTryHandAt = 0, lastTryHandAt = 0, lastTryHandVideoTime = -1, tryHandBusy = false;
 let handUI = null, handUICaptured = false, editingPaused = false;
+let studioTutorial;
 let landmarker;
 let animationFrame = 0;
 let lastVideoTime = -1;
@@ -178,8 +180,8 @@ function dismissStudioMessage() {
 studioMessageOK.addEventListener('pointerdown', event => event.stopPropagation());
 studioMessageOK.addEventListener('click', () => {
   dismissStudioMessage();
-  (handUI ? document.querySelector('#tool-pinch') : arButton).focus({ preventScroll: true });
   if (!arView.enabled) arButton.click();
+  studioTutorial.start();
 });
 video.addEventListener('resize', () => {
   if (arView.live) { cancelMouseStroke(); poseTarget = null; poseDisplayed = null; smoothedPoints = null; }
@@ -1713,10 +1715,24 @@ handUI = new HandUI({
     else if (action === 'remove') document.querySelector('#remove-clay').click();
     else if (action === 'reset') resetClay();
     else if (action === 'camera-off') stopCamera();
+    else if (action === 'tutorial') studioTutorial.start();
     else if (action === 'pause') {
       editingPaused = !editingPaused; pauseForHandUI();
       sceneHint.textContent = editingPaused ? 'Editing paused · choose More, then Resume creating' : 'Ready to create · pinch a patch or choose a tool';
     } else ({ symmetry: symmetryButton, ar: arButton, try: tryButton, position: positionResetButton })[action]?.click();
+  },
+});
+
+studioTutorial = new StudioTutorial({
+  stage: document.querySelector('#stage'),
+  isBusy: () => Boolean(previousPullPoint || cutStroke || twoHandScale.active || palmMove.active
+    || clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending),
+  onStep: tool => {
+    if (handUI.isOpen) handUI.close();
+    if (tryOn.enabled) endTryOn();
+    if (editingPaused) editingPaused = false;
+    pauseForHandUI();
+    if (tool) document.querySelector(`#tool-${tool}`).click();
   },
 });
 

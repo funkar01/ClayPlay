@@ -226,6 +226,7 @@ body.play-area-fullscreen { overflow: hidden; }
 .hand-panel button { min-height: 52px; padding: 10px 12px; border: 1px solid #e6d8ca; border-radius: 8px; background: #f5ece2; color: #765844; font: 600 11px 'DM Sans',sans-serif; cursor: pointer; }
 .hand-panel button[aria-pressed="true"] { border-color: #7ca586; background: #e7f0e5; color: #39734e; }
 .hand-panel-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
+.hand-panel-grid.hand-options { grid-template-columns: minmax(0,1fr); }
 .hand-panel-caption, .hand-confirm-copy { grid-column: 1 / -1; margin: 4px 0; font-size: 12px; line-height: 1.6; }
 .hand-panel-help { flex-shrink: 0; margin: 14px 0 0; color: #9a8878; font-size: 10px; text-align: center; }
 .hand-mask-card { display: flex; flex-direction: column; align-items: center; gap: 7px; }
@@ -261,4 +262,58 @@ body.play-area-fullscreen { overflow: hidden; }
   .hand-panel { max-height: calc(100% - 116px); }
   .hand-panel-help { display: none; }
   .hand-panel > header { margin-bottom: 8px; }
+}
+@media (min-width: 701px) and (max-height: 500px) {
+  .hand-toolbar { gap: 5px; padding: 6px; }
+  .hand-toolbar > button { min-height: 44px; }
+}
+
+.studio-tutorial { position: absolute; z-index: 10; top: 80px; right: 20px; display: flex; flex-direction: column; width: 330px; max-width: calc(100% - 40px); max-height: calc(100% - 170px); padding: 18px; border: 1px solid #fff; border-radius: 16px; background: #fffaf6f5; color: #765844; box-shadow: 0 8px 32px #60452e25; backdrop-filter: blur(12px); }
+.studio-tutorial[hidden] { display: none; }
+.tutorial-heading { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 8px; }
+.tutorial-lesson { min-height: 0; overflow-y: auto; }
+.tutorial-heading > span { font-size: 9px; letter-spacing: .08em; font-weight: 700; }
+.studio-tutorial button { min-height: 52px; padding: 10px 16px; border: 1px solid #e6d8ca; border-radius: 9px; background: #f3e9dd; color: #765844; font: 600 12px 'DM Sans',sans-serif; cursor: pointer; }
+.studio-tutorial #tutorial-skip { min-height: 44px; padding: 8px; background: transparent; font-size: 11px; }
+.studio-tutorial button:focus-visible { outline: 3px solid #548dad; outline-offset: 3px; }
+.tutorial-lesson h2 { margin: 8px 0 0; font-size: 21px; line-height: 1.2; letter-spacing: -.025em; }
+.tutorial-actions { display: flex; flex-shrink: 0; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 6px; }
+.tutorial-actions > span { font-size: 11px; line-height: 1.5; }
+.studio-tutorial #tutorial-next { min-width: 112px; flex-shrink: 0; background: #39734e; border-color: #39734e; color: #fff; }
+.studio-tutorial #tutorial-next.hand-selected { color: #39734e; }
+.tutorial-demo { display: block; width: 100%; height: 156px; margin: 12px 0; border-radius: 10px; background: #f3e9dd; }
+.tutorial-demo text { fill: #39734e; font: 600 14px 'DM Sans',sans-serif; }
+.demo-button { fill: #dcebdd; stroke: #83a58b; }
+.demo-tip { fill: #e5f4ff; stroke: #548dad; stroke-width: 3; }
+.demo-point { animation: tutorial-point 4s infinite; }
+.demo-dwell { fill: none; stroke: #39734e; stroke-width: 4; stroke-dasharray: 95; stroke-dashoffset: 95; transform: rotate(-90deg); transform-origin: 196px 45px; animation: tutorial-dwell 4s infinite; }
+.demo-mask, .demo-pull-patch { fill: #e3a074; stroke: #bd7455; stroke-width: 1.5; stroke-linejoin: round; }
+.demo-pull-patch { transform-origin: 149px 65px; animation: tutorial-patch 4s infinite; }
+.demo-pinch { animation: tutorial-pull 4s infinite; }
+.demo-cut-piece { fill: #f3e9dd; animation: tutorial-remove 4s infinite; }
+.demo-cut-line { fill: none; stroke: #c86348; stroke-width: 2.5; stroke-dasharray: 139; stroke-dashoffset: 139; animation: tutorial-trace 4s infinite; }
+.demo-cut-tip { animation: tutorial-cut 4s infinite linear; }
+@keyframes tutorial-point { 0%,12% { transform: translate(0,0); } 35%,85% { transform: translate(158px,22px); } 100% { transform: translate(0,0); } }
+@keyframes tutorial-dwell { 0%,35% { stroke-dashoffset: 95; opacity: 0; } 36% { opacity: 1; } 49%,85% { stroke-dashoffset: 0; opacity: 1; } 100% { opacity: 0; stroke-dashoffset: 0; } }
+@keyframes tutorial-pull { 0%,20% { transform: translateX(-12px); } 60%,85% { transform: translateX(35px); } 100% { transform: translateX(-12px); } }
+@keyframes tutorial-patch { 0%,20% { transform: scaleX(.03); } 60%,85% { transform: scaleX(1); } 100% { transform: scaleX(.03); } }
+@keyframes tutorial-trace { 0%,10% { stroke-dashoffset: 139; } 70%,90% { stroke-dashoffset: 0; stroke: #39734e; } 100% { stroke-dashoffset: 139; } }
+@keyframes tutorial-cut { 0%,10% { transform: translate(0,0); opacity: 1; } 17.5% { transform: translate(-6px,16px); } 25% { transform: translate(-22px,22px); } 32.5% { transform: translate(-38px,16px); } 40% { transform: translate(-44px,0); } 47.5% { transform: translate(-38px,-16px); } 55% { transform: translate(-22px,-22px); } 62.5% { transform: translate(-6px,-16px); } 70% { transform: translate(0,0); opacity: 1; } 75%,100% { transform: translate(0,0); opacity: 0; } }
+@keyframes tutorial-remove { 0%,72% { opacity: 0; } 78%,90% { opacity: 1; } 100% { opacity: 0; } }
+@media (max-width: 700px) {
+  .studio-tutorial { top: 74px; right: 12px; width: 300px; max-width: calc(100% - 24px); max-height: calc(100% - 170px); padding: 14px; }
+  .tutorial-demo { height: 140px; margin: 8px 0; }
+  .tutorial-lesson h2 { font-size: 19px; }
+}
+@media (max-height: 600px) {
+  .studio-tutorial { top: 12px; right: 12px; max-height: calc(100% - 104px); padding: 12px; }
+  .tutorial-demo { height: 100px; margin: 6px 0; }
+  .tutorial-lesson h2 { font-size: 18px; }
+  .tutorial-actions { margin-top: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-demo * { animation: none; }
+  .demo-point { transform: translate(158px,22px); }
+  .demo-dwell { stroke-dashoffset: 0; }
+  .demo-cut-line { stroke-dashoffset: 0; stroke: #39734e; }
 }
