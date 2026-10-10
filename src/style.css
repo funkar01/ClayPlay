@@ -213,6 +213,7 @@ body.play-area-fullscreen { overflow: hidden; }
 .hand-toolbar > button { display: grid; place-items: center; min-width: 0; min-height: 58px; padding: 9px 4px; border: 0; border-radius: 8px; background: #f3e9dd; color: #765844; font: 600 12px 'DM Sans',sans-serif; cursor: pointer; }
 .hand-toolbar > button.is-active, .hand-toolbar > button[aria-expanded="true"] { background: #dcebdd; color: #39734e; }
 .hand-toolbar > button:disabled, .hand-panel button:disabled { opacity: .4; cursor: default; }
+.tool-button[hidden] { display: none; }
 .hand-ui-ready > .tool-switch, .hand-ui-ready > #clay-menu, .hand-ui-ready > #ar-toggle, .hand-ui-ready > #try-toggle, .hand-ui-ready > .mask-transform-controls, .hand-ui-ready #clay-reset { display: none; }
 .hand-ui-ready .stage-session-controls #camera-button.is-secondary { display: none; }
 .hand-panel { position: absolute; z-index: 9; top: 50%; left: 124px; transform: translateY(-50%); display: flex; flex-direction: column; width: min(382px,calc(100% - 260px)); max-height: calc(100% - 160px); overflow: hidden; padding: 14px; border: 1px solid #ffffffc9; border-radius: 14px; background: #fffaf6f5; color: #765844; box-shadow: 0 8px 32px #60452e20; backdrop-filter: blur(12px); }
@@ -293,6 +294,11 @@ body.play-area-fullscreen { overflow: hidden; }
 .demo-cut-piece { fill: #f3e9dd; animation: tutorial-remove 4s infinite; }
 .demo-cut-line { fill: none; stroke: #c86348; stroke-width: 2.5; stroke-dasharray: 139; stroke-dashoffset: 139; animation: tutorial-trace 4s infinite; }
 .demo-cut-tip { animation: tutorial-cut 4s infinite linear; }
+.demo-erase-circle { fill: #c8634815; stroke: #c86348; stroke-width: 2.5; }
+.demo-erase-hand { animation: tutorial-erase-hand 4s infinite; }
+.demo-erase-trail { fill: none; stroke: #f3e9dd; stroke-width: 38; stroke-linecap: round; stroke-dasharray: 50; stroke-dashoffset: 50; animation: tutorial-erase-trail 4s infinite; }
+@keyframes tutorial-erase-hand { 0%,15% { transform: translateX(0); } 65%,85% { transform: translateX(50px); } 90%,100% { transform: translateX(50px); opacity: 0; } }
+@keyframes tutorial-erase-trail { 0%,15% { stroke-dashoffset: 50; opacity: 0; } 16% { opacity: 1; } 65%,85% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
 @keyframes tutorial-point { 0%,12% { transform: translate(0,0); } 35%,85% { transform: translate(158px,22px); } 100% { transform: translate(0,0); } }
 @keyframes tutorial-dwell { 0%,35% { stroke-dashoffset: 95; opacity: 0; } 36% { opacity: 1; } 49%,85% { stroke-dashoffset: 0; opacity: 1; } 100% { opacity: 0; stroke-dashoffset: 0; } }
 @keyframes tutorial-pull { 0%,20% { transform: translateX(-12px); } 60%,85% { transform: translateX(35px); } 100% { transform: translateX(-12px); } }
@@ -316,4 +322,5 @@ body.play-area-fullscreen { overflow: hidden; }
   .demo-point { transform: translate(158px,22px); }
   .demo-dwell { stroke-dashoffset: 0; }
   .demo-cut-line { stroke-dashoffset: 0; stroke: #39734e; }
+  .demo-erase-trail { stroke-dashoffset: 0; }
 }

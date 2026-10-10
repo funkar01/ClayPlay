@@ -46,6 +46,7 @@ export class ClayObjects {
     const index = this.items.indexOf(this.active);
     this.active.volume.surfacePull?.abort();
     this.active.volume.surfaceCut?.abort();
+    this.active.volume.surfaceErase?.abort();
     this.active.volume.meshQueue?.dispose();
     for (const { mesh } of this.active.volume.bricks.values()) mesh.geometry.dispose();
     this.active.volume.field.clear();

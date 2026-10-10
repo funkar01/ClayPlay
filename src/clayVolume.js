@@ -9,6 +9,7 @@ const GRID_NODES = GRID_CELLS + 1;
 const VOXEL_SIZE = 0.025;
 const BRICK_CELLS = 24;
 const BRICK_COUNT = GRID_CELLS / BRICK_CELLS;
+export const VOLUME_GRID = { min: GRID_MIN, cells: GRID_CELLS, voxel: VOXEL_SIZE, brick: BRICK_CELLS };
 const TETRAHEDRA = [
   [0, 5, 1, 6], [0, 1, 2, 6], [0, 2, 3, 6],
   [0, 3, 7, 6], [0, 7, 4, 6], [0, 4, 5, 6],

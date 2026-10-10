@@ -17,11 +17,11 @@ const lessons = [
       <g class="demo-pinch"><image href="${pinchIcon}" x="139" y="8" width="110" height="110"/><circle cx="163" cy="65" r="8" class="demo-tip"/></g>`,
   },
   {
-    id: 'cut', title: 'Pinch, trace, release', tool: 'cut',
-    description: 'Pinch and trace with your index from edge to edge or around a closed loop. Release to remove the smaller piece. Undo brings it back.',
+    id: 'erase', title: 'Pinch, brush, erase', tool: 'erase',
+    description: 'Pinch to activate the circle. Move over the mask to erase everything inside it. Release to stop. Undo brings it back.',
     demo: `<path d="M86 24Q54 63 86 105Q126 128 162 103Q186 63 162 24Q124 8 86 24Z" class="demo-mask"/>
-      <circle cx="124" cy="77" r="21" class="demo-cut-piece"/><circle cx="124" cy="77" r="22" class="demo-cut-line"/>
-      <g class="demo-cut-tip"><image href="${pinchIcon}" x="124" y="25" width="100" height="100"/><circle cx="146" cy="77" r="8" class="demo-tip"/></g>`,
+      <path d="M106 77H156" class="demo-erase-trail"/>
+      <g class="demo-erase-hand"><image href="${pinchIcon}" x="84" y="25" width="100" height="100"/><circle cx="106" cy="77" r="19" class="demo-erase-circle"/></g>`,
   },
 ];
 

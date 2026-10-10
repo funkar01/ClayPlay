@@ -139,11 +139,24 @@ These are design expectations to validate through a prototype, not measured find
 
 ### Current prototype controls
 
-The studio currently offers **Pinch** for shaping and **Cut** for trimming.
+The studio currently offers **Pinch** for shaping and **Erase** for removal.
 Carve, Bulge, and the old palm-based Knife remain removed. The full-face,
 half-face, and animal starters remain available.
 
-In Cut mode, pinch to start, trace with the index fingertip, and release to finish.
+**Erase:** pinch to activate a circular brush at the thumb–index pinch location.
+Move while held to erase the mask surface inside the circle, through the shell.
+No completed outline is needed. Opening the fingers stops collecting brush
+positions immediately; background work finishes only positions captured while
+pinched. Losing tracking, opening a menu, changing tools, or turning the camera
+off ends the gesture safely. One gesture is one Undo step; Redo restores it.
+With symmetry enabled, the same removal is reflected across the mask's center.
+The circle follows the mask's scale and position. The existing brush size sets
+its width; the hidden strength/calibration controls remain hidden. Heavy field
+updates and local remeshing run in a worker with a bounded queue. Erased holes
+remain part of the authoritative mask field during later sculpting and try-on.
+
+**Cut is hidden from the interface and tutorial for now.** Its implementation
+is retained. In the retained Cut mode, pinch to start, trace with the index fingertip, and release to finish.
 Mouse users click, trace, and release. Draw from edge to edge to trim the shell,
 or draw a closed loop to cut out a patch. Endpoints near an edge extend to it,
 and nearly closed loops snap shut. The red
@@ -156,7 +169,7 @@ A small, one-time smoothing pass softens grid steps along the cut rim without
 increasing mesh resolution or adding work to live hand tracking.
 
 Use the **V-shaped Symmetry button** to mirror new pinch drags across the selected
-mask's vertical center, including Cut outlines. It starts on; when enabled, the button shows On, a dashed
+mask's vertical center, including erasing. It starts on; when enabled, the button shows On, a dashed
 center guide appears, and a second brush ring previews the opposite side.
 Symmetry works with hand tracking and mouse sculpting, follows the mask when it
 moves or scales, and keeps each two-sided drag as one Undo/Redo action. Centered
@@ -175,7 +188,7 @@ with an **OK** button. Once camera setup is complete, the user can select OK by
 hand. It enables AR mode and reuses the camera session. OK also works with the
 cursor and starts camera setup if needed. OK immediately opens a three-step
 tutorial: selecting a UI button by holding the index over **Next** for half a
-second, **Pinch** deformation, then **Cut**. Each lesson animates the supplied
+second, **Pinch** deformation, then **Erase**. Each lesson animates the supplied
 Select or Pinch icon with a short heading; explanatory paragraphs and tip boxes
 are omitted. The selection demo shows the half-second hold. Descriptions remain
 available to screen readers. Next activates the lesson's tool, so users can
@@ -187,7 +200,7 @@ no video download or extra inference is needed. Camera permission remains a
 browser-controlled setup step; the guide also works with cursor input if access
 is unavailable.
 
-**Hand-controlled studio:** a large, fixed toolbar offers Pinch, Cut, Try it, Undo, Redo,
+**Hand-controlled studio:** a large, fixed toolbar offers Pinch, Erase, Try it, Undo, Redo,
 and More. Hold the index finger over a highlighted button for 0.5 seconds to
 select it. The fingertip cursor stays visible while cutting, pulling, or moving;
 blocking button selection during an edit never hides it. A ring around the cursor
@@ -216,20 +229,20 @@ second hand leaves one-hand editing and menus available. Native camera input map
 the index and mask interaction to the same screen positions, including AR cover
 cropping, while the retained trace-replay hook supports older local recordings.
 
-**Create with the cursor:** when the camera is off, Pinch and Cut are ready
+**Create with the cursor:** when the camera is off, Pinch and Erase are ready
 automatically, including after a camera permission failure or disconnection.
 With Pinch selected, click a solid mask patch and drag; releasing keeps the
-visible shape immediately. With Cut selected, hold the mouse button and trace
-edge to edge or a closed loop, then release to remove the smaller piece.
+visible shape immediately. With Erase selected, hold the mouse button and brush
+over the mask; release to stop removing material.
 Symmetry and Undo/Redo work the same way as hand input. Pointer capture keeps
 drags continuous, and cancelled pointers or focus loss safely end a pull or
-discard an unfinished cut. No virtual hand or tracking model is needed for
+finish the recorded erasure. No virtual hand or tracking model is needed for
 cursor editing. Camera controls remain accessible; starting the camera switches
 editing back to hand tracking, and Try it pauses editing while wearing the mask.
 
 **Move the mask:** close your palm over a solid part of the selected mask, then
 move your hand across the screen. Open your palm to leave the mask at that position
-and continue pinching or cutting. This works in the studio and AR view without a
+and continue pinching or erasing. This works in the studio and AR view without a
 separate tool switch. Opening the palm or losing tracking immediately stops movement;
 a whole-hand closure takes priority even when the thumb and index touch. Movement
 stays reserved while closing or opening the palm, including uncertain tracking
@@ -252,7 +265,7 @@ video's cropping and the play area's size, including fullscreen. Turning AR off
 returns to the studio background and keeps the mask and camera session; stopping
 the camera turns AR off as well. Camera video stays on the device.
 
-Choose **Try it** beside Pinch and Cut to wear the selected mask in the camera view.
+Choose **Try it** beside Pinch and Erase to wear the selected mask in the camera view.
 The mask automatically aligns its eye openings with your eyes and follows head
 movement, tilt, and turns. It uses your actual cuts, sculpting, and color; switch
 masks or colors through More while wearing it. Sculpting is paused until
