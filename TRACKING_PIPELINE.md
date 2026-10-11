@@ -22,10 +22,10 @@ latency from the recording.
 2. Schedule capture from video-frame callbacks. An animation-frame watchdog
    handles browsers that suppress those callbacks when fullscreen hides the
    preview; browsers without the API also use animation frames.
-3. Allow one inference in flight. Remember only the newest available frame's
+3. Allow one inference per model in flight. Remember only the newest available frame's
    metadata while busy, then capture it when inference is available. Drop old
-   frames rather than building a queue. Cancel scheduling on shutdown, retry,
-   and entry to face try-on.
+   frames rather than building a queue. Cancel scheduling on shutdown and retry.
+   Keep the hand pump running for UI selection during face try-on.
 4. Keep capture/presentation timestamps through processing. Reject results
    aged 200 ms or more before they can affect sculpting. UI feedback has a
    separate 500 ms sample-age bound, so a delayed result can maintain a pointer
@@ -195,6 +195,60 @@ two-hand resize, and active erasing on the same device and lighting. A 60 fps
 camera request does not guarantee 60 Hz tracking; inference and exposure can
 still limit it. Sub-frame visual feedback cannot remove camera latency or
 recover measurements that were never captured.
+
+## Resizing after deformation
+
+The October 11 recording replay detects both visible hands, but they are open
+palms. Closed fists remain the resize gesture; open palms now show an explicit
+"Both hands detected · close both fists to resize" hint. Fist classification
+requires a curled index as well as two other curled fingers, so a sculpting
+pinch with relaxed outer fingers cannot become a resize grip.
+
+Two additional control paths could prevent resizing after sculpting:
+
+- Five inference frames above 120 ms permanently restarted tracking with only
+  one hand. The existing single-flight scheduler and adaptive interval now
+  handle slow bursts without disabling the second hand. Compatibility-mode
+  reconnection also requests two hands, falling back to one only if that
+  configuration actually fails.
+- Resize intent was gated by the previous pinch state. A complete two-fist
+  pose now explicitly finishes the last measured deformation. Resizing waits
+  for pull/erase/cut workers and pending geometry to finish, shows a saving
+  hint, then establishes its baseline while the fists remain held. A closed
+  options panel's single-hand reopening gate cannot block this two-hand intent.
+  An open panel or paused editing still owns input.
+
+`tests/resizeAfterSculpt.browser.cjs` exercises the real render loop and geometry
+workers with simulated hand inference, 150 ms inference bursts, and delayed
+geometry delivery. It checks direct pinch/erase transitions, repeated resizing,
+release and one-hand loss, exact geometry and size history, and two-hand
+compatibility recovery. Run it against the dev server with Playwright installed
+(or set `PLAYWRIGHT_MODULE_PATH`), as with the continuous-pinch browser check.
+The diagnostic fields `detectedHands` and `resize` distinguish detection from
+gesture/placement/saving gates. Recording replay is evidence that these frames
+contain recognizable hands, not a measurement of the user's live tracker state.
+
+## Index selection during Try On
+
+Try On previously stopped the ordinary hand pump and serialized hand and face
+inference in one loop. A slow face job could push successive hand results more
+than 300 ms apart, resetting the UI's safe dwell countdown. Try On also discarded
+hand results after 350 ms, although the UI accepts source samples below 500 ms.
+
+The same latest-frame hand pump now serves sculpting and Try On. Face tracking
+runs independently on its own worker, with at most one request per model; the
+hand interval remains adaptive with an 80 ms minimum in Try On. Source timestamps
+and normal UI freshness checks are preserved. Try On only routes hand results
+to the UI. A frame selecting Back to creating cannot also sculpt. Mode changes
+restart the same pump so pending hand inference cannot overlap another hand job,
+and epoch checks discard results from the previous mode.
+
+`tests/tryOnHandUI.browser.cjs` reproduces the old More-button failure with
+320 ms face inference and 70 ms hand inference. It checks More, color/finish,
+single activation while stationary, hand/face loss, hand-selected return, mode
+changes during pending inference, resumed tool selection, and camera shutdown, using simulated
+tracking and the real studio/render loop. These checks do not measure live-model
+performance under concurrent CPU load.
 
 References: [MediaPipe hand tracking and worker guidance](https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker/web_js),
 [video-frame callbacks and timing metadata](https://developer.mozilla.org/en-US/docs/Web/API/HTMLVideoElement/requestVideoFrameCallback),

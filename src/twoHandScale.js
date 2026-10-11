@@ -13,12 +13,16 @@ export function closedFist(points, aspect = 1, minimumCurled = 3) {
   const distance = (a, b) => Math.hypot((a.x - b.x) * aspect, a.y - b.y);
   const length = distance(points[0], points[9]);
   if (length < 0.025) return false;
-  let curled = 0;
+  let curled = 0, indexCurled = false;
   for (const [joint, tip] of [[6,8], [10,12], [14,16], [18,20]]) {
     if (distance(points[tip], points[0]) < distance(points[joint], points[0]) * 0.95
-      && distance(points[tip], palm) < length * 0.85) curled++;
+      && distance(points[tip], palm) < length * 0.85) {
+      curled++;
+      if (tip === 8) indexCurled = true;
+    }
   }
-  return curled >= minimumCurled;
+  // A pointing index with relaxed outer fingers is still a sculpting pose.
+  return indexCurled && curled >= minimumCurled;
 }
 
 export class TwoHandScale {

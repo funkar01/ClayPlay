@@ -22,6 +22,8 @@ test('Fist detector accepts curled fingers and rejects an open hand or a sculpti
     assert.equal(closedFist(hand(.3, false), aspect), false);
     const pinch = hand(.3, false); pinch[8].y = .55; pinch[4] = { ...pinch[8] };
     assert.equal(closedFist(pinch, aspect), false);
+    const relaxedPinch = hand(.3); relaxedPinch[8].y = .3; relaxedPinch[4] = { ...relaxedPinch[8] };
+    assert.equal(closedFist(relaxedPinch, aspect), false, 'An extended index is not a complete resize fist');
   }
   assert.equal(closedFist([]), false);
   const invalid = hand(.3); invalid[9].x = NaN;
