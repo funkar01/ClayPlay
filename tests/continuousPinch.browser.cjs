@@ -59,11 +59,16 @@ module.exports = async function(page) {
   await page.evaluate(()=>{
     const d=window.clayPlayDebug,p=d.objects.active.group.localToWorld(new d.camera.position.constructor(.65,.65,.5)).project(d.camera);
     window.pinchTarget={x:(1-p.x)/2,y:(1-p.y)/2};
-    window.feedContinuous=(offset,held,delay=230,relaxed=false)=>{
+    window.feedContinuous=(offset,held,delay=230,relaxed=false,gapRatio=null)=>{
       const {x:base,y}=window.pinchTarget,x=base+offset,p=Array.from({length:21},()=>({x,y:y+.08,z:0}));
       p[0]={x,y:y+.2,z:0};p[5]={x:x-.05,y:y+.1,z:0};p[9]={x,y:y+.09,z:0};p[17]={x:x+.08,y:y+.12,z:0};
       for(const[joint,tip,dx]of[[6,8,0],[10,12,.025],[14,16,.06],[18,20,.095]]){p[joint]={x:x+dx,y:y+.06,z:0};p[tip]={x:x+dx,y,z:0};}
       p[4]={x:x+(held?.003:-.08),y,z:0};
+      if(gapRatio!==null){
+        const v=document.querySelector('#camera-video'),aspect=v.videoWidth&&v.videoHeight?v.videoWidth/v.videoHeight:1;
+        const distance=(a,b)=>Math.hypot((p[a].x-p[b].x)*aspect,p[a].y-p[b].y);
+        p[4].x=x+gapRatio*Math.max(.025,distance(5,17),distance(0,9)*.7)/aspect;
+      }
       if(relaxed)for(const tip of [16,20])p[tip].y=y+.14;
       const now=performance.now();d.feedHands([p],now,{sampleAt:now-delay});return d.getState();
     };
@@ -87,9 +92,16 @@ module.exports = async function(page) {
   assert.equal(live.jobs.filter(j=>j.type==='preview').length,0,'Live shape never waits for worker preview jobs');
   assert.ok(live.samples.slice(1).some((s,i)=>Math.hypot(...s.delta)>Math.hypot(...live.samples[i].delta)+.001),'Shape advances between measured results');
   const held=await page.evaluate(()=>window.clayPlayDebug.objects.active.volume.surfacePull.lastWarp);
-  await page.evaluate(()=>window.feedContinuous(-.14,false));
-  assert.equal(await page.evaluate(()=>window.clayPlayDebug.getState().grabbed),false);
+  await page.evaluate(()=>window.feedContinuous(-.14,false,230,false,.38));
+  assert.equal(await page.evaluate(()=>window.clayPlayDebug.getState().grabbed),false,'A modest opening releases before its moved index can deform the patch');
   assert.deepEqual(await page.evaluate(()=>window.clayPlayDebug.objects.active.volume.pullPreview.uniforms.pullDelta.value.toArray()),held.delta);
+  await page.evaluate(async()=>{
+    for(const [offset,ratio] of [[-.16,.38],[-.18,.33],[-.2,.39],[-.21,.33]]){
+      window.feedContinuous(offset,false,230,false,ratio); await new Promise(requestAnimationFrame);
+      if(window.clayPlayDebug.getState().held||window.clayPlayDebug.getState().grabbed)throw Error('Opening finger grabbed again');
+    }
+  });
+  assert.deepEqual(await page.evaluate(()=>window.clayPlayDebug.objects.active.volume.surfacePull.lastWarp),held,'The final deformation stays frozen while the released index moves');
   const frozen=await page.locator('#three-scene canvas').screenshot();
   await page.waitForFunction(()=>!window.clayPlayDebug.getState().pulling,{},{timeout:15000});
   const committed=await stats();assert.notDeepEqual(committed,original);

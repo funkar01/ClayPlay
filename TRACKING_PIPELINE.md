@@ -121,6 +121,17 @@ ownership if the outer fingers relax or curl; a full fist still invokes Move.
 The 0.003 local-unit movement gate is reduced to duplicate-sample suppression,
 so slow, small measured movements are also visible.
 
+Release intent uses raw thumb/index separation rather than the displayed finger
+filter. The previous fixed release threshold was 0.55 palm widths, so a partial
+opening could still drive the patch for several measurements. The threshold now
+adapts to the tightest measured grip plus a 0.14 margin, bounded to 0.36–0.48 palm
+widths. The first frame crossing it releases without a confirmation delay, before
+that opening frame's index position can move the patch. After release, a definite
+closure below 0.30 is required to regrab; opening/threshold jitter cannot start
+another stroke. Closed-finger noise stays within the hold band. This reduces the
+extra opening required by gesture logic; camera and inference delay still precede
+the first measurable release frame.
+
 Freshness now distinguishes source age from missing results. A newly returned
 measurement less than 500 ms old is accepted; a 300 ms interval without a new
 result pauses input. A steady 230 ms camera/inference delay no longer creates
@@ -131,7 +142,8 @@ cannot keep driving a stroke.
 The continuous-pinch browser regression delays commit delivery by 500 ms and
 simulates 230 ms source delay. It verifies immediate grab, interpolation across
 display frames, zero worker preview jobs while held, relaxed outer fingers,
-frozen release, and exact Undo/Redo. A WebGL2 transform-feedback check compares
+release at 0.38 palm widths with a simultaneously moving index, no regrab during
+partial-opening jitter, frozen release, and exact Undo/Redo. A WebGL2 transform-feedback check compares
 720 GPU positions and normals with the CPU flow across symmetry settings and
 1%, 3%, and 24% brush radii: maximum errors were 0.000013 local units for position
 and 0.000056 for normal components. These are synthetic correctness checks,

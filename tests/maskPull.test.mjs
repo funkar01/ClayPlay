@@ -70,11 +70,11 @@ test('Pinch ignores depth jitter but releases on the first clearly open frame', 
   assert.equal(gesture.held, true);
   points[4].z = 10; points[8].z = -10;
   gesture.update(points, 66, 1.78); assert.equal(gesture.held, true);
-  points[4].x = 0.545; gesture.update(points, 99, 1.78);
+  points[4].x = 0.528; gesture.update(points, 99, 1.78);
   assert.equal(gesture.held, true, 'Small separation noise within the hold band is tolerated');
-  points[4].x = 0.56; gesture.update(points, 132, 1.78);
+  points[4].x = 0.538; gesture.update(points, 132, 1.78);
   assert.equal(gesture.held, false);
-  points[4].x = 0.545; gesture.update(points, 165, 1.78);
+  points[4].x = 0.533; gesture.update(points, 165, 1.78);
   assert.equal(gesture.held, false, 'A fresh pinch is required to grab again');
   points[4].x = 0.51;
   for (let now = 198; now <= 330; now += 33) gesture.update(points, now, 1.78);
