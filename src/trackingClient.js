@@ -15,7 +15,11 @@ export class TrackingClient {
       if (!request) return;
       this.pending.delete(data.id);
       clearTimeout(request.timer);
-      this.duration = data.duration ?? 0;
+      if (data.duration !== undefined) {
+        this.duration = data.duration;
+        this.averageDuration = this.averageDuration == null ? data.duration : this.averageDuration * .8 + data.duration * .2;
+        if (this.task !== 'face') this.minInterval = handTrackingBudget(this.handCount ?? 1, this.averageDuration).interval;
+      }
       if (data.error) {
         const error = new Error(data.error);
         error.name = data.errorName ?? 'Error';
@@ -35,11 +39,13 @@ export class TrackingClient {
     });
   }
   async detectForVideo(video, timestamp) {
-    const budget = handTrackingBudget(this.handCount ?? 1, this.duration);
+    const budget = handTrackingBudget(this.handCount ?? 1, this.averageDuration);
     if (this.task !== 'face') this.minInterval = budget.interval;
     const width = Math.min(this.task === 'face' ? 640 : budget.width, video.videoWidth);
+    const captureStart = performance.now();
     const bitmap = await createImageBitmap(video, { resizeWidth: width,
       resizeHeight: Math.max(1, Math.round(video.videoHeight * width / video.videoWidth)), resizeQuality: 'low' });
+    this.captureMs = performance.now() - captureStart;
     if (this.closed) { bitmap.close(); throw new Error('Tracking stopped'); }
     return this.request('frame', { bitmap, timestamp }, [bitmap]);
   }
@@ -86,7 +92,7 @@ export class TrackingClient {
     const client = new TrackingClient('hand');
     try {
       await client.request('init', { task: 'hand', numHands: 2 });
-      client.handCount = 2; client.minInterval = 50;
+      client.handCount = 2; client.minInterval = handTrackingBudget(2).interval;
       return client;
     } catch (error) { client.close(); throw error; }
   }

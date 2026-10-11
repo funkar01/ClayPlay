@@ -2,6 +2,7 @@ import { HandSelection, ControlHand } from './handSelection.js';
 import { palmCenter } from './twoHandScale.js';
 import { closedPalm } from './palmMove.js';
 import { MASK_SHAPES } from './clayShapes.js';
+import { HandMotion } from './handMotion.js';
 
 const colors = [
   ['Terracotta', '#bd7455'], ['Cream', '#ead5b5'], ['Rose', '#ce8793'],
@@ -9,6 +10,9 @@ const colors = [
   ['Sunshine', '#e5bd50'], ['Coral', '#e87865'], ['Mint', '#83c6b2'],
   ['Plum', '#825b87'], ['Charcoal', '#45434a'], ['Pearl', '#f5eee1'],
 ];
+
+export const HAND_UI_SAMPLE_AGE_MS = 500;
+const cursorGraceMs = 650;
 
 export function hslToHex(h, s, l) {
   s /= 100; l /= 100;
@@ -29,9 +33,10 @@ function button(label, action, value) {
 export class HandUI {
   constructor({ stage, getState, onAction, onPause, mapPoint }) {
     Object.assign(this, { stage, getState, onAction, onPause, mapPoint });
-    this.selection = new HandSelection(); this.identity = new ControlHand();
+    this.selection = new HandSelection(); this.identity = new ControlHand({ graceMs: cursorGraceMs });
+    this.motion = new HandMotion({ staleMs: HAND_UI_SAMPLE_AGE_MS });
     this.page = 'more'; this.maskPage = 0;
-    this.custom = [20, 55, 60]; this.lastAt = 0;
+    this.custom = [20, 55, 60]; this.lastAt = null; this.gapAt = null;
     this.dock = document.createElement('nav'); this.dock.id = 'hand-toolbar';
     this.dock.className = 'hand-toolbar'; this.dock.setAttribute('aria-label', 'Mask studio tools');
     for (const id of ['tool-pinch', 'tool-erase']) this.dock.append(document.getElementById(id));
@@ -160,12 +165,32 @@ export class HandUI {
   }
   announce(message) { this.feedback.hidden = false; if (this.feedback.textContent !== message) this.feedback.textContent = message; }
   lose() {
+    this.lastAt = null; this.gapAt = null;
+    this.motion.reset();
     this.selection.cancel(); this.cursor.hidden = true; this.cursor.style.setProperty('--dwell-progress', '0deg'); this.highlight?.classList.remove('hand-hover', 'hand-selected'); this.highlight = null;
     this.feedback.hidden = !this.isOpen;
     if (this.isOpen) this.announce('Hand lost · show your index finger to continue');
   }
   reset() { this.lose(); this.selection.reset(); this.identity.reset(); }
-  tick(now) { this.sync(); if (this.lastAt && now - this.lastAt > 300) { this.lose(); this.lastAt = 0; } }
+  suspend(now) {
+    if (this.lastAt === null || now - this.lastAt > cursorGraceMs) { this.lose(); return; }
+    this.gapAt ??= now;
+    this.selection.pause(now);
+    // Keep the last painted cursor and highlight. Never extrapolate a missing
+    // hand or advance its countdown; hard shutdown still calls lose/reset.
+  }
+  tick(now) {
+    this.sync();
+    if (this.lastAt !== null && (now - this.lastAt > 300
+      || (this.motion.time !== null && now - this.motion.time >= HAND_UI_SAMPLE_AGE_MS))) this.suspend(now);
+    if (!this.cursor.hidden && this.gapAt === null) this.drawCursor(now);
+  }
+  drawCursor(now) {
+    const points = this.motion.sample(now);
+    if (!points) return;
+    const point = this.mapPoint(points[8]), stageRect = this.stage.getBoundingClientRect();
+    this.cursor.style.transform = `translate(${point.x - stageRect.left}px, ${point.y - stageRect.top}px)`;
+  }
   hit(point, overlay = null) {
     const root = this.isOpen ? this.panel : overlay ?? this.stage;
     if (this.highlight?.isConnected && root.contains(this.highlight) && !this.highlight.disabled && this.visible(this.highlight)) {
@@ -183,12 +208,21 @@ export class HandUI {
     }) ?? null;
   }
   visible(target) { return Boolean(target.getClientRects().length && !target.closest('[hidden], [inert]') && getComputedStyle(target).visibility !== 'hidden'); }
-  receive(result, now, { blocked = false, aspect = 1 } = {}) {
+  receive(result, now, { blocked = false, aspect = 1, sampleAt = now } = {}) {
+    if (now - sampleAt >= HAND_UI_SAMPLE_AGE_MS) {
+      this.suspend(now); return { owns: this.isOpen || Boolean(this.selection.hover), index: null, missing: true };
+    }
     const candidates = (result.landmarks ?? []).map((points, index) => ({ points, index, palm: palmCenter(points), label: result.handedness?.[index]?.[0]?.categoryName ?? '' })).filter(candidate => candidate.palm);
     const hand = this.identity.choose(candidates, now);
-    if (!hand) { this.lose(); return { owns: this.isOpen, index: null, missing: candidates.length > 0 }; }
-    if (hand.changed) this.selection.reset();
-    const point = this.mapPoint(hand.points[8]);
+    if (!hand) {
+      this.suspend(now);
+      return { owns: this.isOpen || Boolean(this.selection.hover), index: null, missing: !this.cursor.hidden || candidates.length > 0 };
+    }
+    if (hand.changed) { this.selection.reset(); this.motion.reset(); }
+    const measured = this.motion.update(hand.points, sampleAt, now);
+    if (!measured) { this.suspend(now); return { owns: this.isOpen, index: null, missing: true }; }
+    // Dwell and activation only run on fresh measurements, never predictions.
+    const point = this.mapPoint(measured[8]);
     const tutorial = this.stage.querySelector('#studio-tutorial:not([hidden])');
     const tutorialBounds = tutorial?.getBoundingClientRect();
     const overTutorial = tutorialBounds && point.x >= tutorialBounds.left && point.x <= tutorialBounds.right
@@ -202,13 +236,12 @@ export class HandUI {
     const bounds = rect && { left: rect.left - 12, right: rect.right + 12, top: rect.top - 12, bottom: rect.bottom + 12 };
     const response = this.selection.update({ point, target, key, bounds, fist, blocked,
       modal: this.isOpen || Boolean(overTutorial && !blocked), now });
-    this.lastAt = now;
+    this.lastAt = now; this.gapAt = null;
     this.highlight?.classList.remove('hand-hover', 'hand-selected');
     this.highlight = response.target ?? null;
     this.highlight?.classList.add('hand-hover');
     if (response.phase === 'selected') this.highlight?.classList.add('hand-selected');
-    const stageRect = this.stage.getBoundingClientRect();
-    this.cursor.style.transform = `translate(${point.x - stageRect.left}px, ${point.y - stageRect.top}px)`;
+    this.drawCursor(now);
     this.cursor.dataset.phase = response.phase;
     this.cursor.style.setProperty('--dwell-progress', `${response.progress * 360}deg`);
     // The fingertip stays visible while an edit owns input. Blocking menu

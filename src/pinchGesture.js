@@ -7,6 +7,12 @@ export class PinchGesture {
     // inferred depth while thumb and index overlap in a real pinch.
     const distance = (a, b) => Math.hypot((points[a].x - points[b].x) * aspect, points[a].y - points[b].y);
     const ratio = distance(4, 8) / Math.max(0.025, distance(5, 17), distance(0, 9) * 0.7);
+    // A clearly closed pinch starts on this frame. Only borderline closure
+    // needs the short confirmation below; the palm gesture owns actual fists.
+    if (!this.held && ratio < .34) {
+      this.held = true; this.ratio = ratio; this.candidateAt = null; this.time = now;
+      return true;
+    }
     // Release on the first clearly open image frame. Filtering and a long
     // release dwell let the newly extended index keep dragging the patch.
     if (this.held && ratio >= 0.55) {

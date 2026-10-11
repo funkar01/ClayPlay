@@ -47,9 +47,9 @@ export class TwoHandScale {
   }
 }
 
-// Two-hand mode leaves breathing room for rendering instead of accumulating
-// camera frames. One-hand mode retains its existing capture size and cadence.
+// Single-flight capture already prevents a backlog. Leave a small CPU margin
+// without imposing the old 20 Hz ceiling on pointing in automatic two-hand mode.
 export function handTrackingBudget(count, duration = 0) {
-  return count === 2 ? { width: 512, interval: Math.max(50, Math.min(200, duration * 1.5)) }
+  return count === 2 ? { width: 512, interval: Math.max(33, Math.min(200, duration * 1.1)) }
     : { width: 640, interval: 0 };
 }

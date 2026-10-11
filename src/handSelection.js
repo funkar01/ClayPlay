@@ -2,15 +2,25 @@
 // latched until the finger leaves, even if the action rebuilds the menu.
 export class HandSelection {
   constructor() { this.reset(); }
-  cancel() { this.hover = null; this.hoverAt = 0; this.lastAt = null; }
+  cancel() { this.hover = null; this.hoverAt = 0; this.lastAt = null; this.pausedAt = null; }
   reset() { this.cancel(); this.latched = null; }
+  pause(now) {
+    // A brief detector miss freezes dwell at the last confirmed sample. It
+    // cannot count unseen time toward a click or erase an almost-finished hold.
+    if (this.lastAt === null) return;
+    this.pausedAt ??= this.lastAt;
+    if (now - this.pausedAt > 450) this.cancel();
+  }
   update({ point, target = null, key = target, bounds = null, fist = false,
     blocked = false, modal = false, now }) {
     if (!point || blocked) {
       this.cancel();
       return { owns: modal, phase: 'waiting', progress: 0 };
     }
-    if (this.lastAt !== null && now - this.lastAt > 300) this.cancel();
+    if (this.pausedAt !== null) {
+      if (now - this.pausedAt > 450) this.cancel();
+      else { this.hoverAt += now - this.pausedAt; this.pausedAt = null; }
+    } else if (this.lastAt !== null && now - this.lastAt > 300) this.cancel();
     this.lastAt = now;
     if (this.latched) {
       const b = this.latched.bounds;
@@ -40,10 +50,10 @@ export class HandSelection {
 // Match the same physical hand across detector ordering changes. A missing
 // controlling hand briefly reserves ownership instead of jumping to another.
 export class ControlHand {
-  constructor() { this.reset(); }
+  constructor({ graceMs = 300 } = {}) { this.graceMs = graceMs; this.reset(); }
   reset() { this.previous = null; this.lastAt = 0; }
   choose(candidates, now) {
-    if (!candidates.length) { if (now - this.lastAt > 300) this.reset(); return null; }
+    if (!candidates.length) { if (now - this.lastAt > this.graceMs) this.reset(); return null; }
     let chosen = candidates[0];
     if (this.previous) {
       const ranked = candidates.map(candidate => ({ candidate,
@@ -51,7 +61,7 @@ export class ControlHand {
           + (candidate.label && this.previous.label && candidate.label !== this.previous.label ? .35 : 0) }))
         .sort((a, b) => a.distance - b.distance);
       const sameLabel = this.previous.label && ranked[0].candidate.label === this.previous.label;
-      if (!sameLabel && ranked[0].distance > .3 && now - this.lastAt < 300) return null;
+      if (!sameLabel && ranked[0].distance > .3 && now - this.lastAt < this.graceMs) return null;
       chosen = ranked[0].candidate;
     }
     const changed = Boolean(this.previous && chosen.label && this.previous.label && chosen.label !== this.previous.label);

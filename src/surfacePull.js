@@ -1,25 +1,32 @@
 import * as THREE from 'three';
 import { makeWarp, forwardWarp } from './maskWarp.js';
 import { diagnostics } from './diagnostics.js';
+import { PullPreview } from './pullPreview.js';
+import { anchorVertex } from './pullGeometry.js';
 
 export class SurfacePull {
   constructor(volume, onChange) { this.volume = volume; this.onChange = onChange; }
+  get appliedWarp() {
+    if (!this.active || !this.preview?.uniforms.pullEnabled.value) return this.committedWarp;
+    return makeWarp(this.anchor.toArray(), this.preview.uniforms.pullDelta.value.toArray(), this.radius, this.softness, this.symmetry);
+  }
   begin(anchor, radius, softness, symmetry = false) {
     if (radius <= 0 || this.volume.pulling || this.volume.cutting || this.volume.meshQueue?.pending || !this.volume.bricks.size) return false;
     this.source = this.volume.snapshot();
     this.anchor = anchor.clone(); this.radius = radius; this.softness = softness; this.symmetry = symmetry;
     this.lastWarp = makeWarp(anchor.toArray(), [0, 0, 0], radius, softness, symmetry);
-    this.appliedWarp = this.lastWarp; this.pending = null;
-    this.worker = new Worker(new URL('./pullWorker.js', import.meta.url), { type: 'module' });
+    this.committedWarp = this.lastWarp;
+    this.preview = this.volume.pullPreview ??= new PullPreview(this.volume.material);
+    const worker = this.worker = new Worker(new URL('./pullWorker.js', import.meta.url), { type: 'module' });
     this.volume.pulling = true; this.active = true; this.busy = false; this.released = false;
     this.worker.onmessage = ({ data }) => {
+      if (this.worker !== worker || !this.active) return;
       clearTimeout(this.timer);
       if (data.error) { this.fail(data.error); return; }
       this.busy = false;
       diagnostics.pullWorkerMs = data.duration;
-      // A preview already in flight may belong to a newer cursor position.
-      // Once released, keep the visible shape and only finalize that shape.
-      if (this.released && !data.final) { this.pump(); return; }
+      // The GPU owns the live surface; worker previews must never roll it back.
+      if (!data.final) return;
       const started = performance.now();
       if (data.repartition) {
         for (const { mesh } of this.volume.bricks.values()) { this.volume.parent.remove(mesh); mesh.geometry.dispose(); }
@@ -46,8 +53,9 @@ export class SurfacePull {
         mesh.frustumCulled = false;
       }
       diagnostics.pullInstallMs = performance.now() - started;
-      this.appliedWarp = data.warp;
+      this.committedWarp = data.warp;
       if (data.final) {
+        this.preview.clear();
         if (Math.hypot(...data.warp.delta) > 0.0005) {
           this.volume.pullSource = this.source;
           this.volume.pullWarp = data.warp;
@@ -62,35 +70,48 @@ export class SurfacePull {
         this.volume.pulling = false; this.active = false;
         this.worker.terminate(); this.worker = null;
         document.dispatchEvent(new Event('sculpt-history-change'));
-      } else this.pump();
+      }
     };
-    this.worker.onerror = event => this.fail(event.message);
+    this.worker.onerror = event => { if (this.worker === worker) this.fail(event.message); };
     const bricks = [...this.volume.bricks].map(([key, { mesh }]) => ({ key,
       positions: mesh.geometry.attributes.position.array.slice(), normals: mesh.geometry.attributes.normal.array.slice() }));
-    this.worker.postMessage({ type: 'begin', bricks, anchor: anchor.toArray(), symmetry }, bricks.flatMap(b => [b.positions.buffer, b.normals.buffer]));
+    const original = bricks.map(b => ({ ...b }));
+    anchorVertex(bricks, anchor.toArray());
+    if (symmetry && Math.abs(anchor.x) > 1e-6) anchorVertex(bricks, [-anchor.x, anchor.y, anchor.z], .005);
+    for (let i = 0; i < bricks.length; i++) {
+      if (bricks[i].positions === original[i].positions) continue;
+      const geometry = this.volume.bricks.get(bricks[i].key).mesh.geometry;
+      geometry.setAttribute('position', new THREE.BufferAttribute(bricks[i].positions.slice(), 3));
+      geometry.setAttribute('normal', new THREE.BufferAttribute(bricks[i].normals.slice(), 3));
+      geometry.boundingBox = null; geometry.boundingSphere = null;
+    }
+    for (const { mesh } of this.volume.bricks.values()) mesh.frustumCulled = false;
+    this.preview.begin(this.lastWarp);
+    // Send the original topology so a no-op release restores it exactly.
+    this.worker.postMessage({ type: 'begin', bricks: original, anchor: anchor.toArray(), symmetry }, original.flatMap(b => [b.positions.buffer, b.normals.buffer]));
     return true;
   }
   update(delta) {
     if (!this.active || this.released) return null;
     this.lastWarp = makeWarp(this.anchor.toArray(), delta.toArray(), this.radius, this.softness, this.symmetry);
-    this.pending = this.lastWarp; this.pump();
+    this.preview.update(this.lastWarp);
     return new THREE.Vector3(...forwardWarp(...this.anchor.toArray(), this.lastWarp));
-  }
-  pump() {
-    if (this.busy || !this.pending || !this.worker) return;
-    const warp = this.pending; this.pending = null; this.busy = true;
-    this.timer = setTimeout(() => this.fail('Pull worker timed out'), 5000);
-    this.worker.postMessage({ type: 'preview', warp, final: this.released });
   }
   finish() {
     if (!this.active || this.released) return;
-    this.released = true; this.lastWarp = this.appliedWarp;
-    this.pending = this.appliedWarp; this.pump();
+    this.released = true;
+    this.preview.freeze(this.lastWarp);
+    // Worker/render latency must not discard a quick drag. update() rejects
+    // subsequent open-hand positions, so this target is frozen at release.
+    this.busy = true;
+    this.timer = setTimeout(() => this.fail('Pull worker timed out'), 5000);
+    this.worker.postMessage({ type: 'preview', warp: this.lastWarp, final: true });
   }
   abort() {
     clearTimeout(this.timer);
     this.worker?.terminate(); this.worker = null;
-    this.active = false; this.volume.pulling = false; this.pending = null;
+    this.preview?.clear();
+    this.active = false; this.busy = false; this.volume.pulling = false;
   }
   fail(message) {
     console.error('Mask pull failed:', message);

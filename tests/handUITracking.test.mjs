@@ -1,0 +1,67 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { HandUI, HAND_UI_SAMPLE_AGE_MS } from '../src/handUI.js';
+import { HandSelection, ControlHand } from '../src/handSelection.js';
+import { HandMotion } from '../src/handMotion.js';
+
+function fixture() {
+  const ui = Object.create(HandUI.prototype), styles = new Map(); let clicks = 0;
+  const target = { id: 'next', isConnected: true, disabled: false,
+    classList: { add() {}, remove() {} }, getBoundingClientRect: () => ({ left: 550, right: 650, top: 250, bottom: 350 }),
+    getAttribute: () => 'Next', click: () => clicks++ };
+  Object.assign(ui, {
+    selection: new HandSelection(), identity: new ControlHand({ graceMs: 650 }),
+    motion: new HandMotion({ staleMs: HAND_UI_SAMPLE_AGE_MS }), lastAt: null, gapAt: null,
+    panel: { hidden: true }, cursor: { hidden: true, dataset: {}, style: { setProperty: (key, value) => styles.set(key, value) } },
+    feedback: { hidden: true }, stage: { querySelector: () => null, getBoundingClientRect: () => ({ left: 0, top: 0 }) },
+    mapPoint: p => ({ x: p.x * 1000, y: p.y * 1000 }), sync() {}, visible: () => true,
+    hit: p => p.x >= 550 && p.x <= 650 && p.y >= 250 && p.y <= 350 ? target : null,
+  });
+  const points = Array.from({ length: 21 }, () => ({ x: .6, y: .38, z: 0 }));
+  points[0].y = .5; points[5] = { x: .55, y: .4, z: 0 };
+  points[9].y = .39; points[17] = { x: .68, y: .42, z: 0 };
+  for (const [joint, tip, dx] of [[6,8,0],[10,12,.025],[14,16,.06],[18,20,.095]]) {
+    points[joint] = { x: .6 + dx, y: .36, z: 0 }; points[tip] = { x: .6 + dx, y: .3, z: 0 };
+  }
+  points[4] = { x: .52, y: .3, z: 0 };
+  const result = { landmarks: [points], handedness: [[{ categoryName: 'Left' }]] };
+  return { ui, result, styles, clicks: () => clicks };
+}
+
+test('A missed detection keeps the painted pointer and dwell ring visible, then resumes one click', () => {
+  const f = fixture(), { ui, result } = f;
+  ui.receive(result, 0); ui.receive(result, 100); ui.receive(result, 200);
+  const position = ui.cursor.style.transform, progress = f.styles.get('--dwell-progress');
+  ui.receive({ landmarks: [] }, 240); ui.tick(300); ui.tick(340);
+  assert.equal(ui.cursor.hidden, false); assert.equal(ui.cursor.style.transform, position);
+  assert.equal(f.styles.get('--dwell-progress'), progress); assert.equal(f.clicks(), 0);
+  ui.receive(result, 380); assert.equal(f.styles.get('--dwell-progress'), progress);
+  for (const now of [480, 580, 680, 780]) ui.receive(result, now);
+  assert.equal(f.clicks(), 1); assert.equal(ui.cursor.hidden, false);
+});
+
+test('Regular valid results older than the sculpt threshold do not blink the UI pointer', () => {
+  const { ui, result } = fixture();
+  ui.receive(result, 300, { sampleAt: 50 }); ui.tick(420);
+  assert.equal(ui.cursor.hidden, false);
+  ui.receive(result, 450, { sampleAt: 200 }); ui.tick(580);
+  assert.equal(ui.cursor.hidden, false);
+});
+
+test('A long dropout clears the cursor and countdown; reacquisition starts a new hold', () => {
+  const f = fixture(), { ui, result } = f;
+  ui.receive(result, 0); ui.receive(result, 200); ui.receive({ landmarks: [] }, 240);
+  ui.tick(851); assert.equal(ui.cursor.hidden, true); assert.equal(ui.selection.hover, null);
+  ui.receive(result, 900);
+  assert.equal(ui.cursor.hidden, false); assert.equal(f.styles.get('--dwell-progress'), '0deg'); assert.equal(f.clicks(), 0);
+});
+
+test('Malformed or stale samples hold feedback without activating; hard reset hides immediately', () => {
+  const f = fixture(), { ui, result } = f;
+  ui.receive(result, 0); ui.receive(result, 200);
+  const malformed = structuredClone(result); malformed.landmarks[0][8].x = NaN;
+  ui.receive(malformed, 240); ui.tick(260); assert.equal(ui.cursor.hidden, false);
+  ui.receive(result, 300, { sampleAt: -300 }); ui.tick(400);
+  assert.equal(f.clicks(), 0); assert.equal(ui.cursor.hidden, false);
+  ui.reset(); assert.equal(ui.cursor.hidden, true); assert.equal(ui.selection.hover, null);
+});

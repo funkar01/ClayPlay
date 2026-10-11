@@ -62,10 +62,10 @@ test('Scaling clamps extremes and rejects tiny grip distances', () => {
   assert.equal(scale.update([hand(.45), hand(.55)], 220, 1).scale, .4);
 });
 
-test('One-hand budget is unchanged; two-hand capture and cadence stay bounded and back off on slow inference', () => {
+test('One-hand budget is unchanged; automatic two-hand tracking reaches 30 Hz and backs off on slow inference', () => {
   assert.deepEqual(handTrackingBudget(1, 150), { width: 640, interval: 0 });
-  assert.deepEqual(handTrackingBudget(2, 10), { width: 512, interval: 50 });
-  assert.deepEqual(handTrackingBudget(2, 80), { width: 512, interval: 120 });
+  assert.deepEqual(handTrackingBudget(2, 10), { width: 512, interval: 33 });
+  assert.deepEqual(handTrackingBudget(2, 80), { width: 512, interval: 88 });
   assert.deepEqual(handTrackingBudget(2, 500), { width: 512, interval: 200 });
 });
 

@@ -87,3 +87,25 @@ test('The same labelled hand can cross the stage without waiting for a hand swit
   const hand=identity.choose([{index:0,label:'Left',palm:{x:.8,y:.5}}],50);
   assert.equal(hand.label,'Left');assert.equal(hand.changed,false);
 });
+
+test('A brief tracking gap pauses a nearly complete dwell and resumes only on confirmed samples', () => {
+  const s = new HandSelection();
+  s.update({ point, target: 'next', now: 0 });
+  s.update({ point, target: 'next', now: 200 });
+  assert.equal(s.update({ point, target: 'next', now: 400 }).progress, .8);
+  s.pause(450); s.pause(550);
+  const resumed = s.update({ point, target: 'next', now: 600 });
+  assert.equal(resumed.progress, .8); assert.equal(resumed.activated, undefined);
+  assert.equal(s.update({ point, target: 'next', now: 700 }).activated, 'next');
+  s.pause(750);
+  assert.equal(s.update({ point, target: 'next', now: 800 }).activated, undefined, 'A resumed selection stays latched');
+});
+
+test('A paused dwell expires after prolonged loss and never transfers to another button', () => {
+  const s = new HandSelection();
+  s.update({ point, target: 'next', now: 0 }); s.update({ point, target: 'next', now: 200 });
+  s.pause(240); s.pause(700);
+  assert.equal(s.update({ point, target: 'next', now: 750 }).progress, 0);
+  s.update({ point, target: 'next', now: 950 }); s.pause(1000);
+  assert.equal(s.update({ point, target: 'undo', now: 1100 }).progress, 0);
+});

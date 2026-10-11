@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { ClayVolume } from './clayVolume.js';
 import { CLAY_SHAPES } from './clayShapes.js';
 import { attachMeshQueue } from './meshQueue.js';
+import { PullPreview } from './pullPreview.js';
 
 export class ClayObjects {
   constructor(scene) {
@@ -28,6 +29,7 @@ export class ClayObjects {
     const id = this.nextId++;
     group.name = `ClayObject_${id}`;
     const item = { id, shape, label: `${CLAY_SHAPES[shape].label} ${id}`, group, material, volume: new ClayVolume(group, material, shape, attachMeshQueue), edited: false };
+    item.volume.pullPreview = new PullPreview(material);
     this.items.push(item);
     this.scene.add(group);
     this.active = item;

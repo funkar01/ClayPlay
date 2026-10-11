@@ -33,39 +33,73 @@ function fixture(t) {
   return { pull, worker, volume, geometry, response, changes: () => changes };
 }
 
-test('Release freezes the visible patch and discards in-flight and queued movement', t => {
+test('Live pull updates the GPU without queuing worker previews; release commits the last measured target', t => {
   const f = fixture(t);
   f.pull.update(new THREE.Vector3(.1, 0, 0));
-  const visible = f.worker.messages.at(-1).warp;
-  f.worker.reply(f.response(visible));
+  f.pull.preview.tick(0);
+  assert.ok(f.pull.preview.uniforms.pullDelta.value.x > .05);
   const frozen = [...f.geometry.attributes.position.array];
   f.pull.update(new THREE.Vector3(.2, 0, 0));
-  const late = f.worker.messages.at(-1).warp;
   f.pull.update(new THREE.Vector3(.3, 0, 0));
+  const held = f.pull.lastWarp;
+  assert.equal(f.worker.messages.length, 1, 'Only the source mesh was sent during the hold');
+  assert.deepEqual([...f.geometry.attributes.position.array], frozen, 'GPU preview leaves source geometry authoritative');
   f.pull.finish();
   assert.equal(f.pull.update(new THREE.Vector3(1, 0, 0)), null);
-  f.worker.reply(f.response(late));
-  assert.deepEqual([...f.geometry.attributes.position.array], frozen);
+  assert.deepEqual(f.pull.preview.uniforms.pullDelta.value.toArray(), held.delta);
   const final = f.worker.messages.at(-1);
-  assert.equal(final.final, true); assert.deepEqual(final.warp, visible);
+  assert.equal(final.final, true); assert.deepEqual(final.warp, held);
   f.worker.reply(f.response(final.warp, true));
-  assert.deepEqual([...f.geometry.attributes.position.array], frozen);
-  assert.deepEqual(f.volume.pullWarp, visible);
+  assert.notDeepEqual([...f.geometry.attributes.position.array], frozen);
+  assert.deepEqual(f.volume.pullWarp, held);
+  assert.equal(f.volume.undoStack.length, 1);
   assert.equal(f.volume.pulling, false); assert.equal(f.changes(), 1);
   assert.equal(f.worker.terminated, true);
+  assert.equal(f.pull.preview.uniforms.pullEnabled.value, 0, 'Committed geometry is never warped twice');
 });
 
-test('Release before the first preview prevents a late deformation and removes empty history', t => {
+test('A quick drag released before the first preview still deforms and keeps one history entry', t => {
   const f = fixture(t), original = [...f.geometry.attributes.position.array];
   f.pull.update(new THREE.Vector3(.3, 0, 0));
-  const late = f.worker.messages.at(-1).warp;
   f.pull.finish(); f.pull.finish();
-  f.worker.reply(f.response(late));
   assert.deepEqual([...f.geometry.attributes.position.array], original);
   const final = f.worker.messages.at(-1);
-  assert.deepEqual(final.warp.delta, [0,0,0]);
+  assert.deepEqual(final.warp.delta, [.3,0,0]);
+  f.worker.reply(f.response(final.warp, true));
+  assert.notDeepEqual([...f.geometry.attributes.position.array], original);
+  assert.equal(f.volume.undoStack.length, 1); assert.equal(f.changes(), 1);
+  assert.equal(f.volume.pulling, false);
+});
+
+test('Pinching without movement preserves exact geometry and removes empty history', t => {
+  const f = fixture(t), original = [...f.geometry.attributes.position.array];
+  f.pull.finish(); f.pull.finish();
+  assert.equal(f.pull.update(new THREE.Vector3(.5, 0, 0)), null);
+  const final = f.worker.messages.at(-1);
+  assert.equal(final.final, true); assert.deepEqual(final.warp.delta, [0,0,0]);
   f.worker.reply(f.response(final.warp, true));
   assert.deepEqual([...f.geometry.attributes.position.array], original);
   assert.equal(f.volume.undoStack.length, 0); assert.equal(f.changes(), 0);
-  assert.equal(f.volume.pulling, false);
+});
+
+test('Returning to the grab origin before release cancels an earlier visible pull', t => {
+  const f = fixture(t), original = [...f.geometry.attributes.position.array];
+  f.pull.update(new THREE.Vector3(.3, 0, 0));
+  f.pull.preview.tick(0);
+  assert.ok(f.pull.preview.uniforms.pullDelta.value.x > .2);
+  f.pull.update(new THREE.Vector3());
+  f.pull.finish();
+  f.worker.reply(f.response(f.worker.messages.at(-1).warp, true));
+  assert.deepEqual([...f.geometry.attributes.position.array], original);
+  assert.equal(f.volume.undoStack.length, 0); assert.equal(f.changes(), 0);
+});
+
+test('Aborting a GPU preview clears the shader and terminates its worker', t => {
+  const f = fixture(t);
+  f.pull.update(new THREE.Vector3(.2, .1, 0)); f.pull.preview.tick(0);
+  f.pull.abort();
+  assert.equal(f.pull.preview.uniforms.pullEnabled.value, 0);
+  assert.equal(f.volume.pulling, false); assert.equal(f.worker.terminated, true);
+  f.worker.reply(f.response(f.pull.lastWarp, true));
+  assert.equal(f.changes(), 0, 'A callback from a cancelled stroke cannot install a late shape');
 });
