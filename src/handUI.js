@@ -3,13 +3,7 @@ import { palmCenter } from './twoHandScale.js';
 import { closedPalm } from './palmMove.js';
 import { MASK_SHAPES } from './clayShapes.js';
 import { HandMotion } from './handMotion.js';
-
-const colors = [
-  ['Terracotta', '#bd7455'], ['Cream', '#ead5b5'], ['Rose', '#ce8793'],
-  ['Sage', '#83a58b'], ['Ocean', '#6e9fba'], ['Lavender', '#a18db6'],
-  ['Sunshine', '#e5bd50'], ['Coral', '#e87865'], ['Mint', '#83c6b2'],
-  ['Plum', '#825b87'], ['Charcoal', '#45434a'], ['Pearl', '#f5eee1'],
-];
+import { CLAY_COLORS } from './clayAppearance.js';
 
 export const HAND_UI_SAMPLE_AGE_MS = 500;
 const cursorGraceMs = 650;
@@ -75,6 +69,10 @@ export class HandUI {
     if (action === 'page') { this.open(value); return; }
     if (action === 'mask-page') { this.maskPage += Number(value); this.signature = null; this.sync(); return; }
     if (action === 'scroll') { this.body.scrollBy({ top: Number(value) * 180, behavior: 'smooth' }); return; }
+    if (action === 'smoothness-step') {
+      this.onAction('smoothness', Math.max(0, Math.min(100, state.smoothness + Number(value))));
+      this.sync(); return;
+    }
     if (['reset', 'remove', 'camera-off'].includes(action)) { this.confirm = action; this.open('confirm'); return; }
     if (action === 'confirm') {
       const operation = this.confirm; this.close(); this.onAction(operation); return;
@@ -95,12 +93,17 @@ export class HandUI {
     const s = this.getState(); this.done.hidden = !s.trying;
     this.tryIt.disabled = s.busy;
     this.tryIt.setAttribute('aria-pressed', String(s.trying));
-    const signature = JSON.stringify([this.page, this.maskPage, this.custom, s]);
-    if (!this.isOpen || signature === this.signature) return;
+    // Keep the slider and dwell targets mounted while the finish changes.
+    // Replacing the panel here would interrupt an ongoing pointer drag.
+    const { smoothness, ...panelState } = s;
+    const signature = JSON.stringify([this.page, this.maskPage, this.custom, panelState]);
+    if (!this.isOpen) return;
+    if (signature === this.signature) { this.syncFinish(smoothness); return; }
     this.signature = signature;
+    this.finishControl = null;
     const header = document.createElement('header');
     header.append(button(this.page === 'more' ? 'Close' : 'Back', this.page === 'more' ? 'close' : 'page', 'more'));
-    const title = document.createElement('strong'); title.textContent = ({more:'Studio options',masks:'Your masks',colors:'Choose a color',custom:'Mix your color',confirm:'Are you sure?'})[this.page];
+    const title = document.createElement('strong'); title.textContent = ({more:'Studio options',masks:'Your masks',colors:'Color & finish',custom:'Mix your color',confirm:'Are you sure?'})[this.page];
     header.append(title);
     if (this.page !== 'more') header.append(button('Close', 'close'));
     const grid = document.createElement('div'); grid.className = 'hand-panel-grid';
@@ -108,7 +111,7 @@ export class HandUI {
     this.panel.replaceChildren(header, this.body);
     if (this.page === 'more') {
       grid.classList.add('hand-options');
-      grid.append(button('Masks', 'page', 'masks'), button('Color', 'page', 'colors'));
+      grid.append(button('Masks', 'page', 'masks'), button('Color & finish', 'page', 'colors'));
       const symmetry = button(`Symmetry ${s.symmetry ? 'On' : 'Off'}`, 'symmetry'); symmetry.setAttribute('aria-pressed', String(s.symmetry)); symmetry.disabled = s.trying;
       symmetry.classList.add('hand-symmetry');
       const symmetryIcon = document.querySelector('#vertical-symmetry svg')?.cloneNode(true);
@@ -140,11 +143,25 @@ export class HandUI {
       const remove = button('Remove selected', 'remove'); remove.disabled = s.busy || s.masks.length < 2; grid.append(remove);
     } else if (this.page === 'colors') {
       grid.classList.add('hand-colors');
-      for (const [name, hex] of colors) {
+      for (const [name, hex] of CLAY_COLORS) {
         const swatch = button(name, 'color', hex); swatch.style.setProperty('--swatch', hex); swatch.className = 'hand-color';
         swatch.setAttribute('aria-pressed', String(s.color === hex)); grid.append(swatch);
       }
-      grid.append(button('Mix a custom color', 'page', 'custom'));
+      const custom = button('Mix a custom color', 'page', 'custom'); custom.className = 'hand-custom-color'; grid.append(custom);
+      const finish = document.createElement('section'); finish.className = 'hand-finish'; finish.setAttribute('aria-label', 'Surface finish');
+      const heading = document.createElement('div'); heading.className = 'hand-finish-heading';
+      const label = document.createElement('label'); label.htmlFor = 'mask-smoothness'; label.textContent = 'Surface finish';
+      const output = document.createElement('output'); output.htmlFor = 'mask-smoothness';
+      heading.append(label, output);
+      const slider = document.createElement('input'); slider.type = 'range'; slider.id = 'mask-smoothness';
+      slider.min = '0'; slider.max = '100'; slider.step = '1';
+      slider.addEventListener('input', () => { this.onAction('smoothness', Number(slider.value)); this.sync(); });
+      const endpoints = document.createElement('div'); endpoints.className = 'hand-finish-endpoints';
+      const rough = document.createElement('span'), smooth = document.createElement('span'); rough.textContent = 'Rough'; smooth.textContent = 'Smooth'; endpoints.append(rough, smooth);
+      const steps = document.createElement('div'); steps.className = 'hand-finish-steps';
+      const rougher = button('− Rougher', 'smoothness-step', '-10'), smoother = button('＋ Smoother', 'smoothness-step', '10');
+      steps.append(rougher, smoother); finish.append(heading, slider, endpoints, steps); grid.append(finish);
+      this.finishControl = { slider, output, rougher, smoother }; this.syncFinish(smoothness);
     } else if (this.page === 'custom') {
       const preview = document.createElement('div'); preview.className = 'hand-color-preview'; preview.style.background = hslToHex(...this.custom); preview.textContent = 'Your color'; grid.append(preview);
       for (const [i, name] of ['Hue', 'Color intensity', 'Brightness'].entries()) {
@@ -162,6 +179,14 @@ export class HandUI {
     scroll.append(button('↑ Up', 'scroll', '-1'), button('↓ Down', 'scroll', '1')); this.panel.append(scroll);
     const help = document.createElement('p'); help.className = 'hand-panel-help'; help.textContent = 'Hold your index on a button for 0.5 seconds to choose'; this.panel.append(help);
     scroll.hidden = this.body.scrollHeight <= this.body.clientHeight + 2;
+  }
+  syncFinish(value) {
+    if (!this.finishControl) return;
+    const { slider, output, rougher, smoother } = this.finishControl;
+    slider.value = String(value);
+    slider.setAttribute('aria-valuetext', `${value}% smooth`);
+    output.value = `${value}% smooth`;
+    rougher.disabled = value <= 0; smoother.disabled = value >= 100;
   }
   announce(message) { this.feedback.hidden = false; if (this.feedback.textContent !== message) this.feedback.textContent = message; }
   lose() {

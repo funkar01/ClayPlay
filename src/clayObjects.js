@@ -3,6 +3,7 @@ import { ClayVolume } from './clayVolume.js';
 import { CLAY_SHAPES } from './clayShapes.js';
 import { attachMeshQueue } from './meshQueue.js';
 import { PullPreview } from './pullPreview.js';
+import { DEFAULT_CLAY_COLOR } from './clayAppearance.js';
 
 export class ClayObjects {
   constructor(scene) {
@@ -19,13 +20,13 @@ export class ClayObjects {
       new THREE.LineBasicMaterial({ color: '#ad684d', transparent: true, opacity: 0.7 }),
     );
     scene.add(this.marker);
-    this.add('full', '#bd7455');
+    this.add('full', DEFAULT_CLAY_COLOR);
   }
 
   add(shape, color) {
     if (this.items.length >= this.limit || !Object.hasOwn(CLAY_SHAPES, shape)) return null;
     const group = new THREE.Group();
-    const material = new THREE.MeshPhysicalMaterial({ color, roughness: 0.78, metalness: 0, clearcoat: 0.08, clearcoatRoughness: 0.9 });
+    const material = new THREE.MeshPhysicalMaterial({ color, roughness: this.active?.material.roughness ?? 0.78, metalness: 0, clearcoat: 0.08, clearcoatRoughness: 0.9 });
     const id = this.nextId++;
     group.name = `ClayObject_${id}`;
     const item = { id, shape, label: `${CLAY_SHAPES[shape].label} ${id}`, group, material, volume: new ClayVolume(group, material, shape, attachMeshQueue), edited: false };

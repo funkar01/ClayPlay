@@ -1808,6 +1808,7 @@ handUI = new HandUI({
   },
   getState: () => ({
     active: clayObjects.active.id, color: `#${clayObjects.active.material.color.getHexString()}`,
+    smoothness: Math.round((1 - clayObjects.active.material.roughness) * 100),
     masks: clayObjects.items.map(item => ({ id: item.id, label: item.label, shape: item.shape, color: `#${item.material.color.getHexString()}` })),
     edited: clayObjects.active.edited, symmetry: symmetryEnabled, ar: arView.enabled, trying: tryOn.enabled,
     paused: editingPaused, cameraOn: Boolean(stream), positionResetDisabled: positionResetButton.disabled,
@@ -1816,6 +1817,7 @@ handUI = new HandUI({
   onPause: pauseForHandUI,
   onAction: (action, value) => {
     if (action === 'color') clayMenu.setColor(value);
+    else if (action === 'smoothness') clayObjects.active.material.roughness = 1 - Math.max(0, Math.min(100, Number(value))) / 100;
     else if (action === 'add-mask') clayMenu.addShape(value);
     else if (action === 'select-mask') selectClayObject(value);
     else if (action === 'remove') document.querySelector('#remove-clay').click();
