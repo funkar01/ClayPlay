@@ -9,7 +9,7 @@ self.onmessage = ({ data }) => {
     const result = separateCut(footprint, data.points, data.symmetry);
     if (!result.valid) { self.postMessage(result); return; }
     const source = ClayVolume.fromState(data.state);
-    const volume = ClayVolume.fromState({ shape: source.shape, field: [] });
+    const volume = ClayVolume.fromState({ shape: source.shape, eyeShape: source.eyeShape, field: [] });
     Object.assign(volume, { cutSource: source, cutRegion: result.region, bricks: new Map(), parent: new THREE.Group(), material: null });
     const bricks = [];
     for (let index = 0; index < data.bricks.length; index++) {

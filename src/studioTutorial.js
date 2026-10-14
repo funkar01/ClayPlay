@@ -27,8 +27,8 @@ const lessons = [
 
 // CSS animates the examples; this guide never starts another tracking loop.
 export class StudioTutorial {
-  constructor({ stage, onStep, isBusy }) {
-    Object.assign(this, { onStep, isBusy });
+  constructor({ stage, onStep, isBusy, onFinish }) {
+    Object.assign(this, { onStep, isBusy, onFinish });
     this.index = -1;
     this.card = document.createElement('section');
     this.card.id = 'studio-tutorial'; this.card.className = 'studio-tutorial'; this.card.hidden = true;
@@ -68,6 +68,6 @@ export class StudioTutorial {
   }
   finish() {
     this.card.hidden = true;
-    document.querySelector('#tool-pinch').focus({ preventScroll: true });
+    this.onFinish?.();
   }
 }

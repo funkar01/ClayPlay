@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CLAY_SHAPES } from './clayShapes.js';
+import { CLAY_SHAPES, EYE_SHAPES } from './clayShapes.js';
 import { inverseWarp } from './maskWarp.js';
 import { cutDistance } from './cutGeometry.js';
 
@@ -38,13 +38,14 @@ export class ClayVolume {
     let distance = this.pullSource
       ? this.pullSource.sample(...inverseWarp(x, y, z, this.pullWarp))
       : this.cutSource ? Math.max(this.cutSource.sample(x, y, z), cutDistance(x, y, z, this.cutRegion))
-      : CLAY_SHAPES[this.shape].distance(x, y, z);
+      : CLAY_SHAPES[this.shape].distance(x, y, z, this.eyeShape);
     return distance;
   }
 
   snapshot() {
     const field = Object.create(ClayVolume.prototype);
     field.shape = this.shape;
+    field.eyeShape = this.eyeShape;
     field.field = new Map(this.field);
     field.pullSource = this.pullSource;
     field.pullWarp = this.pullWarp;
@@ -54,14 +55,14 @@ export class ClayVolume {
   }
 
   serialize() {
-    return { shape: this.shape, field: [...this.field],
+    return { shape: this.shape, eyeShape: this.eyeShape, field: [...this.field],
       pullWarp: this.pullWarp, pullSource: this.pullSource?.serialize(),
       cutRegion: this.cutRegion, cutSource: this.cutSource?.serialize() };
   }
 
   static fromState(state) {
     const volume = Object.create(ClayVolume.prototype);
-    Object.assign(volume, { shape: state.shape, field: new Map(state.field),
+    Object.assign(volume, { shape: state.shape, eyeShape: state.eyeShape ?? 'oval', field: new Map(state.field),
       pullWarp: state.pullWarp, pullSource: state.pullSource ? ClayVolume.fromState(state.pullSource) : null,
       cutRegion: state.cutRegion, cutSource: state.cutSource ? ClayVolume.fromState(state.cutSource) : null });
     return volume;
@@ -115,14 +116,36 @@ export class ClayVolume {
     ).normalize();
   }
 
-  reset(shape = this.shape) {
+  reset(shape = this.shape, eyeShape = this.eyeShape ?? 'oval') {
     this.cutSource = null; this.cutRegion = null;
     this.pullSource = null;
     this.pullWarp = null;
     this.meshQueue?.reset();
     if (!Object.hasOwn(CLAY_SHAPES, shape)) throw new Error(`Unknown clay shape: ${shape}`);
     this.shape = shape;
+    this.eyeShape = eyeShape;
     this.field.clear();
+    this.rebuildSurface();
+  }
+
+  setEyeShape(eyes) {
+    if (!Object.hasOwn(EYE_SHAPES,eyes)) throw new Error(`Unknown eye shape: ${eyes}`);
+    // Clone nested sources so existing undo snapshots keep their original eyes.
+    const withEyes = source => {
+      if (!source) return source;
+      const copy = source.snapshot(); copy.eyeShape = eyes;
+      copy.pullSource = withEyes(source.pullSource);
+      copy.cutSource = withEyes(source.cutSource);
+      return copy;
+    };
+    this.eyeShape = eyes;
+    this.pullSource = withEyes(this.pullSource);
+    this.cutSource = withEyes(this.cutSource);
+    this.meshQueue?.reset();
+    this.rebuildSurface();
+  }
+
+  rebuildSurface() {
     for (const brick of this.bricks.values()) {
       this.parent.remove(brick.mesh);
       brick.mesh.geometry.dispose();

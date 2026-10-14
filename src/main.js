@@ -20,6 +20,8 @@ import { TwoHandScale, palmCenter, closedFist } from './twoHandScale.js';
 import { PalmMove, PalmGesture, closedPalm } from './palmMove.js';
 import { HandUI, HAND_UI_SAMPLE_AGE_MS } from './handUI.js';
 import { StudioTutorial } from './studioTutorial.js';
+import { MaskShapePicker } from './maskShapePicker.js';
+import { MASK_SHAPES } from './clayShapes.js';
 
 const video = document.querySelector('#camera-video');
 const previewCanvas = document.querySelector('#preview-overlay');
@@ -103,6 +105,7 @@ let tryPhase = null;
 let lastTryHandAt = -Infinity;
 let handUI = null, handUICaptured = false, editingPaused = false;
 let studioTutorial;
+let maskShapePicker;
 let landmarker;
 let animationFrame = 0;
 let lastHandAt = 0;
@@ -1828,7 +1831,7 @@ handUI = new HandUI({
     return { x: rect.left + mapped.x * rect.width, y: rect.top + mapped.y * rect.height };
   },
   getState: () => ({
-    active: clayObjects.active.id, color: `#${clayObjects.active.material.color.getHexString()}`,
+    active: clayObjects.active.id, eyeShape: clayVolume.eyeShape ?? 'oval', color: `#${clayObjects.active.material.color.getHexString()}`,
     smoothness: Math.round((1 - clayObjects.active.material.roughness) * 100),
     masks: clayObjects.items.map(item => ({ id: item.id, label: item.label, shape: item.shape, color: `#${item.material.color.getHexString()}` })),
     edited: clayObjects.active.edited, symmetry: symmetryEnabled, ar: arView.enabled, trying: tryOn.enabled,
@@ -1838,6 +1841,14 @@ handUI = new HandUI({
   onPause: pauseForHandUI,
   onAction: (action, value) => {
     if (action === 'color') clayMenu.setColor(value);
+    else if (action === 'eye-shape') {
+      if (volumeBusy() || clayVolume.meshQueue?.pending || value === clayVolume.eyeShape) return;
+      cancelMouseStroke();
+      checkpoint(clayVolume);
+      clayVolume.setEyeShape(value);
+      markClayEdited();
+      sceneHint.textContent = 'Eye shape updated · Undo brings the previous eyes back';
+    }
     else if (action === 'smoothness') clayObjects.active.material.roughness = 1 - Math.max(0, Math.min(100, Number(value))) / 100;
     else if (action === 'add-mask') clayMenu.addShape(value);
     else if (action === 'select-mask') selectClayObject(value);
@@ -1852,7 +1863,36 @@ handUI = new HandUI({
   },
 });
 
+maskShapePicker = new MaskShapePicker({
+  stage: document.querySelector('#stage'),
+  onOpen: () => { if (handUI.isOpen) handUI.close(); pauseForHandUI(); editingPaused = true; },
+  onChoose: async (shape, eyes) => {
+    if (volumeBusy() || clayVolume.meshQueue?.pending) throw new Error('Please wait for your current edit to finish.');
+    const item = clayObjects.active;
+    // Tutorial edits are practice: choosing a base starts one fresh mask.
+    // Reuse the active volume instead of adding a second object to the table.
+    item.volume.reset(shape, eyes);
+    item.volume.undoStack = []; item.volume.redoStack = [];
+    item.volume.userScale = 1;
+    item.volume.userOffset = [0, 0];
+    item.edited = false;
+    item.shape = shape;
+    item.label = `${MASK_SHAPES[shape].label} ${item.id}`;
+    for (const other of [...clayObjects.items]) {
+      if (other === item) continue;
+      clayObjects.select(other.id);
+      clayObjects.removeActive();
+    }
+    clayObjects.select(item.id);
+    clayObjects.layout(camera);
+    selectClayObject(item.id);
+    editingPaused = false;
+    setPrompt('Your canvas is ready.', 'Pinch to shape it, or choose a tool. Make it yours.', 'success');
+  },
+});
+
 studioTutorial = new StudioTutorial({
+  onFinish: () => maskShapePicker.open(),
   stage: document.querySelector('#stage'),
   isBusy: () => Boolean(previousPullPoint || cutStroke || twoHandScale.active || palmMove.active
     || clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending),

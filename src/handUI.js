@@ -1,7 +1,7 @@
 import { HandSelection, ControlHand } from './handSelection.js';
 import { palmCenter } from './twoHandScale.js';
 import { closedPalm } from './palmMove.js';
-import { MASK_SHAPES } from './clayShapes.js';
+import { MASK_SHAPES, EYE_SHAPES, eyePreview } from './clayShapes.js';
 import { HandMotion } from './handMotion.js';
 import { CLAY_COLORS } from './clayAppearance.js';
 
@@ -84,7 +84,7 @@ export class HandUI {
     }
     if (action === 'custom-apply') { this.onAction('color', hslToHex(...this.custom)); this.open('colors'); return; }
     if (action === 'try-done') { if (this.isOpen) this.close(); this.onAction('try'); return; }
-    if (state.busy && ['select-mask', 'add-mask', 'try', 'position'].includes(action)) { this.announce('Finishing your edit · try again in a moment'); return; }
+    if (state.busy && ['select-mask', 'add-mask', 'eye-shape', 'try', 'position'].includes(action)) { this.announce('Finishing your edit · try again in a moment'); return; }
     this.onAction(action, value);
     if (['select-mask', 'try', 'pause'].includes(action)) this.close();
     this.signature = null; this.sync();
@@ -103,7 +103,7 @@ export class HandUI {
     this.finishControl = null;
     const header = document.createElement('header');
     header.append(button(this.page === 'more' ? 'Close' : 'Back', this.page === 'more' ? 'close' : 'page', 'more'));
-    const title = document.createElement('strong'); title.textContent = ({more:'Studio options',masks:'Your masks',colors:'Color & finish',custom:'Mix your color',confirm:'Are you sure?'})[this.page];
+    const title = document.createElement('strong'); title.textContent = ({more:'Studio options',masks:'Your masks',eyes:'Mask eyes',colors:'Color & finish',custom:'Mix your color',confirm:'Are you sure?'})[this.page];
     header.append(title);
     if (this.page !== 'more') header.append(button('Close', 'close'));
     const grid = document.createElement('div'); grid.className = 'hand-panel-grid';
@@ -111,7 +111,7 @@ export class HandUI {
     this.panel.replaceChildren(header, this.body);
     if (this.page === 'more') {
       grid.classList.add('hand-options');
-      grid.append(button('Masks', 'page', 'masks'), button('Color & finish', 'page', 'colors'));
+      grid.append(button('Masks', 'page', 'masks'), button('Mask eyes', 'page', 'eyes'), button('Color & finish', 'page', 'colors'));
       const symmetry = button(`Symmetry ${s.symmetry ? 'On' : 'Off'}`, 'symmetry'); symmetry.setAttribute('aria-pressed', String(s.symmetry)); symmetry.disabled = s.trying;
       symmetry.classList.add('hand-symmetry');
       const symmetryIcon = document.querySelector('#vertical-symmetry svg')?.cloneNode(true);
@@ -141,6 +141,17 @@ export class HandUI {
         const add = button(`＋ ${details.label}`, 'add-mask', shape); add.disabled = s.busy || s.masks.length >= 8; grid.append(add);
       }
       const remove = button('Remove selected', 'remove'); remove.disabled = s.busy || s.masks.length < 2; grid.append(remove);
+    } else if (this.page === 'eyes') {
+      const caption = document.createElement('p'); caption.className = 'hand-panel-caption';
+      caption.textContent = 'Choose openings for your selected mask. Undo brings the previous eyes back.';
+      grid.append(caption);
+      for (const [key, details] of Object.entries(EYE_SHAPES)) {
+        const option = button(details.label, 'eye-shape', key);
+        option.className = 'hand-eye-card'; option.disabled = s.busy;
+        option.setAttribute('aria-pressed', String((s.eyeShape ?? 'oval') === key));
+        const preview = document.createElement('span'); preview.innerHTML = eyePreview(key);
+        option.prepend(preview); grid.append(option);
+      }
     } else if (this.page === 'colors') {
       grid.classList.add('hand-colors');
       for (const [name, hex] of CLAY_COLORS) {
@@ -217,7 +228,7 @@ export class HandUI {
     this.cursor.style.transform = `translate(${point.x - stageRect.left}px, ${point.y - stageRect.top}px)`;
   }
   hit(point, overlay = null) {
-    const root = this.isOpen ? this.panel : overlay ?? this.stage;
+    const root = overlay ?? (this.isOpen ? this.panel : this.stage);
     if (this.highlight?.isConnected && root.contains(this.highlight) && !this.highlight.disabled && this.visible(this.highlight)) {
       const b = this.highlight.getBoundingClientRect();
       if (point.x >= b.left - 12 && point.x <= b.right + 12 && point.y >= b.top - 12 && point.y <= b.bottom + 12) return this.highlight;
@@ -248,7 +259,7 @@ export class HandUI {
     if (!measured) { this.suspend(now); return { owns: this.isOpen, index: null, missing: true }; }
     // Dwell and activation only run on fresh measurements, never predictions.
     const point = this.mapPoint(measured[8]);
-    const tutorial = this.stage.querySelector('#studio-tutorial:not([hidden])');
+    const tutorial = this.stage.querySelector('#mask-shape-picker:not([hidden]), #studio-tutorial:not([hidden])');
     const tutorialBounds = tutorial?.getBoundingClientRect();
     const overTutorial = tutorialBounds && point.x >= tutorialBounds.left && point.x <= tutorialBounds.right
       && point.y >= tutorialBounds.top && point.y <= tutorialBounds.bottom;
@@ -256,7 +267,7 @@ export class HandUI {
     const fist = closedPalm(hand.points, aspect);
     const distance = (a, b) => Math.hypot((hand.points[a].x - hand.points[b].x) * aspect, hand.points[a].y - hand.points[b].y);
     const open = !fist && distance(4, 8) / Math.max(.025, distance(5, 17), distance(0, 9) * .7) >= .55;
-    const key = target && (target.id || `${this.page}:${target.dataset.handAction}:${target.dataset.value ?? ''}`);
+    const key = target && (target.id || target.dataset.maskBase || target.dataset.eyeBase || (target.classList.contains('mask-picker-start') ? 'picker-next' : target.classList.contains('mask-picker-back') ? 'picker-back' : `${this.page}:${target.dataset.handAction}:${target.dataset.value ?? ''}`));
     const rect = target?.getBoundingClientRect();
     const bounds = rect && { left: rect.left - 12, right: rect.right + 12, top: rect.top - 12, bottom: rect.bottom + 12 };
     const response = this.selection.update({ point, target, key, bounds, fist, blocked,

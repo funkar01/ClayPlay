@@ -131,7 +131,9 @@ test('All starter masks retain material and eye openings under connected deforma
     const source = field(shape);
     const warp = makeWarp([0.82, 0.65, 0.3], [0.45, 0.1, 0.04], 0.336);
     const volume = field(shape); volume.pullSource = source; volume.pullWarp = warp;
-    const inside = [0, 0, 0.68], eye = [0.46, 0.35, 0.5];
+    // The helmet deliberately leaves the middle of the face open.
+    const inside = shape === 'helmet' ? [0, 1, 0.42] : [0, 0, 0.68];
+    const eye = [0.46, 0.35, 0.5];
     assert.ok(volume.sample(...forwardWarp(...inside, warp)) < 0);
     assert.ok(volume.sample(...forwardWarp(...eye, warp)) > 0);
     const roundtrip = ClayVolume.fromState(structuredClone(volume.serialize()));
