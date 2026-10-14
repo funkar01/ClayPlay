@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { checkpoint } from './sculptHistory.js';
 import { diagnostics } from './diagnostics.js';
+import { ErasePreview } from './erasePreview.js';
+import { eraseBrickBounds } from './eraseGeometry.js';
 
 export class SurfaceErase {
   constructor(volume, onChange) { this.volume = volume; this.onChange = onChange; }
@@ -34,15 +36,32 @@ export class SurfaceErase {
     };
     this.worker.onerror = event => this.fail(event.message);
     const bricks = [...v.bricks].map(([key, { mesh }]) => ({ key, positions: mesh.geometry.attributes.position.array.slice() }));
+    if (v.material && typeof document.createElement === 'function') {
+      v.erasePreview ??= new ErasePreview(v.material);
+      v.erasePreview.begin(radius,eye,planeZ,symmetry,eraseBrickBounds(bricks,eye,planeZ));
+    }
     this.worker.postMessage({ type: 'begin', radius, eye, planeZ, symmetry, state: v.serialize(), bricks }, bricks.map(b => b.positions.buffer));
     return true;
   }
   update(point) {
     if (!this.active || this.released) return;
+    this.volume.erasePreview?.update(point);
     if (this.lastPoint && Math.hypot(point[0] - this.lastPoint[0], point[1] - this.lastPoint[1]) < Math.max(.008, this.radius * .12)) return;
     this.lastPoint = [...point]; this.pending.push(this.lastPoint);
     // Bound the queue while retaining the sweep between consecutive samples.
-    if (this.pending.length > 32) this.pending = this.pending.filter((_, i, list) => i % 2 === 0 || i === list.length - 1);
+    // Remove the least significant bend instead of every second point, which
+    // would cut across tight curves. Always retain the first and latest points.
+    if (this.pending.length > 32) {
+      let smallest = Infinity, remove = 1;
+      for (let i=1;i<this.pending.length-1;i++) {
+        const a=this.pending[i-1], b=this.pending[i], c=this.pending[i+1];
+        const dx=c[0]-a[0], dy=c[1]-a[1];
+        const t=Math.max(0,Math.min(1,((b[0]-a[0])*dx+(b[1]-a[1])*dy)/(dx*dx+dy*dy || 1)));
+        const error=Math.hypot(b[0]-a[0]-t*dx,b[1]-a[1]-t*dy);
+        if (error<smallest) { smallest=error; remove=i; }
+      }
+      this.pending.splice(remove,1);
+    }
     this.pump();
   }
   pump() {
@@ -50,7 +69,7 @@ export class SurfaceErase {
     if (!this.pending.length) { if (this.released) this.complete(); return; }
     this.busy = true;
     this.timer = setTimeout(() => this.fail('Erase worker timed out'), 10000);
-    this.worker.postMessage({ type: 'erase', points: this.pending.splice(0, 8) });
+    this.worker.postMessage({ type: 'erase', points: this.pending.splice(0, 32) });
   }
   finish() {
     if (!this.active || this.released) return;
@@ -61,6 +80,7 @@ export class SurfaceErase {
   complete() { const changed = this.saved; this.abort(); this.onChange({ done: true, changed }); document.dispatchEvent(new Event('sculpt-history-change')); }
   abort() {
     clearTimeout(this.timer); this.worker?.terminate(); this.worker = null;
+    this.volume.erasePreview?.clear();
     this.active = false; this.pending = []; this.volume.erasing = false; this.volume.cutting = false;
   }
   fail(message) { console.error('Mask erase failed:', message); this.abort(); this.onChange({ error: message }); document.dispatchEvent(new Event('sculpt-history-change')); }

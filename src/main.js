@@ -1919,6 +1919,7 @@ window.addEventListener('beforeunload', () => {
   for (const item of clayObjects.items) item.volume.surfaceCut?.abort();
   for (const item of clayObjects.items) item.volume.surfacePull?.abort();
   for (const item of clayObjects.items) item.volume.surfaceErase?.abort();
+  for (const item of clayObjects.items) item.volume.erasePreview?.dispose();
   for (const item of clayObjects.items) item.volume.meshQueue?.dispose();
   stopCamera();
   cancelAnimationFrame(animationFrame);

@@ -100,3 +100,16 @@ test('No-op erasure creates no history and worker failures release input ownersh
   erase.worker.reply({error:'Simulated failure'});
   assert.equal(v.erasing,false); assert.equal(v.cutting,false); assert.equal(erase.active,false);
 });
+
+test('Preview follows held input immediately and stays until matching geometry commits', t => {
+  const {v,erase,worker}=fixture(t);
+  const points=[]; let clears=0;
+  v.erasePreview={update:p=>points.push([...p]),clear:()=>clears++};
+  erase.update([0,-.6]); erase.update([.1,-.6]);
+  assert.deepEqual(points,[[0,-.6],[.1,-.6]]);
+  assert.equal(worker.messages.filter(m=>m.type==='erase').length,1);
+  erase.finish(); erase.update([99,99]); assert.equal(points.length,2);
+  assert.equal(clears,0);
+  worker.reply({edits:[[1,.2]],bricks:[],duration:1}); assert.equal(clears,0);
+  worker.reply({edits:[[2,.2]],bricks:[],duration:1}); assert.equal(clears,1);
+});

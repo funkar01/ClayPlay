@@ -51,6 +51,7 @@ export class ClayObjects {
     this.active.volume.surfaceCut?.abort();
     this.active.volume.surfaceErase?.abort();
     this.active.volume.meshQueue?.dispose();
+    this.active.volume.erasePreview?.dispose();
     for (const { mesh } of this.active.volume.bricks.values()) mesh.geometry.dispose();
     this.active.volume.field.clear();
     this.active.volume.bricks.clear();
