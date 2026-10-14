@@ -48,6 +48,7 @@ export class ClayObjects {
     if (this.items.length === 1) return;
     const index = this.items.indexOf(this.active);
     this.active.volume.surfacePull?.abort();
+    this.active.volume.surfaceExtrude?.abort();
     this.active.volume.surfaceCut?.abort();
     this.active.volume.surfaceErase?.abort();
     this.active.volume.meshQueue?.dispose();

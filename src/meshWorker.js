@@ -15,6 +15,7 @@ self.onmessage = ({ data }) => {
       fields.set(id, volume);
     }
     for (const [key, value] of edits) volume.field.set(key, value);
+    volume.meshStep=data.step ?? 1;
     const bricks = [];
     const transfer = [];
     for (const key of keys) {

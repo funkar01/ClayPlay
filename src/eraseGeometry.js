@@ -36,8 +36,8 @@ export function eraseBrickBounds(bricks, eye, planeZ) {
   }
   if (!Number.isFinite(min[0])) return [];
   const cell = grid.brick * grid.voxel, count = grid.cells / grid.brick;
-  const start = min.map(v => Math.max(0, Math.floor((v - grid.min - grid.voxel * 2) / cell)));
-  const end = max.map(v => Math.min(count - 1, Math.floor((v - grid.min + grid.voxel * 2) / cell)));
+  const start = min.map(v => Math.floor((v - grid.min - grid.voxel * 2) / cell));
+  const end = max.map(v => Math.floor((v - grid.min + grid.voxel * 2) / cell));
   const bounds = [];
   for (let z = start[2]; z <= end[2]; z++) for (let y = start[1]; y <= end[1]; y++) for (let x = start[0]; x <= end[0]; x++) {
     const direct = [Infinity, Infinity, -Infinity, -Infinity], mirror = [...direct];
@@ -65,9 +65,9 @@ export function eraseNodes(volume, bounds, points, radius, eye, planeZ, symmetry
     if (!overlap(bound.direct) && !(symmetry && overlap(bound.mirror))) continue;
     const start = bound.key.split(',').map(v => Number(v) * grid.brick);
     // Two nodes of halo keep gradients and adjacent brick seams consistent.
-    for (let iz = Math.max(0, start[2] - 2); iz <= Math.min(grid.cells, start[2] + grid.brick + 2); iz++)
-      for (let iy = Math.max(0, start[1] - 2); iy <= Math.min(grid.cells, start[1] + grid.brick + 2); iy++)
-        for (let ix = Math.max(0, start[0] - 2); ix <= Math.min(grid.cells, start[0] + grid.brick + 2); ix++) {
+    for (let iz = start[2] - 2; iz <= start[2] + grid.brick + 2; iz++)
+      for (let iy = start[1] - 2; iy <= start[1] + grid.brick + 2; iy++)
+        for (let ix = start[0] - 2; ix <= start[0] + grid.brick + 2; ix++) {
           const removal = brush(grid.min + ix * grid.voxel, grid.min + iy * grid.voxel, grid.min + iz * grid.voxel);
           if (removal < -grid.voxel * 2) continue;
           const old = volume.nodeValue(ix, iy, iz);
@@ -76,9 +76,9 @@ export function eraseNodes(volume, bounds, points, radius, eye, planeZ, symmetry
           const key = volume.nodeKey(ix, iy, iz);
           volume.field.set(key, removal); edits.set(key, removal);
           // A node shared by a brick edge also affects its neighbour's normals.
-          for (let bz = Math.max(0, Math.floor((iz - 2) / grid.brick)); bz <= Math.min(7, Math.floor((iz + 1) / grid.brick)); bz++)
-            for (let by = Math.max(0, Math.floor((iy - 2) / grid.brick)); by <= Math.min(7, Math.floor((iy + 1) / grid.brick)); by++)
-              for (let bx = Math.max(0, Math.floor((ix - 2) / grid.brick)); bx <= Math.min(7, Math.floor((ix + 1) / grid.brick)); bx++) dirty.add(`${bx},${by},${bz}`);
+          for (let bz = Math.floor((iz - 2) / grid.brick); bz <= Math.floor((iz + 1) / grid.brick); bz++)
+            for (let by = Math.floor((iy - 2) / grid.brick); by <= Math.floor((iy + 1) / grid.brick); by++)
+              for (let bx = Math.floor((ix - 2) / grid.brick); bx <= Math.floor((ix + 1) / grid.brick); bx++) dirty.add(`${bx},${by},${bz}`);
         }
   }
   return { edits: [...edits], keys: [...dirty] };

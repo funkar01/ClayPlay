@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CLAY_SHAPES, EYE_SHAPES } from './clayShapes.js';
 import { inverseWarp } from './maskWarp.js';
 import { cutDistance } from './cutGeometry.js';
+import { extrusionDistance, blendExtrusion } from './extrudeGeometry.js';
 
 const GRID_MIN = -2.4;
 const GRID_CELLS = 192;
@@ -31,10 +32,17 @@ export class ClayVolume {
   }
 
   nodeKey(x, y, z) {
+    // Keep existing compact keys in the original grid; sparse external nodes
+    // use coordinates to avoid collisions as the editable mask grows.
+    if(x<0 || y<0 || z<0 || x>GRID_CELLS || y>GRID_CELLS || z>GRID_CELLS) return `${x},${y},${z}`;
     return x + GRID_NODES * (y + GRID_NODES * z);
   }
 
   baseDistance(x, y, z) {
+    if(this.extrudeSource) {
+      const source=this.extrudeSource.sample(x,y,z);
+      return blendExtrusion(source,extrusionDistance(x,y,z,this.extrusion,source+.035),this.extrusion.radii[0]);
+    }
     let distance = this.pullSource
       ? this.pullSource.sample(...inverseWarp(x, y, z, this.pullWarp))
       : this.cutSource ? Math.max(this.cutSource.sample(x, y, z), cutDistance(x, y, z, this.cutRegion))
@@ -46,6 +54,7 @@ export class ClayVolume {
     const field = Object.create(ClayVolume.prototype);
     field.shape = this.shape;
     field.eyeShape = this.eyeShape;
+    field.extrudeSource=this.extrudeSource; field.extrusion=this.extrusion;
     field.field = new Map(this.field);
     field.pullSource = this.pullSource;
     field.pullWarp = this.pullWarp;
@@ -55,7 +64,7 @@ export class ClayVolume {
   }
 
   serialize() {
-    return { shape: this.shape, eyeShape: this.eyeShape, field: [...this.field],
+    return { shape: this.shape, eyeShape: this.eyeShape, field: [...this.field], extrudeSource:this.extrudeSource?.serialize(), extrusion:this.extrusion,
       pullWarp: this.pullWarp, pullSource: this.pullSource?.serialize(),
       cutRegion: this.cutRegion, cutSource: this.cutSource?.serialize() };
   }
@@ -63,6 +72,7 @@ export class ClayVolume {
   static fromState(state) {
     const volume = Object.create(ClayVolume.prototype);
     Object.assign(volume, { shape: state.shape, eyeShape: state.eyeShape ?? 'oval', field: new Map(state.field),
+      extrudeSource:state.extrudeSource ? ClayVolume.fromState(state.extrudeSource) : null, extrusion:state.extrusion,
       pullWarp: state.pullWarp, pullSource: state.pullSource ? ClayVolume.fromState(state.pullSource) : null,
       cutRegion: state.cutRegion, cutSource: state.cutSource ? ClayVolume.fromState(state.cutSource) : null });
     return volume;
@@ -86,12 +96,9 @@ export class ClayVolume {
     const gx = (x - GRID_MIN) / VOXEL_SIZE;
     const gy = (y - GRID_MIN) / VOXEL_SIZE;
     const gz = (z - GRID_MIN) / VOXEL_SIZE;
-    if (gx < 0 || gy < 0 || gz < 0 || gx > GRID_CELLS || gy > GRID_CELLS || gz > GRID_CELLS) {
-      return this.baseDistance(x, y, z);
-    }
-    const ix = Math.min(Math.floor(gx), GRID_CELLS - 1);
-    const iy = Math.min(Math.floor(gy), GRID_CELLS - 1);
-    const iz = Math.min(Math.floor(gz), GRID_CELLS - 1);
+    const ix = Math.floor(gx);
+    const iy = Math.floor(gy);
+    const iz = Math.floor(gz);
     let editedCell = false;
     for (let oz = 0; oz <= 1; oz++) for (let oy = 0; oy <= 1; oy++) for (let ox = 0; ox <= 1; ox++) {
       if (this.field.has(this.nodeKey(ix + ox, iy + oy, iz + oz))) editedCell = true;
@@ -117,6 +124,7 @@ export class ClayVolume {
   }
 
   reset(shape = this.shape, eyeShape = this.eyeShape ?? 'oval') {
+    this.extrudeSource=null; this.extrusion=null;
     this.cutSource = null; this.cutRegion = null;
     this.pullSource = null;
     this.pullWarp = null;
@@ -136,21 +144,24 @@ export class ClayVolume {
       const copy = source.snapshot(); copy.eyeShape = eyes;
       copy.pullSource = withEyes(source.pullSource);
       copy.cutSource = withEyes(source.cutSource);
+      copy.extrudeSource = withEyes(source.extrudeSource);
       return copy;
     };
     this.eyeShape = eyes;
     this.pullSource = withEyes(this.pullSource);
     this.cutSource = withEyes(this.cutSource);
+    this.extrudeSource = withEyes(this.extrudeSource);
     this.meshQueue?.reset();
     this.rebuildSurface();
   }
 
-  rebuildSurface() {
-    for (const brick of this.bricks.values()) {
+  rebuildSurface(clear = true) {
+    const externalKeys=[...this.bricks.keys()].filter(key=>key.split(',').some(n=>Number(n)<0 || Number(n)>=BRICK_COUNT));
+    if (clear) for (const brick of this.bricks.values()) {
       this.parent.remove(brick.mesh);
       brick.mesh.geometry.dispose();
     }
-    this.bricks.clear();
+    if (clear) this.bricks.clear();
     const halfBrick = BRICK_CELLS * VOXEL_SIZE * Math.sqrt(3) * 0.5;
     for (let z = 0; z < BRICK_COUNT; z += 1) {
       for (let y = 0; y < BRICK_COUNT; y += 1) {
@@ -163,6 +174,7 @@ export class ClayVolume {
         }
       }
     }
+    for(const key of externalKeys) this.rebuildBrick(...key.split(',').map(Number));
   }
 
   rebuildBrick(bx, by, bz) {
@@ -180,11 +192,12 @@ export class ClayVolume {
     const startX = bx * BRICK_CELLS;
     const startY = by * BRICK_CELLS;
     const startZ = bz * BRICK_CELLS;
-    const endX = Math.min(startX + BRICK_CELLS, GRID_CELLS);
-    const endY = Math.min(startY + BRICK_CELLS, GRID_CELLS);
-    const endZ = Math.min(startZ + BRICK_CELLS, GRID_CELLS);
+    const endX = startX + BRICK_CELLS;
+    const endY = startY + BRICK_CELLS;
+    const endZ = startZ + BRICK_CELLS;
     const cornerPositions = CUBE_CORNERS.map(() => new THREE.Vector3());
     const cornerValues = new Float32Array(8);
+    const meshStep=this.meshStep ?? 1;
 
     const emitTriangle = (a, b, c, expectedNormal) => {
       const cross = b.position.clone().sub(a.position).cross(c.position.clone().sub(a.position));
@@ -228,15 +241,15 @@ export class ClayVolume {
       }
     };
 
-    for (let z = startZ; z < endZ; z += 1) {
-      for (let y = startY; y < endY; y += 1) {
-        for (let x = startX; x < endX; x += 1) {
+    for (let z = startZ; z < endZ; z += meshStep) {
+      for (let y = startY; y < endY; y += meshStep) {
+        for (let x = startX; x < endX; x += meshStep) {
           let hasInside = false;
           let hasOutside = false;
           CUBE_CORNERS.forEach(([ox, oy, oz], cornerIndex) => {
-            const gx = x + ox;
-            const gy = y + oy;
-            const gz = z + oz;
+            const gx = x + ox*meshStep;
+            const gy = y + oy*meshStep;
+            const gz = z + oz*meshStep;
             cornerPositions[cornerIndex].set(
               GRID_MIN + gx * VOXEL_SIZE,
               GRID_MIN + gy * VOXEL_SIZE,

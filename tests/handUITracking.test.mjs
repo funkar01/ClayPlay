@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { HandUI, HAND_UI_SAMPLE_AGE_MS } from '../src/handUI.js';
+import { HandUI, HAND_UI_SAMPLE_AGE_MS, rangeValueAt } from '../src/handUI.js';
 import { HandSelection, ControlHand } from '../src/handSelection.js';
 import { HandMotion } from '../src/handMotion.js';
 
@@ -25,8 +25,31 @@ function fixture() {
   }
   points[4] = { x: .52, y: .3, z: 0 };
   const result = { landmarks: [points], handedness: [[{ categoryName: 'Left' }]] };
-  return { ui, result, styles, clicks: () => clicks };
+  return { ui, result, target, styles, clicks: () => clicks };
 }
+
+test('Index finger dwells to engage tool size, slides continuously, and releases when leaving',()=>{
+  const f=fixture(),{ui,result,target}=f;
+  target.id='tool-size';target.min='0';target.max='90';target.step='1';target.value='24';
+  target.getBoundingClientRect=()=>({left:550,right:650,top:250,bottom:350,width:100});
+  const changes=[];ui.onAction=(action,value)=>{assert.equal(action,'size');changes.push(value);target.value=String(value);};
+  for(const now of [0,100,200,300,400])ui.receive(result,now);
+  assert.equal(changes.length,0);
+  ui.receive(result,500);assert.equal(changes.at(-1),45);
+  const shifted=structuredClone(result);shifted.landmarks[0][8].x=.63;
+  ui.receive(shifted,600);assert.ok(changes.at(-1)>45);assert.equal(f.clicks(),0);
+  const count=changes.length;
+  ui.receive(shifted,700,{blocked:true});assert.equal(changes.length,count);
+  const outside=structuredClone(result);outside.landmarks[0][8].x=.9;
+  assert.equal(ui.receive(outside,800).owns,false);
+});
+
+test('Size slider maps left, center and right to reachable stepped values',()=>{
+  const rect={left:100,width:300};
+  assert.equal(rangeValueAt(100,rect),0);assert.equal(rangeValueAt(250,rect),45);
+  assert.equal(rangeValueAt(400,rect),90);assert.equal(rangeValueAt(999,rect),90);
+  assert.equal(rangeValueAt(-100,rect),0);
+});
 
 test('A missed detection keeps the painted pointer and dwell ring visible, then resumes one click', () => {
   const f = fixture(), { ui, result } = f;

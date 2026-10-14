@@ -334,6 +334,20 @@ body.play-area-fullscreen { overflow: hidden; }
   .demo-erase-trail { stroke-dashoffset: 0; }
 }
 #mask-shape-picker[hidden] { display: none; }
+.surface-status { position: absolute; z-index: 8; top: 140px; left: 50%; transform: translateX(-50%); padding: 7px 12px; border-radius: 20px; background: #fffaf3dd; color: #4b7559; font-size: 10px; pointer-events: none; white-space: nowrap; }
+.surface-status[hidden] { display: none; }
+.surface-status[data-phase="building"] { color: #92704f; }
+@media(max-width:600px) { .surface-status { top: 140px; max-width: calc(100% - 100px); font-size: 9px; } }
+.stage-size-control { position: absolute; z-index: 9; top: 18px; left: 50%; transform: translateX(-50%); width: min(300px,calc(100% - 280px)); min-width: 180px; margin: 0; padding: 12px 18px; border: 1px solid #ffffffb8; border-radius: 18px; background: #fffaf3eb; color: #765844; box-shadow: 0 5px 24px #60452e12; backdrop-filter: blur(12px); }
+.stage-size-control .strength-heading { display: flex; align-items: center; justify-content: space-between; font-size: 10px; font-weight: 700; letter-spacing: .1em; }
+.stage-size-control output { font-size: 14px; letter-spacing: 0; color: #32684a; }
+.stage-size-control input { display: block; width: 100%; height: 32px; margin: 2px 0; accent-color: #32684a; cursor: pointer; touch-action: none; }
+.stage-size-control .strength-context { display: block; font-size: 10px; margin: 0; }
+.size-hand-help { display: block; font-size: 9px; margin-top: 4px; color: #97816d; }
+.stage-size-control:has(input:disabled) { opacity: .55; }
+.stage-size-control:has(.hand-hover) { box-shadow: 0 0 0 3px #548dad80; }
+.stage-size-control input:focus-visible { outline: 2px solid #548dad; outline-offset: 3px; }
+@media(max-width:600px) { .stage-size-control { top: 38px; width: min(260px,calc(100% - 150px)); min-width: 150px; padding: 8px 12px; } .size-hand-help { display: none; } }
 .hand-eye-card { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .hand-eye-card span { width: 100%; }
 .hand-eye-card svg { width: 100%; height: 50px; fill: currentColor; }

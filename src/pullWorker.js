@@ -84,9 +84,9 @@ self.onmessage = ({ data }) => {
       // boundaries, keeping subsequent drags and surface picking consistent.
       const buckets = new Map();
       for (const brick of bricks) for (let i = 0; i < brick.positions.length; i += 9) {
-        const gx = Math.max(0, Math.min(7, Math.floor(((brick.positions[i] + brick.positions[i + 3] + brick.positions[i + 6]) / 3 + 2.4) / 0.6)));
-        const gy = Math.max(0, Math.min(7, Math.floor(((brick.positions[i + 1] + brick.positions[i + 4] + brick.positions[i + 7]) / 3 + 2.4) / 0.6)));
-        const gz = Math.max(0, Math.min(7, Math.floor(((brick.positions[i + 2] + brick.positions[i + 5] + brick.positions[i + 8]) / 3 + 2.4) / 0.6)));
+        const gx = Math.floor(((brick.positions[i] + brick.positions[i + 3] + brick.positions[i + 6]) / 3 + 2.4) / 0.6);
+        const gy = Math.floor(((brick.positions[i + 1] + brick.positions[i + 4] + brick.positions[i + 7]) / 3 + 2.4) / 0.6);
+        const gz = Math.floor(((brick.positions[i + 2] + brick.positions[i + 5] + brick.positions[i + 8]) / 3 + 2.4) / 0.6);
         const key = `${gx},${gy},${gz}`;
         let bucket = buckets.get(key);
         if (!bucket) { bucket = { key, positions: [], normals: [] }; buckets.set(key, bucket); }

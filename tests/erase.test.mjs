@@ -113,3 +113,39 @@ test('Preview follows held input immediately and stays until matching geometry c
   worker.reply({edits:[[1,.2]],bricks:[],duration:1}); assert.equal(clears,0);
   worker.reply({edits:[[2,.2]],bricks:[],duration:1}); assert.equal(clears,1);
 });
+
+test('A long curved erase saves every previewed point even when processing falls behind',t=>{
+  const {v,erase,worker}=fixture(t),preview=[];
+  v.erasePreview={update:p=>preview.push([...p]),clear(){}};
+  for(let i=0;i<140;i++)erase.update([.4*Math.cos(i*.08),.4*Math.sin(i*.08)]);
+  erase.finish();
+  let batches=0;
+  while(!worker.terminated && batches++<10)worker.reply({edits:[],bricks:[],duration:1});
+  assert.equal(worker.terminated,true);
+  const saved=worker.messages.filter(m=>m.type==='erase').flatMap(m=>m.points);
+  assert.deepEqual(saved,preview);
+  assert.equal(saved.length,140);
+});
+
+test('Slow erase keeps the worker and preview until the result actually commits',t=>{
+  const {v,erase,worker,events}=fixture(t);
+  const original=globalThis.setTimeout;let warning;
+  globalThis.setTimeout=callback=>{warning=callback;return 0;};
+  t.after(()=>{globalThis.setTimeout=original;});
+  let clears=0;v.erasePreview={update(){},clear(){clears++;}};
+  erase.update([0,-.6]);erase.finish();warning();
+  assert.equal(erase.active,true);assert.equal(clears,0);
+  assert.equal(worker.terminated,undefined);
+  assert.ok(events.some(e=>e.pending));
+  worker.reply({edits:[[1,.2]],bricks:[],duration:12000});
+  assert.equal(v.field.get(1),.2);assert.equal(clears,1);
+});
+
+test('A reply from an aborted erase cannot overwrite a newer stroke',t=>{
+  const {v,erase,worker}=fixture(t);
+  erase.update([0,0]);erase.abort();
+  assert.equal(erase.begin(.2,eye,planeZ,false),true);
+  const current=erase.worker;
+  worker.reply({edits:[[1,.8]],bricks:[],duration:1});
+  assert.equal(v.field.has(1),false);assert.equal(erase.worker,current);assert.equal(erase.active,true);
+});

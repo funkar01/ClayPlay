@@ -33,6 +33,19 @@ function fixture(t) {
   return { pull, worker, volume, geometry, response, changes: () => changes };
 }
 
+test('Slow pull keeps its frozen preview and saves when the final reply arrives',t=>{
+  const f=fixture(t),original=globalThis.setTimeout;let warning;
+  globalThis.setTimeout=callback=>{warning=callback;return 0;};
+  t.after(()=>{globalThis.setTimeout=original;});
+  f.pull.update(new THREE.Vector3(.3,0,0));f.pull.finish();warning();
+  assert.equal(f.pull.active,true);assert.equal(f.worker.terminated,undefined);
+  assert.equal(f.pull.preview.uniforms.pullEnabled.value,1);
+  const warp=f.pull.lastWarp;
+  f.worker.reply(f.response(warp,true));
+  assert.deepEqual(f.volume.pullWarp,warp);
+  assert.equal(f.pull.preview.uniforms.pullEnabled.value,0);
+});
+
 test('Live pull updates the GPU without queuing worker previews; release commits the last measured target', t => {
   const f = fixture(t);
   f.pull.update(new THREE.Vector3(.1, 0, 0));

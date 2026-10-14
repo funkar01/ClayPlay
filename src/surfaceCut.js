@@ -22,6 +22,7 @@ export class SurfaceCut {
         // geometry nor Undo/Redo, and the old mesh stays visible while working.
         checkpoint(volume);
         volume.cutSource = source; volume.cutRegion = data.region;
+        volume.extrudeSource=null; volume.extrusion=null;
         volume.pullSource = null; volume.pullWarp = null; volume.field = new Map();
         volume.meshQueue?.invalidate();
         for (const brick of data.bricks) {

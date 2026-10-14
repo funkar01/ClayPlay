@@ -55,6 +55,7 @@ export function restoreHistory(volume, redo = false) {
   if (saved.scaleOnly) { document.dispatchEvent(new Event('sculpt-history-change')); return true; }
   applyMaskPosition(volume, saved.userOffset ?? [0, 0]);
   Object.assign(volume, { shape: saved.state.shape, eyeShape: saved.state.eyeShape ?? 'oval', field: new Map(saved.state.field),
+    extrudeSource:saved.state.extrudeSource, extrusion:saved.state.extrusion,
     pullSource: saved.state.pullSource, pullWarp: saved.state.pullWarp,
     cutSource: saved.state.cutSource, cutRegion: saved.state.cutRegion });
   volume.meshQueue?.invalidate();

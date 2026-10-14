@@ -12,6 +12,7 @@ export class SurfacePull {
   }
   begin(anchor, radius, softness, symmetry = false) {
     if (radius <= 0 || this.volume.pulling || this.volume.cutting || this.volume.meshQueue?.pending || !this.volume.bricks.size) return false;
+    this.volume.meshQueue?.pauseRefinement?.();
     this.source = this.volume.snapshot();
     this.anchor = anchor.clone(); this.radius = radius; this.softness = softness; this.symmetry = symmetry;
     this.lastWarp = makeWarp(anchor.toArray(), [0, 0, 0], radius, softness, symmetry);
@@ -58,6 +59,7 @@ export class SurfacePull {
         this.preview.clear();
         if (Math.hypot(...data.warp.delta) > 0.0005) {
           this.volume.pullSource = this.source;
+          this.volume.extrudeSource=null; this.volume.extrusion=null;
           this.volume.pullWarp = data.warp;
           this.volume.field = new Map();
           this.volume.cutSource = null; this.volume.cutRegion = null;
@@ -68,6 +70,7 @@ export class SurfacePull {
           this.volume.undoStack?.pop();
         }
         this.volume.pulling = false; this.active = false;
+        this.volume.meshQueue?.refine?.([...this.volume.bricks.keys()]);
         this.worker.terminate(); this.worker = null;
         document.dispatchEvent(new Event('sculpt-history-change'));
       }
@@ -104,7 +107,10 @@ export class SurfacePull {
     // Worker/render latency must not discard a quick drag. update() rejects
     // subsequent open-hand positions, so this target is frozen at release.
     this.busy = true;
-    this.timer = setTimeout(() => this.fail('Pull worker timed out'), 5000);
+    const worker=this.worker;
+    this.timer = setTimeout(() => {
+      if(this.worker === worker && this.active && this.busy) document.dispatchEvent(new Event('sculpt-save-pending'));
+    }, 5000);
     this.worker.postMessage({ type: 'preview', warp: this.lastWarp, final: true });
   }
   abort() {

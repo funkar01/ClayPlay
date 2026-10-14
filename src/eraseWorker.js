@@ -7,7 +7,7 @@ self.onmessage = ({ data }) => {
   try {
     if (data.type === 'begin') {
       volume = ClayVolume.fromState(data.state);
-      Object.assign(volume, { parent: new THREE.Group(), bricks: new Map(), material: null });
+      Object.assign(volume, { parent: new THREE.Group(), bricks: new Map(), material: null, meshStep:data.radius<.08 ? 1 : 2 });
       config = data; previous = null;
       bounds = eraseBrickBounds(data.bricks, data.eye, data.planeZ);
       return;

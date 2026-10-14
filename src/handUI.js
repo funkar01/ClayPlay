@@ -30,10 +30,18 @@ export class HandUI {
     this.selection = new HandSelection(); this.identity = new ControlHand({ graceMs: cursorGraceMs });
     this.motion = new HandMotion({ staleMs: HAND_UI_SAMPLE_AGE_MS });
     this.page = 'more'; this.maskPage = 0;
+    const sizeControl=document.querySelector('.size-control');
+    sizeControl.classList.add('stage-size-control');
+    sizeControl.setAttribute('aria-label','Deformation tool size');
+    sizeControl.querySelector('label').textContent='TOOL SIZE';
+    const sizeHelp=document.createElement('span');sizeHelp.className='size-hand-help';
+    sizeHelp.textContent='Point and hold, then slide your index';sizeControl.append(sizeHelp);
+    sizeControl.addEventListener('pointerdown',event=>event.stopPropagation());
+    stage.append(sizeControl);
     this.custom = [20, 55, 60]; this.lastAt = null; this.gapAt = null;
     this.dock = document.createElement('nav'); this.dock.id = 'hand-toolbar';
     this.dock.className = 'hand-toolbar'; this.dock.setAttribute('aria-label', 'Mask studio tools');
-    for (const id of ['tool-pinch', 'tool-erase']) this.dock.append(document.getElementById(id));
+    for (const id of ['tool-pinch', 'tool-extrude', 'tool-erase']) this.dock.append(document.getElementById(id));
     this.tryIt = button('Try it', 'try'); this.tryIt.id = 'hand-try';
     this.tryIt.setAttribute('aria-label', 'Try it: wear your mask'); this.dock.append(this.tryIt);
     for (const id of ['sculpt-undo', 'sculpt-redo']) this.dock.append(document.getElementById(id));
@@ -233,7 +241,7 @@ export class HandUI {
       const b = this.highlight.getBoundingClientRect();
       if (point.x >= b.left - 12 && point.x <= b.right + 12 && point.y >= b.top - 12 && point.y <= b.bottom + 12) return this.highlight;
     }
-    const targets = [...root.querySelectorAll('button, summary')].filter(target => !target.disabled && this.visible(target));
+    const targets = [...root.querySelectorAll('button, summary, #tool-size')].filter(target => !target.disabled && this.visible(target));
     return targets.find(target => {
       const b = target.getBoundingClientRect();
       if (this.isOpen && this.body?.contains(target)) {
@@ -272,6 +280,11 @@ export class HandUI {
     const bounds = rect && { left: rect.left - 12, right: rect.right + 12, top: rect.top - 12, bottom: rect.bottom + 12 };
     const response = this.selection.update({ point, target, key, bounds, fist, blocked,
       modal: this.isOpen || Boolean(overTutorial && !blocked), now });
+    const adjustingSize=target?.id === 'tool-size' && response.phase === 'selected' && open && !blocked;
+    if(adjustingSize) {
+      const value=rangeValueAt(point.x,rect,Number(target.min),Number(target.max),Number(target.step));
+      if(Number(target.value)!==value) this.onAction('size',value);
+    }
     this.lastAt = now; this.gapAt = null;
     this.highlight?.classList.remove('hand-hover', 'hand-selected');
     this.highlight = response.target ?? null;
@@ -283,16 +296,24 @@ export class HandUI {
     // The fingertip stays visible while an edit owns input. Blocking menu
     // selection must not hide the pointer used to trace a cut or pull.
     this.cursor.hidden = false;
-    if (response.phase === 'selected') this.announce('Selected · move away to choose again');
+    if (adjustingSize) this.announce(`Tool size ${target.value}% · slide your index left or right`);
+    else if (response.phase === 'selected') this.announce('Selected · move away to choose again');
     else if (response.target && !blocked) {
       const label = response.target.getAttribute('aria-label') || response.target.textContent.trim();
       this.announce(response.phase === 'point' ? 'Point with your index to choose' : `Hold for 0.5 seconds to select ${label}`);
     } else if (this.isOpen) this.announce('Hold your index on an option for 0.5 seconds');
     else this.feedback.hidden = true;
-    if (response.activated?.isConnected && !response.activated.disabled && this.visible(response.activated)) {
+    if (response.activated?.id !== 'tool-size' && response.activated?.isConnected && !response.activated.disabled && this.visible(response.activated)) {
       response.activated.click();
       this.announce('Selected · move away to choose again');
     }
     return { owns: response.owns, index: hand.index, needsOpen: !open, changed: hand.changed };
   }
+}
+
+export function rangeValueAt(x,rect,min=0,max=90,step=1) {
+  // Reserve the thumb's half-width so both extremes remain reachable.
+  const inset=Math.min(12,rect.width/4),width=Math.max(1,rect.width-inset*2);
+  const ratio=Math.max(0,Math.min(1,(x-rect.left-inset)/width));
+  return Math.max(min,Math.min(max,min+Math.round((max-min)*ratio/step)*step));
 }
