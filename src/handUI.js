@@ -3,6 +3,7 @@ import { palmCenter } from './twoHandScale.js';
 import { closedPalm } from './palmMove.js';
 import { MASK_SHAPES, EYE_SHAPES, eyePreview } from './clayShapes.js';
 import { HandMotion } from './handMotion.js';
+import { PinchGesture } from './pinchGesture.js';
 import { CLAY_COLORS } from './clayAppearance.js';
 
 export const HAND_UI_SAMPLE_AGE_MS = 500;
@@ -34,8 +35,7 @@ export class HandUI {
     sizeControl.classList.add('stage-size-control');
     sizeControl.setAttribute('aria-label','Deformation tool size');
     sizeControl.querySelector('label').textContent='TOOL SIZE';
-    const sizeHelp=document.createElement('span');sizeHelp.className='size-hand-help';
-    sizeHelp.textContent='Point and hold, then slide your index';sizeControl.append(sizeHelp);
+    sizeControl.querySelector('#size-context').hidden=true;
     sizeControl.addEventListener('pointerdown',event=>event.stopPropagation());
     stage.append(sizeControl);
     this.custom = [20, 55, 60]; this.lastAt = null; this.gapAt = null;
@@ -209,6 +209,7 @@ export class HandUI {
   }
   announce(message) { this.feedback.hidden = false; if (this.feedback.textContent !== message) this.feedback.textContent = message; }
   lose() {
+    this.sizeDrag=null;this.sizePinch?.reset();
     this.lastAt = null; this.gapAt = null;
     this.motion.reset();
     this.selection.cancel(); this.cursor.hidden = true; this.cursor.style.setProperty('--dwell-progress', '0deg'); this.highlight?.classList.remove('hand-hover', 'hand-selected'); this.highlight = null;
@@ -217,6 +218,7 @@ export class HandUI {
   }
   reset() { this.lose(); this.selection.reset(); this.identity.reset(); }
   suspend(now) {
+    this.sizeDrag=null;this.sizePinch?.reset();
     if (this.lastAt === null || now - this.lastAt > cursorGraceMs) { this.lose(); return; }
     this.gapAt ??= now;
     this.selection.pause(now);
@@ -262,7 +264,7 @@ export class HandUI {
       this.suspend(now);
       return { owns: this.isOpen || Boolean(this.selection.hover), index: null, missing: !this.cursor.hidden || candidates.length > 0 };
     }
-    if (hand.changed) { this.selection.reset(); this.motion.reset(); }
+    if (hand.changed) { this.selection.reset(); this.motion.reset();this.sizeDrag=null;this.sizePinch?.reset(); }
     const measured = this.motion.update(hand.points, sampleAt, now);
     if (!measured) { this.suspend(now); return { owns: this.isOpen, index: null, missing: true }; }
     // Dwell and activation only run on fresh measurements, never predictions.
@@ -271,18 +273,31 @@ export class HandUI {
     const tutorialBounds = tutorial?.getBoundingClientRect();
     const overTutorial = tutorialBounds && point.x >= tutorialBounds.left && point.x <= tutorialBounds.right
       && point.y >= tutorialBounds.top && point.y <= tutorialBounds.bottom;
-    const target = this.hit(point, overTutorial ? tutorial : null);
+    let target = this.hit(point, overTutorial ? tutorial : null);
     const fist = closedPalm(hand.points, aspect);
     const distance = (a, b) => Math.hypot((hand.points[a].x - hand.points[b].x) * aspect, hand.points[a].y - hand.points[b].y);
     const open = !fist && distance(4, 8) / Math.max(.025, distance(5, 17), distance(0, 9) * .7) >= .55;
+    this.sizePinch ??=new PinchGesture();
+    const held=this.sizePinch.update(hand.points,sampleAt,aspect);
+    const wasDragging=Boolean(this.sizeDrag);
+    if(blocked || fist || !held || (this.sizeDrag && (this.sizeDrag.target.disabled || !this.visible(this.sizeDrag.target)))) this.sizeDrag=null;
+    const pinchPoint=this.mapPoint({x:(measured[4].x+measured[8].x)/2,y:(measured[4].y+measured[8].y)/2,z:(measured[4].z+measured[8].z)/2});
+    if(!this.sizeDrag && !wasDragging && target?.id==='tool-size' && held && !fist && !blocked) {
+      this.sizeDrag={target,startX:pinchPoint.x,startValue:Number(target.value)};
+    }
+    if(this.sizeDrag) target=this.sizeDrag.target;
     const key = target && (target.id || target.dataset.maskBase || target.dataset.eyeBase || (target.classList.contains('mask-picker-start') ? 'picker-next' : target.classList.contains('mask-picker-back') ? 'picker-back' : `${this.page}:${target.dataset.handAction}:${target.dataset.value ?? ''}`));
     const rect = target?.getBoundingClientRect();
     const bounds = rect && { left: rect.left - 12, right: rect.right + 12, top: rect.top - 12, bottom: rect.bottom + 12 };
-    const response = this.selection.update({ point, target, key, bounds, fist, blocked,
+    const slider=target?.id==='tool-size' || wasDragging;
+    const response = slider && !blocked ? {owns:true,phase:this.sizeDrag?'selected':'point',progress:this.sizeDrag?1:0,target:this.sizeDrag?.target ?? (target?.id==='tool-size'?target:null)} : this.selection.update({ point, target, key, bounds, fist, blocked,
       modal: this.isOpen || Boolean(overTutorial && !blocked), now });
-    const adjustingSize=target?.id === 'tool-size' && response.phase === 'selected' && open && !blocked;
+    if(slider)this.selection.reset();
+    const adjustingSize=Boolean(this.sizeDrag) && !blocked;
     if(adjustingSize) {
-      const value=rangeValueAt(point.x,rect,Number(target.min),Number(target.max),Number(target.step));
+      const {startX,startValue}=this.sizeDrag;
+      const min=Number(target.min),max=Number(target.max),step=Number(target.step)||1;
+      const value=Math.max(min,Math.min(max,min+Math.round((startValue-min+(pinchPoint.x-startX)*(max-min)/Math.max(1,rect.width-24))/step)*step));
       if(Number(target.value)!==value) this.onAction('size',value);
     }
     this.lastAt = now; this.gapAt = null;
@@ -296,7 +311,8 @@ export class HandUI {
     // The fingertip stays visible while an edit owns input. Blocking menu
     // selection must not hide the pointer used to trace a cut or pull.
     this.cursor.hidden = false;
-    if (adjustingSize) this.announce(`Tool size ${target.value}% · slide your index left or right`);
+    if (adjustingSize) this.announce(`Tool size ${target.value}% · keep pinching to slide, release to finish`);
+    else if(slider && !blocked) this.announce(wasDragging ? 'Size kept · pinch to adjust again' : 'Pinch to grab the size slider');
     else if (response.phase === 'selected') this.announce('Selected · move away to choose again');
     else if (response.target && !blocked) {
       const label = response.target.getAttribute('aria-label') || response.target.textContent.trim();

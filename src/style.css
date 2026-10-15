@@ -343,6 +343,7 @@ body.play-area-fullscreen { overflow: hidden; }
 .stage-size-control output { font-size: 14px; letter-spacing: 0; color: #32684a; }
 .stage-size-control input { display: block; width: 100%; height: 32px; margin: 2px 0; accent-color: #32684a; cursor: pointer; touch-action: none; }
 .stage-size-control .strength-context { display: block; font-size: 10px; margin: 0; }
+.stage-size-control [hidden] { display: none; }
 .size-hand-help { display: block; font-size: 9px; margin-top: 4px; color: #97816d; }
 .stage-size-control:has(input:disabled) { opacity: .55; }
 .stage-size-control:has(.hand-hover) { box-shadow: 0 0 0 3px #548dad80; }

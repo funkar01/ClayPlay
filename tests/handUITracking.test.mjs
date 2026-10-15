@@ -28,20 +28,36 @@ function fixture() {
   return { ui, result, target, styles, clicks: () => clicks };
 }
 
-test('Index finger dwells to engage tool size, slides continuously, and releases when leaving',()=>{
+test('Size slider requires a pinch, captures the drag outside the track, and stops on release',()=>{
   const f=fixture(),{ui,result,target}=f;
   target.id='tool-size';target.min='0';target.max='90';target.step='1';target.value='24';
   target.getBoundingClientRect=()=>({left:550,right:650,top:250,bottom:350,width:100});
   const changes=[];ui.onAction=(action,value)=>{assert.equal(action,'size');changes.push(value);target.value=String(value);};
   for(const now of [0,100,200,300,400])ui.receive(result,now);
   assert.equal(changes.length,0);
-  ui.receive(result,500);assert.equal(changes.at(-1),45);
-  const shifted=structuredClone(result);shifted.landmarks[0][8].x=.63;
-  ui.receive(shifted,600);assert.ok(changes.at(-1)>45);assert.equal(f.clicks(),0);
+  ui.receive(result,500);assert.equal(changes.length,0,'pointing alone never changes size');
+  const pinched=structuredClone(result);pinched.landmarks[0][4].x=.59;
+  ui.receive(pinched,600);assert.ok(ui.sizeDrag);assert.equal(target.value,'24','grabbing does not jump the thumb');
+  const shifted=structuredClone(pinched);shifted.landmarks[0][4].x+=.09;shifted.landmarks[0][8].x+=.09;
+  assert.equal(ui.receive(shifted,700).owns,true);
+  assert.ok(changes.at(-1)>24);assert.equal(f.clicks(),0);
   const count=changes.length;
-  ui.receive(shifted,700,{blocked:true});assert.equal(changes.length,count);
-  const outside=structuredClone(result);outside.landmarks[0][8].x=.9;
-  assert.equal(ui.receive(outside,800).owns,false);
+  const released=structuredClone(shifted);released.landmarks[0][4].x-=.08;
+  assert.equal(ui.receive(released,800).owns,true,'release frame stays captured');
+  assert.equal(ui.sizeDrag,null);assert.equal(changes.length,count);
+  ui.receive(released,900);assert.equal(changes.length,count);
+});
+
+test('Slider dragging freezes on blocked input or missing hand measurements',()=>{
+  const {ui,result,target}=fixture();
+  target.id='tool-size';target.min='0';target.max='90';target.step='1';target.value='24';
+  target.getBoundingClientRect=()=>({left:550,right:650,top:250,bottom:350,width:100});
+  let changes=0;ui.onAction=()=>changes++;
+  const pinched=structuredClone(result);pinched.landmarks[0][4].x=.59;
+  ui.receive(pinched,0);assert.ok(ui.sizeDrag);
+  ui.receive(pinched,100,{blocked:true});assert.equal(ui.sizeDrag,null);
+  ui.receive(pinched,200);assert.ok(ui.sizeDrag);
+  ui.receive({landmarks:[]},250);assert.equal(ui.sizeDrag,null);assert.equal(changes,0);
 });
 
 test('Size slider maps left, center and right to reachable stepped values',()=>{
