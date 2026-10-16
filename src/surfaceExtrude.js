@@ -59,7 +59,7 @@ export class SurfaceExtrude {
       const n=new THREE.Vector3().fromBufferAttribute(normals,first).add(new THREE.Vector3().fromBufferAttribute(normals,last)).normalize();
       normals.setXYZ(first,n.x,n.y,n.z);normals.setXYZ(last,n.x,n.y,n.z);
     }
-    const add=mesh=>{this.preview.add(mesh);if(this.symmetry){const twin=mesh.clone();twin.position.x*=-1;twin.scale.x=-1;this.preview.add(twin);}};
+    const add=mesh=>{mesh.geometry.setAttribute('paintColor',new THREE.BufferAttribute(new Float32Array(mesh.geometry.attributes.position.count*4),4));this.preview.add(mesh);if(this.symmetry){const twin=mesh.clone();twin.position.x*=-1;twin.scale.x=-1;this.preview.add(twin);}};
     add(new THREE.Mesh(geometry,this.volume.material));
     for(const i of [centers.length-1]) {
       const cap=new THREE.Mesh(new THREE.SphereGeometry(this.stroke.radii[i],32,20),this.volume.material);
@@ -75,6 +75,7 @@ export class SurfaceExtrude {
       checkpoint(v);
       v.extrudeSource=v.snapshot(); v.extrusion=this.stroke;
       v.pullSource=null; v.pullWarp=null; v.cutSource=null; v.cutRegion=null; v.field.clear();
+      v.paint=new Map();
       this.committing=true;
       v.meshQueue?.reset();
       // Union changes only cells near the new path; keep the rest of the mask.

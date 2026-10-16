@@ -1,4 +1,12 @@
 import * as THREE from 'three';
+import { refreshPaint,applyVertexPaint } from './paintLayer.js';
+
+export function checkpointPaint(volume,changes) {
+  volume.undoStack ??=[];volume.redoStack=[];
+  volume.undoStack.push({paintOnly:true,changes:new Map(changes)});
+  if(volume.undoStack.length>8)volume.undoStack.shift();
+  document.dispatchEvent(new Event('sculpt-history-change'));
+}
 
 function capture(volume) {
   return { userScale: volume.userScale ?? 1, userOffset: [...(volume.userOffset ?? [0, 0])], state: volume.snapshot(), bricks: [...volume.bricks].map(([key, { mesh }]) => ({ key,
@@ -45,6 +53,16 @@ export function restoreHistory(volume, redo = false) {
   if (!from?.length) return false;
   const to = redo ? (volume.undoStack ??= []) : (volume.redoStack ??= []);
   const saved = from.pop();
+  if(saved.paintOnly) {
+    volume.paint ??=new Map();
+    const inverse=new Map();
+    for(const [key,value]of saved.changes) {
+      inverse.set(key,volume.paint.get(key)?.slice());
+      if(value)volume.paint.set(key,value.slice());else volume.paint.delete(key);
+    }
+    to.push({paintOnly:true,changes:inverse});refreshPaint(volume);
+    document.dispatchEvent(new Event('sculpt-history-change'));return true;
+  }
   if (saved.positionOnly) {
     to.push({ positionOnly: true, userOffset: [...(volume.userOffset ?? [0, 0])] });
     applyMaskPosition(volume, saved.userOffset);
@@ -55,6 +73,8 @@ export function restoreHistory(volume, redo = false) {
   if (saved.scaleOnly) { document.dispatchEvent(new Event('sculpt-history-change')); return true; }
   applyMaskPosition(volume, saved.userOffset ?? [0, 0]);
   Object.assign(volume, { shape: saved.state.shape, eyeShape: saved.state.eyeShape ?? 'oval', field: new Map(saved.state.field),
+    paint:new Map(saved.state.paint ?? []),
+    paintCell:saved.state.paintCell,
     extrudeSource:saved.state.extrudeSource, extrusion:saved.state.extrusion,
     pullSource: saved.state.pullSource, pullWarp: saved.state.pullWarp,
     cutSource: saved.state.cutSource, cutRegion: saved.state.cutRegion });
@@ -65,6 +85,7 @@ export function restoreHistory(volume, redo = false) {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(brick.positions.slice(), 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(brick.normals.slice(), 3));
+    applyVertexPaint(volume,geometry);
     const mesh = new THREE.Mesh(geometry, volume.material);
     mesh.name = `ClayBrick_${brick.key}`;
     volume.parent.add(mesh); volume.bricks.set(brick.key, { mesh });

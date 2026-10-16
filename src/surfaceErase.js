@@ -3,6 +3,7 @@ import { checkpoint } from './sculptHistory.js';
 import { diagnostics } from './diagnostics.js';
 import { ErasePreview } from './erasePreview.js';
 import { eraseBrickBounds } from './eraseGeometry.js';
+import { applyVertexPaint } from './paintLayer.js';
 
 export class SurfaceErase {
   constructor(volume, onChange) { this.volume = volume; this.onChange = onChange; }
@@ -31,6 +32,7 @@ export class SurfaceErase {
           const geometry = new THREE.BufferGeometry();
           geometry.setAttribute('position', new THREE.BufferAttribute(brick.positions, 3));
           geometry.setAttribute('normal', new THREE.BufferAttribute(brick.normals, 3)); geometry.computeBoundingSphere();
+          applyVertexPaint(v,geometry);
           const mesh = new THREE.Mesh(geometry, v.material); mesh.name = `ClayBrick_${brick.key}`;
           v.parent.add(mesh); v.bricks.set(brick.key, { mesh });
         }

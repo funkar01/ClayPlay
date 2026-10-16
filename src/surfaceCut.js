@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { checkpoint } from './sculptHistory.js';
 import { diagnostics } from './diagnostics.js';
+import { applyVertexPaint } from './paintLayer.js';
 
 export class SurfaceCut {
   constructor(volume, onComplete) { this.volume = volume; this.onComplete = onComplete; }
@@ -24,6 +25,7 @@ export class SurfaceCut {
         volume.cutSource = source; volume.cutRegion = data.region;
         volume.extrudeSource=null; volume.extrusion=null;
         volume.pullSource = null; volume.pullWarp = null; volume.field = new Map();
+        volume.paint=new Map();
         volume.meshQueue?.invalidate();
         for (const brick of data.bricks) {
           const old = volume.bricks.get(brick.key);
@@ -33,6 +35,7 @@ export class SurfaceCut {
           geometry.setAttribute('position', new THREE.BufferAttribute(brick.positions, 3));
           geometry.setAttribute('normal', new THREE.BufferAttribute(brick.normals, 3));
           geometry.computeBoundingSphere();
+          applyVertexPaint(volume,geometry);
           const mesh = new THREE.Mesh(geometry, volume.material);
           mesh.name = `ClayBrick_${brick.key}`;
           volume.parent.add(mesh); volume.bricks.set(brick.key, { mesh });

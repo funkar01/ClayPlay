@@ -334,6 +334,17 @@ body.play-area-fullscreen { overflow: hidden; }
   .demo-erase-trail { stroke-dashoffset: 0; }
 }
 #mask-shape-picker[hidden] { display: none; }
+.paint-palette[hidden] { display: none; }
+.paint-palette { position: absolute; z-index: 9; right: 22px; bottom: 85px; width: 226px; padding: 16px; border: 1px solid #ffffffb8; border-radius: 20px; background: #fffaf3ed; box-shadow: 0 8px 30px #60452e18; backdrop-filter: blur(12px); color: #765844; }
+.paint-palette-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
+.paint-palette-heading strong { font-size: 10px; letter-spacing: .1em; }
+.paint-palette-heading span { font-size: 11px; color: #98816b; }
+.paint-swatches { display: grid; grid-template-columns: repeat(6,1fr); gap: 8px; }
+.paint-swatches button { width: 26px; height: 26px; border-radius: 50%; background: var(--paint-color); border: 2px solid #ffffffc0; cursor: pointer; padding: 0; box-shadow: 0 1px 4px #60452e25; }
+.paint-swatches button[aria-pressed="true"] { outline: 2px solid #32684a; outline-offset: 2px; }
+.paint-swatches button:focus-visible { outline: 3px solid #548dad; outline-offset: 2px; }
+.hand-toolbar { max-height: calc(100% - 100px); overflow-y: auto; }
+@media(max-width:600px) { .paint-palette { right: 12px; bottom: 85px; width: 198px; padding: 12px; } .paint-swatches { gap: 6px; } .paint-swatches button { width: 24px; height: 24px; } }
 .surface-status { position: absolute; z-index: 8; top: 140px; left: 50%; transform: translateX(-50%); padding: 7px 12px; border-radius: 20px; background: #fffaf3dd; color: #4b7559; font-size: 10px; pointer-events: none; white-space: nowrap; }
 .surface-status[hidden] { display: none; }
 .surface-status[data-phase="building"] { color: #92704f; }

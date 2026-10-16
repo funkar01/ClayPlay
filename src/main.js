@@ -12,6 +12,8 @@ import { PinchGesture } from './pinchGesture.js';
 import { diagnostics } from './diagnostics.js';
 import { SurfacePull } from './surfacePull.js';
 import { SurfaceExtrude } from './surfaceExtrude.js';
+import { SurfacePaint } from './surfacePaint.js';
+import { CLAY_COLORS } from './clayAppearance.js';
 import { SurfaceCut } from './surfaceCut.js';
 import { SurfaceErase } from './surfaceErase.js';
 import { checkpoint, checkpointScale, applyMaskScale, checkpointPosition, applyMaskPosition, restoreHistory } from './sculptHistory.js';
@@ -56,6 +58,19 @@ const strengthValue = document.querySelector('#strength-value');
 const strengthContext = document.querySelector('#strength-context');
 const sizeInput = document.querySelector('#tool-size');
 const sizeValue = document.querySelector('#size-value');
+let paintColor=CLAY_COLORS[4][1];
+const paintPalette=document.createElement('section');
+paintPalette.className='paint-palette';paintPalette.hidden=true;
+paintPalette.setAttribute('aria-label','Paint color palette');
+paintPalette.innerHTML=`<div class="paint-palette-heading"><strong>PAINT COLOR</strong><span id="paint-color-name">Ocean</span></div><div class="paint-swatches">${CLAY_COLORS.map(([name,hex],i)=>`<button type="button" id="paint-swatch-${i}" data-paint-color="${hex}" aria-label="Paint with ${name}" aria-pressed="${hex===paintColor}" title="${name}" style="--paint-color:${hex}"></button>`).join('')}</div>`;
+paintPalette.addEventListener('pointerdown',event=>event.stopPropagation());
+paintPalette.addEventListener('click',event=>{const button=event.target.closest('[data-paint-color]');if(button)setPaintColor(button.dataset.paintColor);});
+document.querySelector('#stage').append(paintPalette);
+function setPaintColor(color) {
+  cancelMouseStroke();paintColor=color;
+  paintPalette.querySelector('#paint-color-name').textContent=CLAY_COLORS.find(([,hex])=>hex===color)?.[0] ?? 'Custom';
+  for(const button of paintPalette.querySelectorAll('[data-paint-color]'))button.setAttribute('aria-pressed',String(button.dataset.paintColor===color));
+}
 const surfaceStatus=document.createElement('div');
 surfaceStatus.className='surface-status';surfaceStatus.hidden=true;
 surfaceStatus.setAttribute('role','status');surfaceStatus.setAttribute('aria-live','polite');
@@ -806,6 +821,7 @@ function resizeScene() {
 new ResizeObserver(resizeScene).observe(sceneHost);
 
 function renderScene() {
+  for(const item of clayObjects.items)item.volume.surfacePaint?.tick();
   arView.update();
   const now = performance.now();
   diagnostics.poseAgeMs = poseTarget ? now - poseSampleAt : 0;
@@ -857,7 +873,7 @@ function renderScene() {
     symmetryGuide.position.copy(clay.localToWorld(new THREE.Vector3(0, 0, 0.9)));
     symmetryGuide.scale.setScalar(radius * clay.scale.x);
   }
-  mirroredBrush.visible = (activeTool === 'pinch' || activeTool === 'erase') && symmetryEnabled && (brushCue.visible || Boolean(previousPullPoint && pinchActive));
+  mirroredBrush.visible = (activeTool === 'pinch' || activeTool === 'erase' || activeTool === 'paint') && symmetryEnabled && (brushCue.visible || Boolean(previousPullPoint && pinchActive));
   if (mirroredBrush.visible) {
     const point = previousPullPoint?.clone() ?? clay.worldToLocal(brushCue.position.clone());
     point.x = -point.x;
@@ -889,6 +905,7 @@ function renderScene() {
   } else renderer.render(scene, camera);
   updateHistoryButtons();
   handUI?.tick(now);
+  paintPalette.hidden=activeTool!=='paint' || tryOn.enabled;
   const building=Boolean(clayVolume.meshQueue?.pending || (clayVolume.pulling && clayVolume.surfacePull?.released) || (clayVolume.cutting && clayVolume.surfaceErase?.released));
   const refining=Boolean(clayVolume.meshQueue?.refining);
   surfaceStatus.hidden=!building && !refining;
@@ -947,7 +964,11 @@ const extrudeDetails = {
   body:'Pinch on the mask, move along a curve, then release. The extrusion grows from a wide base to a narrow tip. Size controls the base width.',
   tipHeading:'Trace to extrude', tipCopy:'Start on solid clay. Keep pinching while you trace, then open your fingers to finish. Undo removes the stroke.',
 };
-function toolDetails() { return activeTool === 'extrude' ? extrudeDetails : activeTool === 'erase' ? eraseDetails : activeTool === 'cut' ? cutDetails : pinchDetails; }
+const paintDetails={context:'Brush softness',caption:'PAINT · PINCH AND TRACE',mouseCaption:'PAINT · CLICK AND TRACE',
+  hint:'Pinch on the mask · follow your curve · release to finish',mouseHint:'Click and brush over the mask to paint',
+  title:'Give your mask some color.',body:'Choose a color, pinch on the surface, and trace your design. Release to finish the stroke. Undo brings back the previous colors.',
+  tipHeading:'Paint your character',tipCopy:'Use Size for the brush width. Choose another color for your next stroke. Symmetry paints both sides.'};
+function toolDetails() { return activeTool === 'paint' ? paintDetails : activeTool === 'extrude' ? extrudeDetails : activeTool === 'erase' ? eraseDetails : activeTool === 'cut' ? cutDetails : pinchDetails; }
 
 function cursorInputEnabled() { return !stream && !cameraOpening && !tryOn.enabled; }
 
@@ -1021,6 +1042,7 @@ sizeInput.addEventListener('input', () => {
 updateSizeControl();
 
 function resetToolControls() {
+  clayVolume.surfacePaint?.finish();
   clayVolume.surfaceExtrude?.finish();
   tryPhase = null;
   cutStroke = null; cutPreview.visible = false; mirroredCutPreview.visible = false;
@@ -1030,7 +1052,7 @@ function resetToolControls() {
   grabCursorOrigin = null; grabAnchor = null;
   pinchGesture.reset();
   strengthInput.disabled = tryOn.enabled || activeTool !== 'pinch'; sizeInput.disabled = tryOn.enabled || activeTool === 'cut';
-  document.querySelector('#size-context').textContent = activeTool === 'erase' ? 'Erase circle width' : activeTool === 'extrude' ? 'Extrusion base width' : activeTool === 'cut' ? 'Cut follows your index' : 'Pull brush width';
+  document.querySelector('#size-context').textContent = activeTool === 'paint' ? 'Paint brush width' : activeTool === 'erase' ? 'Erase circle width' : activeTool === 'extrude' ? 'Extrusion base width' : activeTool === 'cut' ? 'Cut follows your index' : 'Pull brush width';
   toolButtons.forEach(button => {
     const selected = button.dataset.tool === activeTool;
     button.classList.toggle('is-active', selected); button.setAttribute('aria-pressed', String(selected));
@@ -1137,6 +1159,7 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null, worldLandmark
   const aspect = video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 1;
   if (!showPalmMove(landmarks, now, aspect, screenSpace)) pinchGesture.update(landmarks, now, aspect);
   if(!pinchGesture.held)pinchActive=false;
+  if(activeTool==='paint' && !pinchGesture.held)clayVolume.surfacePaint?.finish();
   // End the grab before this open-hand pose can enter render interpolation.
   if (activeTool === 'pinch' && previousPullPoint && !pinchGesture.held) {
     pinchActive = false;
@@ -1153,8 +1176,8 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null, worldLandmark
   if (activeTool === 'extrude' && !pinchGesture.held) {
     clayVolume.surfaceExtrude?.finish(); previousPullPoint=null; grabCursorOrigin=null; grabAnchor=null;
   }
-  if ((activeTool === 'pinch' || activeTool === 'extrude') && pinchGesture.held && usableHandSample(sampleAt, now)) {
-    const point=activeTool === 'extrude' ? mappedPoints[8].clone().lerp(mappedPoints[4],.5) : mappedPoints[8];
+  if ((activeTool === 'pinch' || activeTool === 'extrude' || activeTool === 'paint') && pinchGesture.held && usableHandSample(sampleAt, now)) {
+    const point=activeTool === 'pinch' ? mappedPoints[8] : mappedPoints[8].clone().lerp(mappedPoints[4],.5);
     processSculptPoint(point, true);
   }
   reachCalibration.panel.open = false;
@@ -1272,7 +1295,7 @@ function processHandPose(mappedPoints, pinchOverride = null, editPoints = mapped
   scenePlaceholder.classList.add('is-hidden');
   const pinchDistance = new THREE.Vector3().subVectors(editPoints[4], editPoints[8]).length();
   const palmWidth = Math.max(0.04, new THREE.Vector3().subVectors(editPoints[5], editPoints[17]).length());
-  const index = (activeTool === 'erase' || activeTool === 'extrude') && pinchOverride ? editPoints[8].clone().lerp(editPoints[4], .5) : editPoints[8];
+  const index = (activeTool === 'erase' || activeTool === 'extrude' || activeTool === 'paint') && pinchOverride ? editPoints[8].clone().lerp(editPoints[4], .5) : editPoints[8];
   processSculptPoint(new THREE.Vector3(index.x, index.y, index.z), pinchOverride, pinchDistance / palmWidth);
 }
 
@@ -1293,7 +1316,7 @@ function processSculptPoint(sculptPoint, pinchOverride, pinchRatio = 1, cursor =
     return;
   }
   if (volumeBusy()) return;
-  if (activeSize === 0 && (activeTool === 'pinch' || activeTool === 'erase' || activeTool === 'extrude')) {
+  if (activeSize === 0 && (activeTool === 'pinch' || activeTool === 'erase' || activeTool === 'extrude' || activeTool === 'paint')) {
     brushCue.visible = false; contactCue.visible = false; pinchCue.visible = false;
     contactLabel.textContent = 'Brush off · increase Size';
     sceneHint.textContent = 'Size is 0% · increase Size to sculpt';
@@ -1304,6 +1327,24 @@ function processSculptPoint(sculptPoint, pinchOverride, pinchRatio = 1, cursor =
   if (pinchOverride !== null) pinchActive = pinchOverride;
   else if (!pinchActive && pinchRatio < 0.34) pinchActive = true;
   else if (pinchActive && pinchRatio > 0.48) pinchActive = false;
+
+  if(activeTool==='paint') {
+    const paintRadius=Math.max(.04,Math.min(.5,brushRadius()));
+    const hit=getClaySurfaceHit(sculptPoint);
+    brushCue.visible=Boolean(hit);contactCue.visible=false;grabTether.visible=false;
+    if(hit) {
+      brushCue.position.copy(hit.worldPoint);brushCue.position.z+=.025;
+      brushCue.scale.setScalar(paintRadius*clay.scale.x);brushCue.material.color.set(paintColor);
+    }
+    if(!pinchActive){clayVolume.surfacePaint?.finish();return;}
+    if(!hit){clayVolume.surfacePaint?.breakPath();return;}
+    const volume=clayVolume,item=clayObjects.active;
+    volume.surfacePaint ??=new SurfacePaint(volume,()=>{item.edited=true;if(volume===clayVolume)markClayEdited();});
+    if(!volume.surfacePaint.active && !volume.surfacePaint.begin(paintRadius,paintColor,symmetryEnabled))return;
+    const normal=hit.worldNormal.clone().transformDirection(clay.matrixWorld.clone().invert());
+    volume.surfacePaint.update(hit.point,normal);
+    sceneHint.textContent='Painting · release to keep your stroke';return;
+  }
 
   if (activeTool === 'extrude') {
     brushCue.visible=false; contactCue.visible=false; grabTether.visible=false;
@@ -1827,6 +1868,7 @@ sceneHost.addEventListener('pointerup', (event) => {
 });
 
 function cancelMouseStroke() {
+  clayVolume.surfacePaint?.finish();
   clayVolume.surfaceExtrude?.finish();
   finishMoveStroke(true);
   finishScaleStroke();
@@ -1891,7 +1933,7 @@ handUI = new HandUI({
     return { x: rect.left + mapped.x * rect.width, y: rect.top + mapped.y * rect.height };
   },
   getState: () => ({
-    active: clayObjects.active.id, eyeShape: clayVolume.eyeShape ?? 'oval', color: `#${clayObjects.active.material.color.getHexString()}`,
+    active: clayObjects.active.id, eyeShape: clayVolume.eyeShape ?? 'oval', color: activeTool==='paint' ? paintColor : `#${clayObjects.active.material.color.getHexString()}`,
     smoothness: Math.round((1 - clayObjects.active.material.roughness) * 100),
     masks: clayObjects.items.map(item => ({ id: item.id, label: item.label, shape: item.shape, color: `#${item.material.color.getHexString()}` })),
     edited: clayObjects.active.edited, symmetry: symmetryEnabled, ar: arView.enabled, trying: tryOn.enabled,
@@ -1900,7 +1942,7 @@ handUI = new HandUI({
   }),
   onPause: pauseForHandUI,
   onAction: (action, value) => {
-    if (action === 'color') clayMenu.setColor(value);
+    if (action === 'color') {if(activeTool==='paint')setPaintColor(value);else clayMenu.setColor(value);}
     else if(action === 'size' && !sizeInput.disabled) {
       sizeInput.value=String(value);sizeInput.dispatchEvent(new Event('input',{bubbles:true}));
     }
@@ -1979,6 +2021,7 @@ resetButton.addEventListener('click', (event) => {
 });
 
 window.addEventListener('beforeunload', () => {
+  for(const item of clayObjects.items)item.volume.surfacePaint?.finish();
   for (const item of clayObjects.items) item.volume.surfaceExtrude?.abort();
   for (const item of clayObjects.items) item.volume.surfaceCut?.abort();
   for (const item of clayObjects.items) item.volume.surfacePull?.abort();

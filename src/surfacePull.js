@@ -3,6 +3,7 @@ import { makeWarp, forwardWarp } from './maskWarp.js';
 import { diagnostics } from './diagnostics.js';
 import { PullPreview } from './pullPreview.js';
 import { anchorVertex } from './pullGeometry.js';
+import { applyVertexPaint,refreshPaint } from './paintLayer.js';
 
 export class SurfacePull {
   constructor(volume, onChange) { this.volume = volume; this.onChange = onChange; }
@@ -62,6 +63,7 @@ export class SurfacePull {
           this.volume.extrudeSource=null; this.volume.extrusion=null;
           this.volume.pullWarp = data.warp;
           this.volume.field = new Map();
+          this.volume.paint=new Map();
           this.volume.cutSource = null; this.volume.cutRegion = null;
           this.volume.meshQueue?.invalidate();
           this.onChange();
@@ -70,6 +72,7 @@ export class SurfacePull {
           this.volume.undoStack?.pop();
         }
         this.volume.pulling = false; this.active = false;
+        refreshPaint(this.volume);
         this.volume.meshQueue?.refine?.([...this.volume.bricks.keys()]);
         this.worker.terminate(); this.worker = null;
         document.dispatchEvent(new Event('sculpt-history-change'));
@@ -86,6 +89,7 @@ export class SurfacePull {
       const geometry = this.volume.bricks.get(bricks[i].key).mesh.geometry;
       geometry.setAttribute('position', new THREE.BufferAttribute(bricks[i].positions.slice(), 3));
       geometry.setAttribute('normal', new THREE.BufferAttribute(bricks[i].normals.slice(), 3));
+      applyVertexPaint(this.volume,geometry);
       geometry.boundingBox = null; geometry.boundingSphere = null;
     }
     for (const { mesh } of this.volume.bricks.values()) mesh.frustumCulled = false;

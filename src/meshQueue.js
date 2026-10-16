@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { diagnostics } from './diagnostics.js';
+import { applyVertexPaint } from './paintLayer.js';
 
 let worker;
 let nextId = 1;
@@ -21,6 +22,7 @@ function installBrick(volume,{key,positions,normals}) {
   const geometry=new THREE.BufferGeometry();
   geometry.setAttribute('position',new THREE.BufferAttribute(positions,3));
   geometry.setAttribute('normal',new THREE.BufferAttribute(normals,3));geometry.computeBoundingSphere();
+  applyVertexPaint(volume,geometry);
   const mesh=new THREE.Mesh(geometry,volume.material);mesh.name=`ClayBrick_${key}`;
   volume.parent.add(mesh);volume.bricks.set(key,{mesh});
 }
@@ -105,6 +107,7 @@ export function attachMeshQueue(volume) {
           geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
           geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
           geometry.computeBoundingSphere();
+          applyVertexPaint(entry.volume,geometry);
           const mesh = new THREE.Mesh(geometry, entry.volume.material);
           mesh.name = `ClayBrick_${key}`;
           entry.volume.parent.add(mesh); entry.volume.bricks.set(key, { mesh });

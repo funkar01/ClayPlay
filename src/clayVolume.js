@@ -3,6 +3,7 @@ import { CLAY_SHAPES, EYE_SHAPES } from './clayShapes.js';
 import { inverseWarp } from './maskWarp.js';
 import { cutDistance } from './cutGeometry.js';
 import { extrusionDistance, blendExtrusion } from './extrudeGeometry.js';
+import { applyVertexPaint,PAINT_CELL } from './paintLayer.js';
 
 const GRID_MIN = -2.4;
 const GRID_CELLS = 192;
@@ -56,6 +57,8 @@ export class ClayVolume {
     field.eyeShape = this.eyeShape;
     field.extrudeSource=this.extrudeSource; field.extrusion=this.extrusion;
     field.field = new Map(this.field);
+    field.paint=new Map(this.paint ?? []);
+    field.paintCell=this.paintCell;
     field.pullSource = this.pullSource;
     field.pullWarp = this.pullWarp;
     field.cutSource = this.cutSource;
@@ -64,7 +67,7 @@ export class ClayVolume {
   }
 
   serialize() {
-    return { shape: this.shape, eyeShape: this.eyeShape, field: [...this.field], extrudeSource:this.extrudeSource?.serialize(), extrusion:this.extrusion,
+    return { shape: this.shape, eyeShape: this.eyeShape, field: [...this.field], paint:[...(this.paint ?? [])], paintCell:this.paintCell, extrudeSource:this.extrudeSource?.serialize(), extrusion:this.extrusion,
       pullWarp: this.pullWarp, pullSource: this.pullSource?.serialize(),
       cutRegion: this.cutRegion, cutSource: this.cutSource?.serialize() };
   }
@@ -72,6 +75,8 @@ export class ClayVolume {
   static fromState(state) {
     const volume = Object.create(ClayVolume.prototype);
     Object.assign(volume, { shape: state.shape, eyeShape: state.eyeShape ?? 'oval', field: new Map(state.field),
+      paint:new Map(state.paint ?? []),
+      paintCell:state.paintCell ?? (state.paint?.length ? .05 : PAINT_CELL),
       extrudeSource:state.extrudeSource ? ClayVolume.fromState(state.extrudeSource) : null, extrusion:state.extrusion,
       pullWarp: state.pullWarp, pullSource: state.pullSource ? ClayVolume.fromState(state.pullSource) : null,
       cutRegion: state.cutRegion, cutSource: state.cutSource ? ClayVolume.fromState(state.cutSource) : null });
@@ -124,6 +129,8 @@ export class ClayVolume {
   }
 
   reset(shape = this.shape, eyeShape = this.eyeShape ?? 'oval') {
+    this.paint=new Map();
+    this.paintCell=PAINT_CELL;
     this.extrudeSource=null; this.extrusion=null;
     this.cutSource = null; this.cutRegion = null;
     this.pullSource = null;
@@ -272,6 +279,7 @@ export class ClayVolume {
     geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
+    if(this.material)applyVertexPaint(this,geometry);
     const mesh = new THREE.Mesh(geometry, this.material);
     mesh.name = `ClayBrick_${key}`;
     mesh.castShadow = true;

@@ -41,7 +41,7 @@ export class HandUI {
     this.custom = [20, 55, 60]; this.lastAt = null; this.gapAt = null;
     this.dock = document.createElement('nav'); this.dock.id = 'hand-toolbar';
     this.dock.className = 'hand-toolbar'; this.dock.setAttribute('aria-label', 'Mask studio tools');
-    for (const id of ['tool-pinch', 'tool-extrude', 'tool-erase']) this.dock.append(document.getElementById(id));
+    for (const id of ['tool-pinch', 'tool-extrude', 'tool-paint', 'tool-erase']) this.dock.append(document.getElementById(id));
     this.tryIt = button('Try it', 'try'); this.tryIt.id = 'hand-try';
     this.tryIt.setAttribute('aria-label', 'Try it: wear your mask'); this.dock.append(this.tryIt);
     for (const id of ['sculpt-undo', 'sculpt-redo']) this.dock.append(document.getElementById(id));

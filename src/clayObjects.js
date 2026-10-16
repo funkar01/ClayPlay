@@ -4,6 +4,7 @@ import { CLAY_SHAPES } from './clayShapes.js';
 import { attachMeshQueue } from './meshQueue.js';
 import { PullPreview } from './pullPreview.js';
 import { DEFAULT_CLAY_COLOR } from './clayAppearance.js';
+import { enablePaintMaterial } from './paintLayer.js';
 
 export class ClayObjects {
   constructor(scene) {
@@ -27,6 +28,7 @@ export class ClayObjects {
     if (this.items.length >= this.limit || !Object.hasOwn(CLAY_SHAPES, shape)) return null;
     const group = new THREE.Group();
     const material = new THREE.MeshPhysicalMaterial({ color, roughness: this.active?.material.roughness ?? 0.78, metalness: 0, clearcoat: 0.08, clearcoatRoughness: 0.9 });
+    enablePaintMaterial(material);
     const id = this.nextId++;
     group.name = `ClayObject_${id}`;
     const item = { id, shape, label: `${CLAY_SHAPES[shape].label} ${id}`, group, material, volume: new ClayVolume(group, material, shape, attachMeshQueue), edited: false };
@@ -47,6 +49,7 @@ export class ClayObjects {
   removeActive() {
     if (this.items.length === 1) return;
     const index = this.items.indexOf(this.active);
+    this.active.volume.surfacePaint?.finish();
     this.active.volume.surfacePull?.abort();
     this.active.volume.surfaceExtrude?.abort();
     this.active.volume.surfaceCut?.abort();
