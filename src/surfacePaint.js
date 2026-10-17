@@ -6,6 +6,7 @@ export class SurfacePaint {
   constructor(volume,onChange){this.volume=volume;this.onChange=onChange;}
   begin(radius,color,symmetry=false) {
     if(radius<=0 || this.volume.pulling || this.volume.cutting || this.volume.meshQueue?.pending)return false;
+    this.volume.meshQueue?.pauseRefinement?.();
     this.radius=Math.max(.04,Math.min(.5,radius));this.color=new THREE.Color(color);this.symmetry=symmetry;
     this.changes=new Map();this.coverage=new Map();this.bases=new Map();this.pending=[];this.last=null;this.active=true;return true;
   }
@@ -37,5 +38,6 @@ export class SurfacePaint {
     this.tick();this.active=false;this.last=null;this.applied=null;this.appliedNormal=null;
     if(this.changes.size){checkpointPaint(this.volume,this.changes);this.onChange();}
     this.coverage.clear();this.bases.clear();this.changes.clear();
+    this.volume.meshQueue?.resumeRefinement?.();
   }
 }

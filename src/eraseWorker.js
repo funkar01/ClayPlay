@@ -1,13 +1,14 @@
 import * as THREE from 'three';
 import { ClayVolume } from './clayVolume.js';
+import { cacheVolumeNodes } from './cacheVolumeNodes.js';
 import { eraseBrickBounds, eraseNodes } from './eraseGeometry.js';
 
 let volume, bounds, config, previous;
 self.onmessage = ({ data }) => {
   try {
     if (data.type === 'begin') {
-      volume = ClayVolume.fromState(data.state);
-      Object.assign(volume, { parent: new THREE.Group(), bricks: new Map(), material: null, meshStep:data.radius<.08 ? 1 : 2 });
+      volume = cacheVolumeNodes(ClayVolume.fromState(data.state));
+      Object.assign(volume, { parent: new THREE.Group(), bricks: new Map(), material: null, meshStep:1 });
       config = data; previous = null;
       bounds = eraseBrickBounds(data.bricks, data.eye, data.planeZ);
       return;

@@ -37,7 +37,7 @@ export class HandSelection {
       return { owns: modal, phase: 'waiting', progress: 0 };
     }
     if (key !== this.hover) { this.hover = key; this.hoverAt = now; }
-    const progress = Math.min(1, Math.max(0, (now - this.hoverAt) / 500));
+    const progress = Math.min(1, Math.max(0, (now - this.hoverAt) / (this.dwellMs ?? 500)));
     if (progress === 1) {
       this.latched = { key, bounds };
       this.cancel();

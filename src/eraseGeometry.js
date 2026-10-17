@@ -60,6 +60,7 @@ export function eraseNodes(volume, bounds, points, radius, eye, planeZ, symmetry
   const stroke = [Math.min(...points.map(p => p[0])) - padding, Math.min(...points.map(p => p[1])) - padding,
     Math.max(...points.map(p => p[0])) + padding, Math.max(...points.map(p => p[1])) + padding];
   const overlap = b => b[0] <= stroke[2] && b[2] >= stroke[0] && b[1] <= stroke[3] && b[3] >= stroke[1];
+  const visited = new Set();
   const edits = new Map(), dirty = new Set(), brush = makeEraseBrush(points, radius, eye, planeZ, symmetry);
   for (const bound of bounds) {
     if (!overlap(bound.direct) && !(symmetry && overlap(bound.mirror))) continue;
@@ -68,12 +69,14 @@ export function eraseNodes(volume, bounds, points, radius, eye, planeZ, symmetry
     for (let iz = start[2] - 2; iz <= start[2] + grid.brick + 2; iz++)
       for (let iy = start[1] - 2; iy <= start[1] + grid.brick + 2; iy++)
         for (let ix = start[0] - 2; ix <= start[0] + grid.brick + 2; ix++) {
+          const key = volume.nodeKey(ix, iy, iz);
+          if (visited.has(key)) continue;
+          visited.add(key);
           const removal = brush(grid.min + ix * grid.voxel, grid.min + iy * grid.voxel, grid.min + iz * grid.voxel);
           if (removal < -grid.voxel * 2) continue;
           const old = volume.nodeValue(ix, iy, iz);
           // Empty space does not need an overlay or a history entry.
           if (old > grid.voxel * 2 || removal <= old + 1e-7) continue;
-          const key = volume.nodeKey(ix, iy, iz);
           volume.field.set(key, removal); edits.set(key, removal);
           // A node shared by a brick edge also affects its neighbour's normals.
           for (let bz = Math.floor((iz - 2) / grid.brick); bz <= Math.floor((iz + 1) / grid.brick); bz++)

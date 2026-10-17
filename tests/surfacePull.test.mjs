@@ -138,3 +138,17 @@ test('Aborting a GPU preview clears the shader and terminates its worker', t => 
   f.worker.reply(f.response(f.pull.lastWarp, true));
   assert.equal(f.changes(), 0, 'A callback from a cancelled stroke cannot install a late shape');
 });
+
+test('A committed pull requests a complete surface replacement',t=>{
+  const f=fixture(t);let replacements=0;
+  f.volume.meshQueue={invalidate(){},remeshSurface(){replacements++;}};
+  f.pull.update(new THREE.Vector3(.2,0,0));f.pull.finish();
+  f.worker.reply(f.response(f.pull.lastWarp,true));assert.equal(replacements,1);
+});
+
+ test('A no-op release does not remesh the surface',t=>{
+  const f=fixture(t);let replacements=0;
+  f.volume.meshQueue={remeshSurface(){replacements++;}};
+  f.pull.finish();f.worker.reply(f.response(f.pull.lastWarp,true));
+  assert.equal(replacements,0);
+});

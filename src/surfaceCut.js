@@ -8,6 +8,7 @@ export class SurfaceCut {
   finish(points, eye, planeZ, symmetry) {
     const volume = this.volume;
     if (volume.cutting || volume.pulling || volume.meshQueue?.pending || points.length < 2) return;
+    volume.meshQueue?.pauseRefinement?.();
     const source = volume.snapshot();
     this.worker = new Worker(new URL('./cutWorker.js', import.meta.url), { type: 'module' });
     volume.cutting = true;
@@ -48,5 +49,5 @@ export class SurfaceCut {
     this.worker.postMessage({ points, eye, planeZ, symmetry, state: source.serialize(), bricks }, bricks.map(b => b.positions.buffer));
     this.timer = setTimeout(() => fail('Cut worker timed out'), 30000);
   }
-  abort() { clearTimeout(this.timer); this.worker?.terminate(); this.worker = null; this.volume.cutting = false; }
+  abort() { clearTimeout(this.timer); this.worker?.terminate(); this.worker = null; this.volume.cutting = false; this.volume.meshQueue?.resumeRefinement?.(); }
 }

@@ -18,7 +18,7 @@ export class SurfaceErase {
     const worker = this.worker = new Worker(new URL('./eraseWorker.js', import.meta.url), { type: 'module' });
     this.worker.onmessage = ({ data }) => {
       if(this.worker !== worker || !this.active) return;
-      clearTimeout(this.timer); this.busy = false;
+      clearTimeout(this.timer); clearTimeout(this.watchdog); this.busy = false;
       if (data.error) { this.fail(data.error); return; }
       diagnostics.eraseWorkerMs = data.duration;
       if (data.edits.length) {
@@ -68,6 +68,9 @@ export class SurfaceErase {
     this.timer = setTimeout(() => {
       if(this.worker === worker && this.active && this.busy) this.onChange({pending:true});
     }, 10000);
+    this.watchdog = setTimeout(() => {
+      if(this.worker === worker && this.active && this.busy) this.fail('Erase timed out; completed parts were kept.');
+    }, 15000);
     this.worker.postMessage({ type: 'erase', points: this.pending.splice(0, 32) });
   }
   finish() {
@@ -75,6 +78,9 @@ export class SurfaceErase {
     // Freeze sampling immediately. Only positions captured while held finish;
     // an opening index finger can never extend the stroke.
     this.released = true; this.pump();
+    if(this.active) this.releaseDeadline = setTimeout(() => {
+      if(this.active && this.released) this.fail('Erase queue timed out; completed parts were kept.');
+    }, 15000);
   }
   complete() {
     const changed = this.saved;
@@ -82,9 +88,10 @@ export class SurfaceErase {
     this.abort(); this.onChange({ done: true, changed }); document.dispatchEvent(new Event('sculpt-history-change'));
   }
   abort() {
-    clearTimeout(this.timer); this.worker?.terminate(); this.worker = null;
+    clearTimeout(this.timer); clearTimeout(this.watchdog); clearTimeout(this.releaseDeadline); this.worker?.terminate(); this.worker = null;
     this.volume.erasePreview?.clear();
     this.active = false; this.pending = []; this.volume.erasing = false; this.volume.cutting = false;
+    this.volume.meshQueue?.resumeRefinement?.();
   }
   fail(message) { console.error('Mask erase failed:', message); this.abort(); this.onChange({ error: message }); document.dispatchEvent(new Event('sculpt-history-change')); }
 }

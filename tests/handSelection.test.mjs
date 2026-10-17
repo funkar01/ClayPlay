@@ -109,3 +109,10 @@ test('A paused dwell expires after prolonged loss and never transfers to another
   s.update({ point, target: 'next', now: 950 }); s.pause(1000);
   assert.equal(s.update({ point, target: 'undo', now: 1100 }).progress, 0);
 });
+
+test('A slower selection setting waits for the chosen duration and still selects once',()=>{
+  const s=new HandSelection();s.dwellMs=1200;
+  for(const now of [0,200,400,600,800,1000])assert.equal(s.update({point,target:'paint',now}).activated,undefined);
+  assert.equal(s.update({point,target:'paint',now:1200}).activated,'paint');
+  assert.equal(s.update({point,target:'paint',now:1400}).activated,undefined);
+});

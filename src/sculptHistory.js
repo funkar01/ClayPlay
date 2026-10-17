@@ -48,6 +48,12 @@ export function checkpoint(volume) {
 }
 
 export function restoreHistory(volume, redo = false) {
+  if (volume.erasing && !redo && volume.surfaceErase?.active) {
+    const saved = volume.surfaceErase.saved;
+    volume.surfaceErase.abort();
+    // Nothing has committed yet: Undo cancels this stroke, not an older edit.
+    if (!saved) { document.dispatchEvent(new Event('sculpt-history-change')); return true; }
+  }
   if (volume.pulling || volume.cutting || volume.meshQueue?.pending) return false;
   const from = redo ? volume.redoStack : volume.undoStack;
   if (!from?.length) return false;

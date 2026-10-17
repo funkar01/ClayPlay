@@ -130,7 +130,7 @@ test('A long curved erase saves every previewed point even when processing falls
 test('Slow erase keeps the worker and preview until the result actually commits',t=>{
   const {v,erase,worker,events}=fixture(t);
   const original=globalThis.setTimeout;let warning;
-  globalThis.setTimeout=callback=>{warning=callback;return 0;};
+  globalThis.setTimeout=(callback,ms)=>{if(ms===10000)warning=callback;return 0;};
   t.after(()=>{globalThis.setTimeout=original;});
   let clears=0;v.erasePreview={update(){},clear(){clears++;}};
   erase.update([0,-.6]);erase.finish();warning();
@@ -148,4 +148,47 @@ test('A reply from an aborted erase cannot overwrite a newer stroke',t=>{
   const current=erase.worker;
   worker.reply({edits:[[1,.8]],bricks:[],duration:1});
   assert.equal(v.field.has(1),false);assert.equal(erase.worker,current);assert.equal(erase.active,true);
+});
+
+
+test('A stalled erase releases ownership at the deadline and ignores its late reply',t=>{
+  const {v,erase,worker,events}=fixture(t),original=globalThis.setTimeout;let timeout;
+  globalThis.setTimeout=(callback,ms)=>{if(ms===15000)timeout=callback;return 0;};
+  t.after(()=>{globalThis.setTimeout=original;});
+  erase.update([0,-.6]);erase.finish();timeout();
+  assert.equal(erase.active,false);assert.equal(v.erasing,false);assert.equal(v.cutting,false);
+  assert.equal(worker.terminated,true);assert.ok(events.some(e=>e.error));
+  worker.reply({edits:[[1,.8]],bricks:[],duration:16000});assert.equal(v.field.has(1),false);
+});
+
+test('Undo cancels an uncommitted erase without undoing an older edit',t=>{
+  const {v,erase,worker}=fixture(t);v.surfaceErase=erase;checkpoint(v);
+  erase.update([0,-.6]);erase.finish();
+  assert.equal(restoreHistory(v),true);assert.equal(worker.terminated,true);
+  assert.equal(v.undoStack.length,1);assert.equal(v.cutting,false);
+  worker.reply({edits:[[1,.8]],bricks:[],duration:1});assert.equal(v.field.has(1),false);
+});
+
+test('Undo during an erase restores already committed portions and stops pending work',t=>{
+  const {v,erase,worker}=fixture(t);v.surfaceErase=erase;
+  erase.update([0,-.6]);erase.update([.1,-.6]);
+  worker.reply({edits:[[1,.2]],bricks:[],duration:1});
+  assert.equal(v.field.get(1),.2);assert.equal(erase.busy,true);
+  assert.equal(restoreHistory(v),true);assert.equal(v.field.has(1),false);
+  assert.equal(worker.terminated,true);assert.equal(v.cutting,false);
+  worker.reply({edits:[[2,.2]],bricks:[],duration:1});assert.equal(v.field.has(2),false);
+});
+
+
+test('Release deadline ends a long queue even if individual batches keep completing',t=>{
+  const {v,erase,worker}=fixture(t),original=globalThis.setTimeout;const deadlines=[];
+  globalThis.setTimeout=(callback,ms)=>{if(ms===15000)deadlines.push(callback);return 0;};
+  t.after(()=>{globalThis.setTimeout=original;});
+  for(let i=0;i<70;i++)erase.update([i*.01,-.6]);
+  erase.finish();const releaseDeadline=deadlines.at(-1);
+  worker.reply({edits:[[1,.2]],bricks:[],duration:1});
+  assert.equal(erase.active,true);releaseDeadline();
+  assert.equal(erase.active,false);assert.equal(v.cutting,false);
+  assert.equal(v.field.get(1),.2,'completed changes remain undoable');
+  assert.equal(v.undoStack.length,1);
 });

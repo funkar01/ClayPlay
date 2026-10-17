@@ -18,23 +18,49 @@ export function hexToHsv(hex, fallbackHue=0) {
 
 export class PaintPicker {
   constructor(stage, color, onChange) {
-    this.onChange=onChange;
+    this.onChange=onChange; this.recent=[];
     const root=this.element=document.createElement('section');
     root.className='paint-palette';root.hidden=true;root.setAttribute('aria-label','Paint colors');
-    root.innerHTML=`<header class="paint-palette-heading"><strong>Paint color</strong><span>Make it yours</span></header>
+    root.innerHTML=`<header class="paint-palette-heading"><strong>Paint color</strong><div class="paint-scroll"><button type="button" id="paint-collapse" aria-label="Collapse paint colors" aria-expanded="true">−</button><button type="button" id="paint-scroll-up" data-paint-scroll="-1" aria-label="Scroll paint colors up">↑</button><button type="button" id="paint-scroll-down" data-paint-scroll="1" aria-label="Scroll paint colors down">↓</button></div></header>
       <div class="paint-preview"><span class="paint-preview-chip" aria-hidden="true"></span><div><strong id="paint-color-name"></strong><output class="paint-hex" aria-label="Selected paint color"></output></div></div>
       <fieldset class="paint-basic"><legend>Basic colors</legend><div class="paint-swatches">${CLAY_COLORS.map(([name,hex],i)=>`<button type="button" id="paint-swatch-${i}" data-paint-color="${hex}" aria-label="Paint with ${name}" aria-pressed="false" title="${name}"><span style="--paint-color:${hex}" aria-hidden="true"></span><small>${name}</small></button>`).join('')}</div></fieldset>
-      <fieldset class="paint-custom"><legend>Mix a color</legend>${['Hue','Saturation','Value'].map((name,i)=>`<div class="paint-range"><label for="paint-${name.toLowerCase()}">${name}</label><output id="paint-${name.toLowerCase()}-value" for="paint-${name.toLowerCase()}"></output><input id="paint-${name.toLowerCase()}" type="range" min="0" max="${i===0?360:100}" step="1" data-hand-range aria-label="Paint ${name.toLowerCase()}" aria-describedby="paint-slider-help"></div>`).join('')}<p id="paint-slider-help">Pinch and slide to mix · or use touch, mouse, or arrow keys</p></fieldset>`;
+      <fieldset class="paint-recent" hidden><legend>Recent mixes</legend><div class="paint-swatches"></div></fieldset><details class="paint-mixer"><summary id="paint-mix-toggle">Mix a color</summary><fieldset class="paint-custom"><legend class="visually-hidden">Custom color</legend>${['Hue','Saturation','Value'].map((name,i)=>`<div class="paint-range"><label for="paint-${name.toLowerCase()}">${['Color','Intensity','Brightness'][i]}</label><output id="paint-${name.toLowerCase()}-value" for="paint-${name.toLowerCase()}"></output><input id="paint-${name.toLowerCase()}" type="range" min="0" max="${i===0?360:100}" step="1" data-hand-range aria-label="Paint ${['color','intensity','brightness'][i]}" aria-describedby="paint-slider-help"><div class="paint-adjust"><button type="button" data-adjust="${i}:-1" aria-label="Less ${['color','intensity','brightness'][i]}">−</button><button type="button" data-adjust="${i}:1" aria-label="More ${['color','intensity','brightness'][i]}">＋</button></div></div>`).join('')}<p id="paint-slider-help">Pinch and slide to mix · or use touch, mouse, or arrow keys</p></fieldset></details>`;
     root.addEventListener('pointerdown',event=>event.stopPropagation());
     root.addEventListener('click',event=>{
+      const collapse=event.target.closest('#paint-collapse');
+      if(collapse){const compact=root.classList.toggle('is-compact');root.scrollTop=0;collapse.textContent=compact?'＋':'−';collapse.setAttribute('aria-expanded',String(!compact));collapse.setAttribute('aria-label',compact?'Expand paint colors':'Collapse paint colors');return;}
+      const scroll=event.target.closest('[data-paint-scroll]');
+      if(scroll){root.scrollBy({top:Number(scroll.dataset.paintScroll)*180,behavior:'smooth'});return;}
+      const adjust=event.target.closest('[data-adjust]');
+      if(adjust){this.rememberColor();const [i,delta]=adjust.dataset.adjust.split(':').map(Number);const input=this.inputs[i];input.value=String(Number(input.value)+delta*(i===0?5:2));input.dispatchEvent(new Event('input',{bubbles:true}));return;}
       const swatch=event.target.closest('[data-paint-color]');
-      if(swatch){this.setColor(swatch.dataset.paintColor);this.onChange(this.color);}
+      if(swatch){this.rememberColor();this.setColor(swatch.dataset.paintColor);this.onChange(this.color);}
     });
     this.inputs=[...root.querySelectorAll('input')];
+    this.inputs.forEach(input=>{input.onHandAdjustStart=()=>this.rememberColor();input.addEventListener('pointerdown',()=>this.rememberColor());});
+    this.inputs.forEach(input=>input.addEventListener('keydown',()=>this.rememberColor()));
     this.inputs.forEach((input,i)=>input.addEventListener('input',()=>{
       this.hsv[i]=Number(input.value);this.color=hsvToHex(...this.hsv);this.render();this.onChange(this.color);
     }));
     stage.append(root);this.setColor(color);
+  }
+  rememberColor() {
+    if(!this.color || CLAY_COLORS.some(([,hex])=>hex===this.color) || this.recent.includes(this.color))return;
+    // Store a mix when the user starts a different adjustment, not every frame.
+    this.recent=[this.color,...this.recent].slice(0,4);
+    const section=this.element.querySelector('.paint-recent');section.hidden=false;
+    const swatches=section.querySelector('.paint-swatches');
+    swatches.replaceChildren(...this.recent.map((hex,i)=>{
+      const item=document.createElement('button');item.type='button';item.id=`recent-paint-${i}`;
+      item.dataset.paintColor=hex;item.setAttribute('aria-label',`Use recent color ${hex}`);
+      const chip=document.createElement('span');chip.style.setProperty('--paint-color',hex);chip.setAttribute('aria-hidden','true');
+      item.append(chip);return item;
+    }));
+  }
+  setControlMode(mode) {
+    if(this.controlMode===mode)return;
+    this.controlMode=mode;
+    this.element.querySelector('#paint-slider-help').textContent=mode==='palm' ? 'Close your hand and slide · open to finish. Mouse, touch and arrow keys work too.' : 'Pinch and slide · release to finish. Mouse, touch and arrow keys work too.';
   }
   setColor(color) {
     this.color=color.toLowerCase();this.hsv=hexToHsv(this.color,this.hsv?.[0]);this.render();

@@ -79,7 +79,10 @@ export class SurfacePull {
           if(mesh)applyVertexPaint(this.volume,mesh.geometry);
         }
         refreshPaint(this.volume);
-        this.volume.meshQueue?.refine?.([...this.volume.bricks.keys()]);
+        // The pulled triangles are bucketed by centroid, not clipped to grid cells.
+        // Rebuild their complete spatial coverage and swap it as one revision.
+        if (Math.hypot(...data.warp.delta) > 0.0005) this.volume.meshQueue?.remeshSurface?.();
+        else this.volume.meshQueue?.resumeRefinement?.();
         this.worker.terminate(); this.worker = null;
         document.dispatchEvent(new Event('sculpt-history-change'));
       }
@@ -128,6 +131,7 @@ export class SurfacePull {
     this.worker?.terminate(); this.worker = null;
     this.preview?.clear();
     this.active = false; this.busy = false; this.volume.pulling = false;
+    this.volume.meshQueue?.resumeRefinement?.();
   }
   fail(message) {
     console.error('Mask pull failed:', message);

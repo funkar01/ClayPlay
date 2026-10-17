@@ -418,3 +418,56 @@ body.play-area-fullscreen { overflow: hidden; }
 @media (max-width: 600px) { #mask-shape-picker .eye-picker-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media (max-height: 650px) and (min-width: 601px) { .mask-picker-card { padding: 20px; } .mask-picker-grid svg { width: 48px; height: 48px; } .mask-picker-grid button { padding: 8px; } }
 @media(max-width:850px) { .paint-palette { max-height:calc(100% - 340px); } }
+
+/* A quiet workbench, with illustrated tools and generous hand targets. */
+.hand-toolbar { width:96px; background:#fffaf5; border-color:#e4d7c9; }
+.hand-toolbar > button { min-height:64px; gap:4px; color:#503e32; background:#f1e8dd; }
+.hand-toolbar svg { width:25px; height:25px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.hand-toolbar .tool-label { font-size:12px; line-height:1.2; }
+.hand-toolbar > button:focus-visible, .hand-toolbar > button.hand-hover { outline:3px solid #7050a0; outline-offset:2px; }
+#tool-paint svg { border-bottom:4px solid var(--active-paint,#bd7455); border-radius:3px; }
+#hand-pause[aria-pressed="true"] { background:#f5e3b6; color:#5c4118; box-shadow:inset 0 0 0 2px #9c732d; }
+.hand-panel { left:132px; background:#fffaf5; color:#503e32; }
+.hand-panel button { color:#503e32; font-size:13px; min-height:58px; }
+.hand-panel-help { color:#6f5c4c; font-size:12px; }
+.paint-palette { width:352px; padding:16px; background:#fffaf5; border-color:#e4d7c9; }
+.paint-swatches { grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
+.paint-swatches button { min-height:68px; background:#f3ece3; }
+.paint-swatches button span { width:32px; height:32px; }
+.paint-swatches button small { font-size:11px; letter-spacing:0; }
+.paint-swatches button[aria-pressed="true"] { border-color:#32684a; box-shadow:inset 0 0 0 1px #32684a; }
+.paint-mixer > summary { min-height:52px; padding:15px 12px; border-radius:12px; background:#eee7f4; color:#503d69; cursor:pointer; font-weight:700; }
+.paint-mixer > summary:focus-visible, .paint-mixer > summary.hand-hover { outline:3px solid #7050a0; outline-offset:2px; }
+.paint-mixer[open] > summary { margin-bottom:16px; }
+.paint-adjust { grid-column:1/-1; display:flex; gap:10px; }
+.paint-adjust button { flex:1; min-height:48px; border:1px solid #cfbfad; border-radius:10px; background:#f3ece3; color:#503e32; font-size:22px; cursor:pointer; }
+.paint-range input { height:24px; }
+.paint-hex { font-size:11px; }
+.visually-hidden { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+.paint-recent[hidden] { display:none; }
+@media(max-width:700px) {
+  .hand-toolbar { width:auto; flex-wrap:wrap; overflow:visible; }
+  .hand-toolbar > button { flex:1 0 9%; min-width:48px; min-height:60px; }
+  .hand-panel { left:12px; bottom:100px; }
+}
+@media(max-width:600px) {
+  .hand-toolbar { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:6px; }
+  .hand-toolbar > button { min-width:0; min-height:56px; }
+  .hand-toolbar .tool-label { font-size:11px; }
+  .hand-panel { bottom:150px; max-height:calc(100% - 180px); }
+  .paint-palette { right:10px; bottom:150px; width:min(330px,calc(100% - 20px)); max-height:calc(100% - 280px); padding:12px; }
+  .paint-swatches { grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
+  .paint-swatches button { min-height:64px; }
+}
+
+@media(max-width:600px) { .hand-ui-ready .scene-hint, .hand-feedback { bottom:150px; } .hand-ui-ready .fullscreen-button { bottom:150px; } }
+.paint-palette-heading { position:sticky; top:-16px; z-index:2; padding:8px 0; background:#fffaf5; }
+.paint-scroll { display:flex; gap:8px; }
+.paint-scroll button { min-width:48px; min-height:48px; border:1px solid #cfbfad; border-radius:10px; background:#f3ece3; color:#503e32; font-size:20px; cursor:pointer; }
+@media(max-width:600px) { .paint-palette { max-height:min(38vh,320px); } .paint-palette-heading { top:-12px; } }
+.paint-palette.is-compact > :not(.paint-palette-heading):not(.paint-preview) { display:none; }
+.paint-palette.is-compact .paint-preview { margin-bottom:0; }
+.paint-palette.is-compact [data-paint-scroll] { display:none; }
+
+/* Keep the work area free of auxiliary labels and setup controls. */
+.stage-label, .axis-gizmo, .selected-clay-name, #camera-button { display:none !important; }

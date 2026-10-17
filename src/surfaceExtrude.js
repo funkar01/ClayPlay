@@ -7,8 +7,8 @@ export class SurfaceExtrude {
   begin(anchor,radius,symmetry) {
     const v=this.volume;
     if(v.pulling || v.cutting || v.meshQueue?.pending || radius<=0) return false;
-    v.meshQueue?.pauseRefinement?.();
     this.clear();
+    v.meshQueue?.pauseRefinement?.();
     this.radius=Math.min(.16,Math.max(.04,radius*.4)); this.symmetry=symmetry;
     // Embed the attachment slightly into the existing shell, keeping the root flush.
     this.points=[anchor.clone().add(new THREE.Vector3(0,0,-this.radius*.55))]; this.active=true;
@@ -100,6 +100,7 @@ export class SurfaceExtrude {
     clearTimeout(this.timer);
     if(this.preview) {this.volume.parent.remove(this.preview); for(const child of this.preview.children) child.geometry.dispose();}
     this.preview=null; this.stroke=null; this.committing=false;
+    this.volume.meshQueue?.resumeRefinement?.();
   }
   abort() {this.active=false;this.volume.pulling=false;this.clear();}
 }

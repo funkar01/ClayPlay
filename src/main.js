@@ -654,7 +654,9 @@ function showResizeHands(hands, now) {
 
 function resetClay() {
   if (tryOn.enabled) return;
-  if (clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending) return;
+  const cancelErase = !redo && clayVolume.erasing && clayVolume.surfaceErase?.active;
+  if (!cancelErase && (clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending)) return;
+  if(cancelErase) singleHandNeedsOpen = true;
   cancelMouseStroke();
   checkpoint(clayVolume);
   applyMaskScale(clayVolume, 1);
@@ -957,11 +959,13 @@ function renderScene() {
     sceneHint.textContent=palmInstruction(sceneHint.textContent);
     stageCaption.textContent=palmInstruction(stageCaption.textContent);
   }
+  paintPicker.setControlMode(controlMode);
+  document.querySelector('#tool-paint').style.setProperty('--active-paint',paintColor);
   paintPalette.hidden=activeTool!=='paint' || tryOn.enabled || Boolean(handUI?.isOpen);
   const building=Boolean(clayVolume.meshQueue?.pending || (clayVolume.pulling && clayVolume.surfacePull?.released) || (clayVolume.cutting && clayVolume.surfaceErase?.released));
   const refining=Boolean(clayVolume.meshQueue?.refining);
   surfaceStatus.hidden=!building && !refining;
-  const surfaceText=building ? 'Preparing surface… · choose your next tool' : 'Ready to create · refining detail';
+  const surfaceText=building ? 'Keeping your change · keep aiming for your next edit' : 'Ready to create · surface cleanup in background';
   if(surfaceStatus.textContent!==surfaceText)surfaceStatus.textContent=surfaceText;
   surfaceStatus.dataset.phase=building ? 'building' : 'refining';
   animationFrame = requestAnimationFrame(renderScene);
@@ -1068,7 +1072,8 @@ function updateSizeControl() {
 
 function updateHistoryButtons() {
   const waiting = Boolean(twoHandScale.active || palmMove.active || tryOn.enabled || clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending);
-  undoButton.disabled = waiting || !clayVolume.undoStack?.length;
+  const canCancelErase = clayVolume.erasing && clayVolume.surfaceErase?.active && !tryOn.enabled && !twoHandScale.active && !palmMove.active;
+  undoButton.disabled = !canCancelErase && (waiting || !clayVolume.undoStack?.length);
   redoButton.disabled = waiting || !clayVolume.redoStack?.length;
   resetButton.disabled = waiting;
   positionResetButton.disabled = waiting || Math.hypot(...(clayVolume.userOffset ?? [0, 0])) < .0001;
@@ -1077,7 +1082,9 @@ function updateHistoryButtons() {
 
 function useHistory(redo = false) {
   if (tryOn.enabled) return;
-  if (clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending) return;
+  const cancelErase = !redo && clayVolume.erasing && clayVolume.surfaceErase?.active;
+  if (!cancelErase && (clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending)) return;
+  if(cancelErase) singleHandNeedsOpen = true;
   cancelMouseStroke();
   const positionOnly = (redo ? clayVolume.redoStack : clayVolume.undoStack)?.at(-1)?.positionOnly;
   if (!restoreHistory(clayVolume, redo)) return;
@@ -1315,6 +1322,7 @@ function processCut(handPoint, held, wasHeld, cursorInput = false) {
   contactCue.material.color.set('#c86348');
   if (held && !wasHeld && !cutStroke) {
     if (clayVolume.meshQueue?.pending) { sceneHint.textContent = 'Mask is getting ready · open your fingers, then pinch again'; return; }
+    clayVolume.meshQueue?.pauseRefinement?.();
     cutStroke = { points: [], length: 0, volume: clayVolume, item: clayObjects.active,
       eye: clay.worldToLocal(camera.position.clone()).toArray(), planeZ, symmetry: symmetryEnabled };
   }
@@ -1344,6 +1352,7 @@ function processCut(handPoint, held, wasHeld, cursorInput = false) {
     const stroke = cutStroke; cutStroke = null;
     cutPreview.visible = false; mirroredCutPreview.visible = false;
     if (stroke.points.length < 2 || stroke.length < 0.12) {
+      clayVolume.meshQueue?.resumeRefinement?.();
       sceneHint.textContent = 'Trace a longer cut, then release.'; stageCaption.textContent = 'CUT · TRACE AN OUTLINE';
       contactLabel.textContent = 'Mask kept unchanged'; return;
     }
@@ -1976,6 +1985,7 @@ function cancelMouseStroke() {
   pinchCue.visible = false;
   previousPullPoint = null;
   previousPullCursorPoint = null;
+  clayVolume.meshQueue?.resumeRefinement?.();
 }
 function volumeBusy() {
   if (clayVolume.surfaceExtrude?.active && activeTool === 'extrude') return false;
@@ -2048,10 +2058,11 @@ handUI = new HandUI({
     else if (action === 'remove') document.querySelector('#remove-clay').click();
     else if (action === 'reset') resetClay();
     else if (action === 'camera-off') stopCamera();
+    else if (action === 'camera-on') { handUI.close(); cameraButton.click(); }
     else if (action === 'tutorial') { setControlMode('index'); studioTutorial.start(); }
     else if (action === 'pause') {
       editingPaused = !editingPaused; pauseForHandUI();
-      sceneHint.textContent = editingPaused ? 'Editing paused · choose More, then Resume creating' : 'Ready to create · pinch a patch or choose a tool';
+      sceneHint.textContent = editingPaused ? 'Editing paused · choose More, then Resume creating' : (controlMode==='palm' ? 'Ready to create · close your hand on a patch or choose a tool' : 'Ready to create · pinch a patch or choose a tool');
     } else ({ symmetry: symmetryButton, ar: arButton, try: tryButton, position: positionResetButton })[action]?.click();
   },
 });
