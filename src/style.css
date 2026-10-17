@@ -471,3 +471,55 @@ body.play-area-fullscreen { overflow: hidden; }
 
 /* Keep the work area free of auxiliary labels and setup controls. */
 .stage-label, .axis-gizmo, .selected-clay-name, #camera-button { display:none !important; }
+/* On-mask mission: transparent to pointer and hand selection. */
+.tutorial-overlay { position:absolute; inset:0; z-index:8; pointer-events:none; overflow:hidden; }
+.tutorial-overlay[hidden], .studio-tutorial [hidden] { display:none !important; }
+.mission-target { position:absolute; width:0; height:0; }
+.mission-ring { position:absolute; left:-23px; top:-23px; width:46px; height:46px; border:2px solid #fff7d9; border-radius:50%; box-shadow:0 0 0 6px #e5b85c40,0 0 26px #ffe6a6; animation:mission-pulse 1.6s ease-in-out infinite; }
+.mission-dot { position:absolute; width:9px; height:9px; left:-4.5px; top:-4.5px; border-radius:50%; background:#fff9dd; }
+.mission-path { position:absolute; width:140px; height:140px; left:-70px; top:-110px; overflow:visible; }
+.mission-path path { fill:none; stroke:#fff6ce; stroke-width:3; stroke-dasharray:5 5; stroke-linecap:round; filter:drop-shadow(0 1px 3px #60452e); }
+.mission-hand { position:absolute; width:100px; height:100px; left:-20px; top:-22px; animation:mission-pull 4.8s infinite; filter:drop-shadow(0 3px 6px #60452e50); opacity:.85; }
+.mission-hand img { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+.mission-open { animation:mission-open 4.8s infinite; }
+.mission-pinched { animation:mission-pinch 4.8s infinite; }
+.tutorial-overlay[data-held="true"] .mission-ring { border-color:#86e0a3; box-shadow:0 0 20px #86e0a3; }
+.tutorial-overlay[data-motion="nose"] .mission-path, .tutorial-overlay[data-motion="cheeks"] .mission-path { transform:rotate(90deg); transform-origin:70px 110px; }
+.tutorial-overlay[data-motion="nose"] .mission-hand, .tutorial-overlay[data-motion="cheeks"] .mission-hand { animation-name:mission-sideways; }
+#tutorial-copy { font-size:14px; line-height:1.6; margin:12px 0; }
+#tutorial-state { padding:12px; border-radius:10px; background:#e8efdf; font-size:12px; line-height:1.5; min-height:54px; }
+#tutorial-explore { margin-top:10px; }
+.studio-tutorial { width:300px; }
+@keyframes mission-pulse { 50% { transform:scale(1.15); opacity:.6; } }
+@keyframes mission-pull { 0%,43% { transform:translate(0,0); } 77%,92% { transform:translate(0,-85px); } 100% { transform:translate(0,0); } }
+@keyframes mission-sideways { 0%,43% { transform:translate(0,0); } 77%,92% { transform:translate(85px,0); } 100% { transform:translate(0,0); } }
+@keyframes mission-open { 0%,24%,78%,100% { opacity:1; } 25%,77% { opacity:0; } }
+@keyframes mission-pinch { 0%,24%,78%,100% { opacity:0; } 25%,77% { opacity:1; } }
+@media(max-width:760px) {
+  .studio-tutorial { top:auto; bottom:12px; left:12px; right:12px; width:auto; max-width:none; max-height:38%; padding:12px; }
+  #tutorial-copy { margin:6px 0; font-size:12px; }
+  #tutorial-state { padding:8px; min-height:0; margin:6px 0; }
+  .tutorial-heading > span { font-size:8px; }
+  .mission-hand { width:76px; height:76px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .tutorial-overlay * { animation:none !important; }
+  .mission-open { opacity:0; }
+  .mission-pinched { opacity:.85; }
+}
+
+/* Keep the camera check inside the stage, including in full screen. */
+.stage .stage-camera-preview { position:absolute; z-index:5; right:18px; bottom:76px; width:clamp(140px,20%,240px); padding:5px; margin:0; border-radius:12px; background:#fffaf3e8; box-shadow:0 5px 20px #60452e30; pointer-events:none; }
+.stage-camera-preview .video-frame { aspect-ratio:16/10; border-radius:8px; }
+.stage-camera-preview .card-head, .stage-camera-preview .camera-card-foot { display:none; }
+.stage-camera-preview[hidden], .is-ar .stage-camera-preview, .is-trying .stage-camera-preview { display:none; }
+@media(max-width:700px) { .stage .stage-camera-preview { right:12px; bottom:160px; width:124px; } }
+
+/* UI practice demonstrates hovering with an open hand, without a grab gesture. */
+.tutorial-overlay[data-motion="ui"] { z-index:11; }
+.tutorial-overlay[data-motion="ui"] .mission-path { display:none; }
+.tutorial-overlay[data-motion="ui"] .mission-hand { animation:mission-ui-hover 4s ease-in-out infinite; left:12px; top:-36px; }
+.tutorial-overlay[data-motion="ui"] .mission-open { animation:none; opacity:1; }
+.tutorial-overlay[data-motion="ui"] .mission-pinched { display:none; }
+.studio-tutorial[data-lesson="ui"] #tutorial-next { min-width:160px; min-height:64px; box-shadow:0 0 0 4px #d2e4c8; }
+@keyframes mission-ui-hover { 0%,15% { transform:translate(55px,-40px); opacity:.45; } 40%,85% { transform:translate(0,0); opacity:.9; } 100% { transform:translate(55px,-40px); opacity:.45; } }

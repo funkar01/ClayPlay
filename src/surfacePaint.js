@@ -35,8 +35,8 @@ export class SurfacePaint {
   }
   finish() {
     if(!this.active)return;
-    this.tick();this.active=false;this.last=null;this.applied=null;this.appliedNormal=null;
-    if(this.changes.size){checkpointPaint(this.volume,this.changes);this.onChange();}
+    this.tick();const lastPoint=this.applied?.clone();this.active=false;this.last=null;this.applied=null;this.appliedNormal=null;
+    if(this.changes.size){checkpointPaint(this.volume,this.changes);this.onChange(lastPoint);}
     this.coverage.clear();this.bases.clear();this.changes.clear();
     this.volume.meshQueue?.resumeRefinement?.();
   }

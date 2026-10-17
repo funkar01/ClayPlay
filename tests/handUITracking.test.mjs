@@ -135,3 +135,20 @@ test('Malformed or stale samples hold feedback without activating; hard reset hi
   assert.equal(f.clicks(), 0); assert.equal(ui.cursor.hidden, false);
   ui.reset(); assert.equal(ui.cursor.hidden, true); assert.equal(ui.selection.hover, null);
 });
+
+for (const mode of ['index', 'palm']) {
+  test(`Tutorial practice button activates once by open-hand dwell in ${mode} mode`, () => {
+    const f = fixture(), { ui, target } = f;
+    ui.controlMode = mode;
+    target.id = 'tutorial-next';
+    const tutorial = { getBoundingClientRect: () => ({ left:500, right:700, top:200, bottom:400 }), contains: item => item === target };
+    ui.stage.querySelector = () => tutorial;
+    ui.mapPoint = () => ({ x:600, y:300 });
+    ui.hit = (point, root) => { assert.equal(root, tutorial); return target; };
+    const result = mode === 'palm' ? { landmarks:[palmHand()], handedness:[[{ categoryName:'Left' }]] } : f.result;
+    for (const now of [0,100,200,300,400]) ui.receive(result, now);
+    assert.equal(f.clicks(), 0, 'moving onto the button is not an immediate click');
+    for (const now of [500,600,700,800,900]) ui.receive(result, now);
+    assert.equal(f.clicks(), 1, 'holding an open hand completes the selection once');
+  });
+}

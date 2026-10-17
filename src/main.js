@@ -53,6 +53,10 @@ const stageCaption = document.querySelector('#stage-caption');
 const cameraStatus = document.querySelector('#camera-status');
 const videoPlaceholder = document.querySelector('#video-placeholder');
 const videoLive = document.querySelector('#video-live');
+const cameraPreview = document.querySelector('.camera-card');
+cameraPreview.classList.add('stage-camera-preview');
+cameraPreview.hidden = true;
+document.querySelector('#stage').append(cameraPreview);
 const tipHeading = document.querySelector('#tip-heading');
 const tipCopy = document.querySelector('#tip-copy');
 const landmarkCount = document.querySelector('#landmark-count');
@@ -232,7 +236,7 @@ function dismissStudioMessage() {
 studioMessageOK.addEventListener('pointerdown', event => event.stopPropagation());
 studioMessageOK.addEventListener('click', () => {
   dismissStudioMessage();
-  if (!arView.enabled) arButton.click();
+  if (!stream && !cameraOpening) startCamera();
   studioTutorial.start();
 });
 video.addEventListener('resize', () => {
@@ -802,6 +806,8 @@ function pullClayAlongPath(handPoint, isPulling, surfacePoint = undefined) {
     volume.surfacePull ??= new SurfacePull(volume, () => {
       item.edited = true;
       if (volume === clayVolume) markClayEdited();
+      const warp = volume.surfacePull.lastWarp;
+      queueMicrotask(() => { if (volume === clayVolume) studioTutorial?.recordPull(warp); });
     });
     // Save one reversible action, then deform the same original patch on every
     // update. No resampling or old path backlog runs in the drawing loop.
@@ -865,6 +871,8 @@ function updateSculptSound() {
 }
 
 function renderScene() {
+  studioTutorial?.update({ held: pinchActive || mousePinching, contact: Boolean(previousPullPoint || clayVolume.surfacePaint?.active || contactCue.visible),
+    tracked: performance.now() - lastHandAt < 600, mouse: cursorInputEnabled(), busy: clayVolume.pulling || clayVolume.meshQueue?.pending, tool: activeTool });
   updateSculptSound();
   for(const item of clayObjects.items)item.volume.surfacePaint?.tick();
   arView.update();
@@ -901,13 +909,14 @@ function renderScene() {
   if (!resizeEnabled && !tryOn.enabled && poseTarget && gapStartedAt === null && currentHandPose(handMotion.receivedAt, now)) {
     const visualPoints = handMotion.sample(now);
     poseDisplayed = mapHandPoints(visualPoints, poseScreenSpace);
+    const handSurfacePoints = [...poseDisplayed];
     if(controlMode==='palm' && palmControlState?.point) {
       const cursor=mapHandPoints([palmControlState.point],poseScreenSpace)[0];
       poseDisplayed[8]=cursor;poseDisplayed[4]=cursor.clone();
     }
     // Prediction only affects visual feedback and hovering. Held strokes use
     // the measured filtered pose, so extrapolation cannot cut or erase clay.
-    processHandPose(poseDisplayed, pinchGesture.held, pinchGesture.held ? poseTarget : poseDisplayed);
+    processHandPose(poseDisplayed, pinchGesture.held, pinchGesture.held ? poseTarget : poseDisplayed, handSurfacePoints);
     drawPreviewSkeleton(visualPoints);
     diagnostics.predictionMs = Math.min(Math.max(0, now - handMotion.receivedAt), handMotion.period, handMotion.maxPredictionMs);
   } else if (!resizeEnabled && !tryOn.enabled && poseTarget && !currentHandPose(handMotion.receivedAt, now)) {
@@ -1377,10 +1386,12 @@ function processCut(handPoint, held, wasHeld, cursorInput = false) {
   }
 }
 
-function processHandPose(mappedPoints, pinchOverride = null, editPoints = mappedPoints) {
+function processHandPose(mappedPoints, pinchOverride = null, editPoints = mappedPoints, handSurfacePoints = mappedPoints) {
   if (tryOn.enabled || resizeEnabled) return;
   if (arView.live) handModel.visible = false;
-  else updateHandSurface(mappedPoints);
+  // Palm aiming uses a shared cursor for thumb/index input, but the displayed
+  // fingers retain their tracked positions instead of stretching to that cursor.
+  else updateHandSurface(handSurfacePoints);
   scenePlaceholder.classList.add('is-hidden');
   const pinchDistance = new THREE.Vector3().subVectors(editPoints[4], editPoints[8]).length();
   const palmWidth = Math.max(0.04, new THREE.Vector3().subVectors(editPoints[5], editPoints[17]).length());
@@ -1391,6 +1402,7 @@ function processHandPose(mappedPoints, pinchOverride = null, editPoints = mapped
 // Cursor and hand input share geometry, symmetry, history, and release behavior.
 // Cursor input bypasses gesture recognition and the virtual hand entirely.
 function processSculptPoint(sculptPoint, pinchOverride, pinchRatio = 1, cursor = false) {
+  if (studioTutorial?.learningUI) return;
   if (tryOn.enabled || resizeEnabled || handUI?.isOpen || editingPaused || handUICaptured) return;
   if (moveIntent || palmMove.active) return;
   if (clayVolume.meshFailed) {
@@ -1428,7 +1440,8 @@ function processSculptPoint(sculptPoint, pinchOverride, pinchRatio = 1, cursor =
     if(!pinchActive){clayVolume.surfacePaint?.finish();return;}
     if(!hit){clayVolume.surfacePaint?.breakPath();return;}
     const volume=clayVolume,item=clayObjects.active;
-    volume.surfacePaint ??=new SurfacePaint(volume,()=>{item.edited=true;if(volume===clayVolume)markClayEdited();});
+    volume.surfacePaint ??=new SurfacePaint(volume,point=>{item.edited=true;if(volume===clayVolume)markClayEdited();
+      queueMicrotask(()=>{if(volume===clayVolume)studioTutorial?.recordPaint(point);});});
     if(!volume.surfacePaint.active && !volume.surfacePaint.begin(paintRadius,paintColor,symmetryEnabled))return;
     const normal=hit.worldNormal.clone().transformDirection(clay.matrixWorld.clone().invert());
     volume.surfacePaint.update(hit.point,normal);
@@ -1823,6 +1836,7 @@ async function openCamera() {
     videoHeight = video.videoHeight;
     videoPlaceholder.hidden = true;
     videoLive.classList.add('is-visible');
+    cameraPreview.hidden = false;
     cameraStatus.textContent = 'ON';
     cameraStatus.classList.add('is-on');
     document.querySelector('#check-camera').classList.add('is-done');
@@ -1881,6 +1895,7 @@ function stopCamera(resetLandmarker = true) {
   cameraStatus.textContent = 'OFF';
   cameraStatus.classList.remove('is-on');
   videoLive.classList.remove('is-visible');
+  cameraPreview.hidden = true;
   videoPlaceholder.hidden = false;
   buttonLabel.textContent = 'Set up camera';
   cameraButton.classList.remove('is-secondary');
@@ -2059,7 +2074,7 @@ handUI = new HandUI({
     else if (action === 'reset') resetClay();
     else if (action === 'camera-off') stopCamera();
     else if (action === 'camera-on') { handUI.close(); cameraButton.click(); }
-    else if (action === 'tutorial') { setControlMode('index'); studioTutorial.start(); }
+    else if (action === 'tutorial') { studioTutorial.start(); }
     else if (action === 'pause') {
       editingPaused = !editingPaused; pauseForHandUI();
       sceneHint.textContent = editingPaused ? 'Editing paused · choose More, then Resume creating' : (controlMode==='palm' ? 'Ready to create · close your hand on a patch or choose a tool' : 'Ready to create · pinch a patch or choose a tool');
@@ -2096,16 +2111,38 @@ maskShapePicker = new MaskShapePicker({
 });
 
 studioTutorial = new StudioTutorial({
-  onFinish: () => maskShapePicker.open(),
+  getControlMode: () => controlMode,
+  onFinish: reason => {
+    if (reason === 'skip') { maskShapePicker.open(); return; }
+    setPrompt('Made by you.', 'Your mask is yours to keep shaping. Undo lets you experiment.', 'success');
+  },
+  onTryOn: () => tryButton.click(),
+  locate: target => {
+    const local = new THREE.Vector3(...target);
+    // Half masks have a shorter forehead; keep horn hints on solid clay.
+    if (clayVolume.shape === 'half' && local.y > 1) local.y = .8;
+    const world = clay.localToWorld(local);
+    const projected = world.project(camera);
+    if (projected.z < -1 || projected.z > 1) return null;
+    const host = sceneHost.getBoundingClientRect(), stage = document.querySelector('#stage').getBoundingClientRect();
+    return { x: host.left - stage.left + (projected.x + 1) * host.width / 2,
+      y: host.top - stage.top + (1 - projected.y) * host.height / 2 };
+  },
   stage: document.querySelector('#stage'),
   isBusy: () => Boolean(previousPullPoint || cutStroke || twoHandScale.active || palmMove.active
+    || clayVolume.surfacePaint?.active || clayVolume.surfaceExtrude?.active || clayVolume.surfaceErase?.active
     || clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending),
-  onStep: tool => {
+  onStep: (tool, mission) => {
     if (handUI.isOpen) handUI.close();
     if (tryOn.enabled) endTryOn();
     if (editingPaused) editingPaused = false;
     pauseForHandUI();
     if (tool) document.querySelector(`#tool-${tool}`).click();
+    if (tool === 'pinch') {
+      sizeInput.value = '22'; sizeInput.dispatchEvent(new Event('input'));
+      strengthInput.value = '65'; strengthInput.dispatchEvent(new Event('input'));
+    }
+    if (mission.id === 'cheeks') setPaintColor('#df7e87');
   },
 });
 
