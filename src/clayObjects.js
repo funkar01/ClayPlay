@@ -36,6 +36,7 @@ export class ClayObjects {
     this.items.push(item);
     this.scene.add(group);
     this.active = item;
+    this.updateMarker();
     return item;
   }
 
@@ -63,19 +64,16 @@ export class ClayObjects {
     this.scene.remove(this.active.group);
     this.items.splice(index, 1);
     this.active = this.items[Math.min(index, this.items.length - 1)];
+    this.updateMarker();
   }
 
   layout(camera) {
-    const count = this.items.length;
+    // Saved masks stay available in the menu; only the selection occupies the stage.
     const height = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.position.z;
-    const columns = Math.min(count, 3, Math.max(1, Math.round(Math.sqrt(count * camera.aspect))));
-    const rows = Math.ceil(count / columns);
-    const cell = Math.min(3.3, height * camera.aspect * 0.82 / columns, height * 0.62 / rows);
+    const cell = Math.min(3.3, height * camera.aspect * 0.82, height * 0.62);
     const scale = Math.min(1, cell / 3.3);
-    this.items.forEach((item, index) => {
-      const row = Math.floor(index / columns);
-      const rowCount = Math.min(columns, count - row * columns);
-      const position = [((index % columns) - (rowCount - 1) / 2) * cell, ((rows - 1) / 2 - row) * cell - 0.08, 0];
+    this.items.forEach((item) => {
+      const position = [0, -0.08, 0];
       item.volume.layoutPosition = position;
       const offset = item.volume.userOffset ?? [0, 0];
       item.group.position.set(position[0] + offset[0], position[1] + offset[1], position[2]);
@@ -87,7 +85,8 @@ export class ClayObjects {
   }
 
   updateMarker() {
-    this.marker.visible = this.items.length > 1;
+    for (const item of this.items) item.group.visible = item === this.active;
+    this.marker.visible = false;
     this.marker.position.copy(this.active.group.position);
     this.marker.position.y -= 1.5 * this.active.group.scale.x;
     this.marker.scale.copy(this.active.group.scale);

@@ -205,6 +205,11 @@ export class ClayVolume {
     const cornerPositions = CUBE_CORNERS.map(() => new THREE.Vector3());
     const cornerValues = new Float32Array(8);
     const meshStep=this.meshStep ?? 1;
+    // Neighbouring cells/tetrahedra share grid nodes and crossing edges.
+    // Evaluate their deformation chains and normals once per brick.
+    const nodeStride=BRICK_CELLS+1, nodeCount=nodeStride**3;
+    const nodeValues=new Float64Array(nodeCount);nodeValues.fill(NaN);
+    const cornerIds=new Uint32Array(8), edges=new Map();
 
     const emitTriangle = (a, b, c, expectedNormal) => {
       const cross = b.position.clone().sub(a.position).cross(c.position.clone().sub(a.position));
@@ -223,10 +228,17 @@ export class ClayVolume {
         const valueA = cornerValues[cornerA];
         const valueB = cornerValues[cornerB];
         if ((valueA < 0) === (valueB < 0)) continue;
-        const amount = THREE.MathUtils.clamp(valueA / (valueA - valueB), 0, 1);
-        const position = cornerPositions[cornerA].clone().lerp(cornerPositions[cornerB], amount);
-        if (crossings.some((item) => item.position.distanceToSquared(position) < 1e-10)) continue;
-        crossings.push({ position, normal: this.gradient(position.x, position.y, position.z) });
+        const idA=cornerIds[cornerA],idB=cornerIds[cornerB];
+        const edgeKey=Math.min(idA,idB)*nodeCount+Math.max(idA,idB);
+        let vertex=edges.get(edgeKey);
+        if(!vertex) {
+          const amount = THREE.MathUtils.clamp(valueA / (valueA - valueB), 0, 1);
+          const position = cornerPositions[cornerA].clone().lerp(cornerPositions[cornerB], amount);
+          vertex={position,normal:this.gradient(position.x,position.y,position.z)};
+          edges.set(edgeKey,vertex);
+        }
+        if (crossings.some((item) => item.position.distanceToSquared(vertex.position) < 1e-10)) continue;
+        crossings.push(vertex);
       }
       if (crossings.length < 3) return;
       const center = crossings.reduce((sum, item) => sum.add(item.position), new THREE.Vector3()).multiplyScalar(1 / crossings.length);
@@ -262,7 +274,10 @@ export class ClayVolume {
               GRID_MIN + gy * VOXEL_SIZE,
               GRID_MIN + gz * VOXEL_SIZE,
             );
-            const value = this.nodeValue(gx, gy, gz);
+            const nodeId=(gx-startX)+nodeStride*((gy-startY)+nodeStride*(gz-startZ));
+            cornerIds[cornerIndex]=nodeId;
+            let value=nodeValues[nodeId];
+            if(Number.isNaN(value))nodeValues[nodeId]=value=this.nodeValue(gx,gy,gz);
             cornerValues[cornerIndex] = value;
             if (value < 0) hasInside = true;
             else hasOutside = true;

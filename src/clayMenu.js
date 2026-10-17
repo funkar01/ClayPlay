@@ -49,7 +49,7 @@ export function setupClayMenu(objects, { onSelect, onLayout, onPause }) {
       const item = objects.add(shape, color.value);
       onLayout();
       onSelect(item.id);
-      status.textContent = objects.items.length === objects.limit ? 'Eight masks on your table. Remove one to add another.' : `${item.label} added. Your other masks are kept.`;
+      status.textContent = objects.items.length === objects.limit ? 'Eight saved masks. Remove one to add another.' : `${item.label} selected.`;
     } catch (error) {
       console.error('Could not add mask:', error);
       status.textContent = 'Could not add this mask. Please try again.';
