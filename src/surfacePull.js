@@ -72,6 +72,12 @@ export class SurfacePull {
           this.volume.undoStack?.pop();
         }
         this.volume.pulling = false; this.active = false;
+        // Pull may replace/repartition geometry. Restore color attributes only
+        // after installing the new field, so inherited paint follows the warp.
+        for(const brick of data.bricks) {
+          const mesh=this.volume.bricks.get(brick.key)?.mesh;
+          if(mesh)applyVertexPaint(this.volume,mesh.geometry);
+        }
         refreshPaint(this.volume);
         this.volume.meshQueue?.refine?.([...this.volume.bricks.keys()]);
         this.worker.terminate(); this.worker = null;

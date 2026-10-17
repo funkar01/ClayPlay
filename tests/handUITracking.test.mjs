@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { HandUI, HAND_UI_SAMPLE_AGE_MS, rangeValueAt } from '../src/handUI.js';
 import { HandSelection, ControlHand } from '../src/handSelection.js';
 import { HandMotion } from '../src/handMotion.js';
+import { palmHand } from './helpers/palmHand.mjs';
 
 function fixture() {
   const ui = Object.create(HandUI.prototype), styles = new Map(); let clicks = 0;
@@ -79,6 +80,22 @@ test('Size slider maps left, center and right to reachable stepped values',()=>{
   assert.equal(rangeValueAt(100,rect),0);assert.equal(rangeValueAt(250,rect),45);
   assert.equal(rangeValueAt(400,rect),90);assert.equal(rangeValueAt(999,rect),90);
   assert.equal(rangeValueAt(-100,rect),0);
+});
+
+test('Palm mode adjusts sliders by closing and moving the palm, without a finger pinch',()=>{
+  const {ui,target}=fixture();ui.controlMode='palm';ui.hit=()=>target;
+  Object.assign(target,{id:'tool-size',min:'0',max:'90',step:'1',value:'24'});
+  target.getBoundingClientRect=()=>({left:400,right:700,top:250,bottom:350,width:300});
+  ui.mapPoint=p=>({x:p.x*1000,y:300});
+  let changes=0;ui.onAction=(action,value)=>{assert.equal(action,'size');target.value=String(value);changes++;};
+  const result=points=>({landmarks:[points],handedness:[[{categoryName:'Left'}]]});
+  ui.receive(result(palmHand()),0);ui.receive(result(palmHand()),100);
+  assert.equal(changes,0,'open-palm hovering does not move the slider');
+  ui.receive(result(palmHand(true)),150);ui.receive(result(palmHand(true)),260);
+  assert.ok(ui.sizeDrag);assert.equal(changes,0,'grabbing preserves the slider value');
+  ui.receive(result(palmHand(true,.06)),300);assert.ok(changes>0);assert.ok(Number(target.value)>24);
+  const count=changes;ui.receive(result(palmHand(false,.06)),330);
+  assert.equal(ui.sizeDrag,null);assert.equal(changes,count,'opening releases without extending the drag');
 });
 
 test('A missed detection keeps the painted pointer and dwell ring visible, then resumes one click', () => {

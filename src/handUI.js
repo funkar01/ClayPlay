@@ -1,3 +1,4 @@
+import { PalmControl } from './palmControl.js';
 import { HandSelection, ControlHand } from './handSelection.js';
 import { palmCenter } from './twoHandScale.js';
 import { closedPalm } from './palmMove.js';
@@ -98,7 +99,7 @@ export class HandUI {
     this.signature = null; this.sync();
   }
   sync() {
-    const s = this.getState(); this.done.hidden = !s.trying;
+    const s = this.getState(); this.controlMode=s.controlMode ?? 'index'; this.done.hidden = !s.trying;
     this.tryIt.disabled = s.busy;
     this.tryIt.setAttribute('aria-pressed', String(s.trying));
     // Keep the slider and dwell targets mounted while the finish changes.
@@ -111,7 +112,7 @@ export class HandUI {
     this.finishControl = null;
     const header = document.createElement('header');
     header.append(button(this.page === 'more' ? 'Close' : 'Back', this.page === 'more' ? 'close' : 'page', 'more'));
-    const title = document.createElement('strong'); title.textContent = ({more:'Studio options',masks:'Your masks',eyes:'Mask eyes',colors:'Color & finish',custom:'Mix your color',confirm:'Are you sure?'})[this.page];
+    const title = document.createElement('strong'); title.textContent = ({controls:'Hand controls',more:'Studio options',masks:'Your masks',eyes:'Mask eyes',colors:'Color & finish',custom:'Mix your color',confirm:'Are you sure?'})[this.page];
     header.append(title);
     if (this.page !== 'more') header.append(button('Close', 'close'));
     const grid = document.createElement('div'); grid.className = 'hand-panel-grid';
@@ -119,6 +120,7 @@ export class HandUI {
     this.panel.replaceChildren(header, this.body);
     if (this.page === 'more') {
       grid.classList.add('hand-options');
+      grid.append(button('Hand controls', 'page', 'controls'));
       grid.append(button('Masks', 'page', 'masks'), button('Mask eyes', 'page', 'eyes'), button('Color & finish', 'page', 'colors'));
       const symmetry = button(`Symmetry ${s.symmetry ? 'On' : 'Off'}`, 'symmetry'); symmetry.setAttribute('aria-pressed', String(s.symmetry)); symmetry.disabled = s.trying;
       symmetry.classList.add('hand-symmetry');
@@ -132,6 +134,14 @@ export class HandUI {
       const tutorial = button('Replay tutorial', 'tutorial'); tutorial.disabled = s.busy;
       const sound = button(`Sounds ${s.sound ? 'On' : 'Off'}`, 'sound'); sound.setAttribute('aria-pressed', String(s.sound));
       grid.append(sound, symmetry, ar, position, reset, pause, camera, tutorial);
+    } else if (this.page === 'controls') {
+      const note=document.createElement('p');note.className='hand-panel-caption';
+      note.textContent='Try both and choose what feels natural. Your choice is remembered.';grid.append(note);
+      for(const [mode,label]of [['index','Index & pinch'],['palm','Palm & grip']]) {
+        const choice=button(label,'control-mode',mode);choice.setAttribute('aria-pressed',String(s.controlMode===mode));grid.append(choice);
+      }
+      const help=document.createElement('p');help.className='hand-panel-caption';
+      help.textContent='Palm: move your palm to aim, close gently to apply, open to release. Hover with an open hand to choose buttons; close and slide to adjust sliders. Keep your wrist visible. One closed hand applies a tool; two fists resize. Use Index control for the whole-mask move gesture.';grid.append(help);
     } else if (this.page === 'masks') {
       const start = Math.max(0, Math.min(this.maskPage, Math.ceil(s.masks.length / 4) - 1)); this.maskPage = start;
       for (const item of s.masks.slice(start * 4, start * 4 + 4)) {
@@ -210,7 +220,7 @@ export class HandUI {
   }
   announce(message) { this.feedback.hidden = false; if (this.feedback.textContent !== message) this.feedback.textContent = message; }
   lose() {
-    this.sizeDrag=null;this.sizePinch?.reset();
+    this.sizeDrag=null;this.sizePinch?.reset();this.palmInput?.reset();this.palmPointer=null;
     this.lastAt = null; this.gapAt = null;
     this.motion.reset();
     this.selection.cancel(); this.cursor.hidden = true; this.cursor.style.setProperty('--dwell-progress', '0deg'); this.highlight?.classList.remove('hand-hover', 'hand-selected'); this.highlight = null;
@@ -219,7 +229,7 @@ export class HandUI {
   }
   reset() { this.lose(); this.selection.reset(); this.identity.reset(); }
   suspend(now) {
-    this.sizeDrag=null;this.sizePinch?.reset();
+    this.sizeDrag=null;this.sizePinch?.reset();this.palmInput?.lose();
     if (this.lastAt === null || now - this.lastAt > cursorGraceMs) { this.lose(); return; }
     this.gapAt ??= now;
     this.selection.pause(now);
@@ -235,7 +245,7 @@ export class HandUI {
   drawCursor(now) {
     const points = this.motion.sample(now);
     if (!points) return;
-    const point = this.mapPoint(points[8]), stageRect = this.stage.getBoundingClientRect();
+    const point = this.mapPoint(this.controlMode==='palm' && this.palmPointer ? this.palmPointer : points[8]), stageRect = this.stage.getBoundingClientRect();
     this.cursor.style.transform = `translate(${point.x - stageRect.left}px, ${point.y - stageRect.top}px)`;
   }
   hit(point, overlay = null) {
@@ -265,25 +275,33 @@ export class HandUI {
       this.suspend(now);
       return { owns: this.isOpen || Boolean(this.selection.hover), index: null, missing: !this.cursor.hidden || candidates.length > 0 };
     }
-    if (hand.changed) { this.selection.reset(); this.motion.reset();this.sizeDrag=null;this.sizePinch?.reset(); }
+    if (hand.changed) { this.selection.reset(); this.motion.reset();this.sizeDrag=null;this.sizePinch?.reset();this.palmInput?.reset(); }
     const measured = this.motion.update(hand.points, sampleAt, now);
     if (!measured) { this.suspend(now); return { owns: this.isOpen, index: null, missing: true }; }
     // Dwell and activation only run on fresh measurements, never predictions.
-    const point = this.mapPoint(measured[8]);
+    const palmMode=this.controlMode==='palm';
+    this.palmInput ??=new PalmControl();
+    const palm=palmMode ? this.palmInput.update(hand.points,sampleAt,aspect) : null;
+    if(palmMode && (!palm.valid || !palm.point)) {
+      this.selection.pause(now);this.sizeDrag=null;
+      return {owns:this.isOpen,index:hand.index,needsOpen:!palm.held,missing:palm.phase==='lost',changed:hand.changed};
+    }
+    if(palmMode)this.palmPointer=palm.point;
+    const point = this.mapPoint(palmMode ? palm.point : measured[8]);
     const tutorial = this.stage.querySelector('#mask-shape-picker:not([hidden]), #studio-tutorial:not([hidden])');
     const tutorialBounds = tutorial?.getBoundingClientRect();
     const overTutorial = tutorialBounds && point.x >= tutorialBounds.left && point.x <= tutorialBounds.right
       && point.y >= tutorialBounds.top && point.y <= tutorialBounds.bottom;
     let target = this.hit(point, overTutorial ? tutorial : null);
-    const fist = closedPalm(hand.points, aspect);
+    const fist = palmMode ? !palm.open : closedPalm(hand.points, aspect);
     const distance = (a, b) => Math.hypot((hand.points[a].x - hand.points[b].x) * aspect, hand.points[a].y - hand.points[b].y);
-    const open = !fist && distance(4, 8) / Math.max(.025, distance(5, 17), distance(0, 9) * .7) >= .55;
+    const open = palmMode ? palm.open : !fist && distance(4, 8) / Math.max(.025, distance(5, 17), distance(0, 9) * .7) >= .55;
     this.sizePinch ??=new PinchGesture();
-    const held=this.sizePinch.update(hand.points,sampleAt,aspect);
+    const held=palmMode ? palm.held : this.sizePinch.update(hand.points,sampleAt,aspect);
     const wasDragging=Boolean(this.sizeDrag);
-    if(blocked || fist || !held || (this.sizeDrag && (this.sizeDrag.target.disabled || !this.visible(this.sizeDrag.target)))) this.sizeDrag=null;
-    const pinchPoint=this.mapPoint({x:(measured[4].x+measured[8].x)/2,y:(measured[4].y+measured[8].y)/2,z:(measured[4].z+measured[8].z)/2});
-    if(!this.sizeDrag && !wasDragging && (target?.id==='tool-size' || target?.hasAttribute?.('data-hand-range')) && held && !fist && !blocked) {
+    if(blocked || (!palmMode && fist) || !held || (this.sizeDrag && (this.sizeDrag.target.disabled || !this.visible(this.sizeDrag.target)))) this.sizeDrag=null;
+    const pinchPoint=palmMode ? point : this.mapPoint({x:(measured[4].x+measured[8].x)/2,y:(measured[4].y+measured[8].y)/2,z:(measured[4].z+measured[8].z)/2});
+    if(!this.sizeDrag && !wasDragging && (target?.id==='tool-size' || target?.hasAttribute?.('data-hand-range')) && held && (palmMode || !fist) && !blocked) {
       this.sizeDrag={target,startX:pinchPoint.x,startValue:Number(target.value)};
     }
     if(this.sizeDrag) target=this.sizeDrag.target;
@@ -322,12 +340,13 @@ export class HandUI {
     else if (response.target && !blocked) {
       const label = response.target.getAttribute('aria-label') || response.target.textContent.trim();
       this.announce(response.phase === 'point' ? 'Point with your index to choose' : `Hold for 0.5 seconds to select ${label}`);
-    } else if (this.isOpen) this.announce('Hold your index on an option for 0.5 seconds');
+    } else if (this.isOpen) this.announce((palmMode ? 'Hold your open palm on an option for 0.5 seconds' : 'Hold your index on an option for 0.5 seconds'));
     else this.feedback.hidden = true;
     if (response.activated?.id !== 'tool-size' && !response.activated?.hasAttribute?.('data-hand-range') && response.activated?.isConnected && !response.activated.disabled && this.visible(response.activated)) {
       response.activated.click();
       this.announce('Selected · move away to choose again');
     }
+    if(palmMode && !adjustingSize && response.target)this.announce('Hold your open palm here to choose');
     return { owns: response.owns, index: hand.index, needsOpen: !open, changed: hand.changed };
   }
 }

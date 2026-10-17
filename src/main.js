@@ -1,3 +1,4 @@
+import { PalmControl } from './palmControl.js';
 import { PaintPicker } from './paintPicker.js';
 import { SculptSounds } from './sculptSounds.js';
 import * as THREE from 'three';
@@ -92,6 +93,29 @@ const connectionLines = [
 ];
 
 const pinchGesture = new PinchGesture();
+const palmControl = new PalmControl();
+let palmControlState=null;
+let controlMode='index';
+try { if(localStorage.getItem('clayplay-control-mode')==='palm')controlMode='palm'; } catch {}
+const controlCard=document.createElement('section');
+controlCard.className='control-mode-card';controlCard.setAttribute('aria-label','Hand control');
+controlCard.innerHTML=`<strong>Hand control</strong><div role="group" aria-label="Choose hand control"><button type="button" id="control-index" data-hand-action="control-mode" data-value="index">Index & pinch</button><button type="button" id="control-palm" data-hand-action="control-mode" data-value="palm">Palm & grip</button></div><p id="control-mode-help"></p>`;
+controlCard.addEventListener('pointerdown',event=>event.stopPropagation());
+document.querySelector('#stage').append(controlCard);
+function refreshControlCard() {
+  for(const button of controlCard.querySelectorAll('button'))button.setAttribute('aria-pressed',String(button.dataset.value===controlMode));
+  controlCard.querySelector('p').textContent=controlMode==='palm' ? 'Move your palm · close to apply · open to release' : 'Point with your index · pinch to apply';
+}
+refreshControlCard();
+function setControlMode(mode) {
+  if(!['index','palm'].includes(mode) || mode===controlMode)return;
+  cancelMouseStroke();setResizeMode(false);finishMoveStroke();
+  controlMode=mode;palmControl.reset();palmControlState=null;handMotion.reset();
+  poseTarget=null;poseDisplayed=null;smoothedPoints=null;handUI?.reset();
+  try {localStorage.setItem('clayplay-control-mode',mode);}catch{}
+  refreshControlCard();showToolInstructions();
+}
+
 const handMotion = new HandMotion({ staleMs: HAND_SOURCE_MAX_AGE_MS });
 const twoHandScale = new TwoHandScale();
 const palmMove = new PalmMove();
@@ -843,6 +867,7 @@ function renderScene() {
   for(const item of clayObjects.items)item.volume.surfacePaint?.tick();
   arView.update();
   const now = performance.now();
+  controlCard.hidden=tryOn.enabled || Boolean(studioTutorial?.active) || Boolean(handUI?.isOpen);
   diagnostics.poseAgeMs = poseTarget ? now - poseSampleAt : 0;
   diagnostics.pointerAgeMs = handUI?.motion.time != null ? Math.max(0, now - handUI.motion.time) : 0;
   const dt = Math.min(0.05, (now - previousRenderAt) / 1000);
@@ -874,6 +899,10 @@ function renderScene() {
   if (!resizeEnabled && !tryOn.enabled && poseTarget && gapStartedAt === null && currentHandPose(handMotion.receivedAt, now)) {
     const visualPoints = handMotion.sample(now);
     poseDisplayed = mapHandPoints(visualPoints, poseScreenSpace);
+    if(controlMode==='palm' && palmControlState?.point) {
+      const cursor=mapHandPoints([palmControlState.point],poseScreenSpace)[0];
+      poseDisplayed[8]=cursor;poseDisplayed[4]=cursor.clone();
+    }
     // Prediction only affects visual feedback and hovering. Held strokes use
     // the measured filtered pose, so extrapolation cannot cut or erase clay.
     processHandPose(poseDisplayed, pinchGesture.held, pinchGesture.held ? poseTarget : poseDisplayed);
@@ -924,6 +953,10 @@ function renderScene() {
   } else renderer.render(scene, camera);
   updateHistoryButtons();
   handUI?.tick(now);
+  if(controlMode==='palm' && stream && !tryOn.enabled && !resizeEnabled) {
+    sceneHint.textContent=palmInstruction(sceneHint.textContent);
+    stageCaption.textContent=palmInstruction(stageCaption.textContent);
+  }
   paintPalette.hidden=activeTool!=='paint' || tryOn.enabled || Boolean(handUI?.isOpen);
   const building=Boolean(clayVolume.meshQueue?.pending || (clayVolume.pulling && clayVolume.surfacePull?.released) || (clayVolume.cutting && clayVolume.surfaceErase?.released));
   const refining=Boolean(clayVolume.meshQueue?.refining);
@@ -942,6 +975,7 @@ function setStatus(state, label) {
 }
 
 function setPrompt(title, body, tone = 'neutral') {
+  if(controlMode==='palm' && stream){title=palmInstruction(title);body=palmInstruction(body);}
   if (promptTitle.textContent !== title) promptTitle.textContent = title;
   if (promptBody.textContent !== body) promptBody.textContent = body;
   if (promptCard.dataset.tone !== tone) promptCard.dataset.tone = tone;
@@ -987,7 +1021,17 @@ const paintDetails={context:'Brush softness',caption:'PAINT · PINCH AND TRACE',
   hint:'Pinch on the mask · follow your curve · release to finish',mouseHint:'Click and brush over the mask to paint',
   title:'Give your mask some color.',body:'Choose a color, pinch on the surface, and trace your design. Release to finish the stroke. Undo brings back the previous colors.',
   tipHeading:'Paint your character',tipCopy:'Use Size for the brush width. Choose another color for your next stroke. Symmetry paints both sides.'};
-function toolDetails() { return activeTool === 'paint' ? paintDetails : activeTool === 'extrude' ? extrudeDetails : activeTool === 'erase' ? eraseDetails : activeTool === 'cut' ? cutDetails : pinchDetails; }
+function baseToolDetails() { return activeTool === 'paint' ? paintDetails : activeTool === 'extrude' ? extrudeDetails : activeTool === 'erase' ? eraseDetails : activeTool === 'cut' ? cutDetails : pinchDetails; }
+
+function toolDetails() {
+  const details=baseToolDetails();
+  if(controlMode!=='palm')return details;
+  return Object.fromEntries(Object.entries(details).map(([key,value])=>[key,key.startsWith('mouse') ? value : palmInstruction(value)]));
+}
+
+function palmInstruction(text) {
+  return text.replace(/keep your fingers pinched/gi,'keep your hand closed').replace(/pinching/gi,'holding your hand closed').replace(/pinched/gi,'closed').replace(/pinch/gi,'close your hand').replace(/your index(?: finger)?/gi,'your palm').replace(/open your fingers/gi,'open your hand');
+}
 
 function cursorInputEnabled() { return !stream && !cameraOpening && !tryOn.enabled; }
 
@@ -1176,7 +1220,19 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null, worldLandmark
     gapStartedAt = null; poseDisplayed = null;
   }
   const aspect = video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 1;
-  if (!showPalmMove(landmarks, now, aspect, screenSpace)) pinchGesture.update(landmarks, now, aspect);
+  if(controlMode==='palm') {
+    palmControlState=palmControl.update(landmarks,sampleAt,aspect);
+    if(!palmControlState.valid) {
+      poseTarget=null;clayVolume.surfacePaint?.breakPath();
+      if(palmControlState.phase==='lost')cancelMouseStroke();
+      sceneHint.textContent='Tracking paused · show your palm, then open your hand';return;
+    }
+    const cursor=mapHandPoints([palmControlState.point],screenSpace)[0];
+    mappedPoints[8]=cursor;mappedPoints[4]=cursor.clone();
+    pinchGesture.held=palmControlState.held;
+    moveIntent=false;
+    if(palmControlState.open){singleHandNeedsOpen=false;palmGesture.reset();}
+  } else if (!showPalmMove(landmarks, now, aspect, screenSpace)) pinchGesture.update(landmarks, now, aspect);
   if(!pinchGesture.held)pinchActive=false;
   if(activeTool==='paint' && !pinchGesture.held)clayVolume.surfacePaint?.finish();
   // End the grab before this open-hand pose can enter render interpolation.
@@ -1198,6 +1254,11 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null, worldLandmark
   if ((activeTool === 'pinch' || activeTool === 'extrude' || activeTool === 'paint') && pinchGesture.held && usableHandSample(sampleAt, now)) {
     const point=activeTool === 'pinch' ? mappedPoints[8] : mappedPoints[8].clone().lerp(mappedPoints[4],.5);
     processSculptPoint(point, true);
+  }
+  if(controlMode==='palm' && palmControlState) {
+    stageCaption.textContent=palmControlState.held ? 'PALM GRIP · OPEN TO RELEASE' : 'PALM CONTROL · CLOSE HAND TO APPLY';
+    if(palmControlState.phase==='open-first')sceneHint.textContent='Open your hand briefly to get ready';
+    else if(!palmControlState.held)sceneHint.textContent='Move your palm to aim · close gently to apply';
   }
   reachCalibration.panel.open = false;
   depthGuide.hidden = true;
@@ -1486,6 +1547,10 @@ function showTracking(landmarks, now, worldLandmarks, handedness, sampleAt = now
 }
 
 function pauseTracking(now) {
+  if(controlMode==='palm' && gapStartedAt===null) {
+    cancelMouseStroke();handUI?.palmInput?.lose();
+    sceneHint.textContent='Tracking paused · open your hand when it returns';
+  }
   clayVolume.surfaceErase?.finish(); mirroredBrush.visible = false;
   if (palmMove.active || moveIntent) {
     finishMoveStroke(); sceneHint.textContent = 'Position kept · bring your hand back to keep creating';
@@ -1887,6 +1952,7 @@ sceneHost.addEventListener('pointerup', (event) => {
 });
 
 function cancelMouseStroke() {
+  palmControl.reset();palmControlState=null;
   sculptSounds.stop();
   clayVolume.surfacePaint?.finish();
   clayVolume.surfaceExtrude?.finish();
@@ -1957,12 +2023,13 @@ handUI = new HandUI({
     smoothness: Math.round((1 - clayObjects.active.material.roughness) * 100),
     masks: clayObjects.items.map(item => ({ id: item.id, label: item.label, shape: item.shape, color: `#${item.material.color.getHexString()}` })),
     edited: clayObjects.active.edited, symmetry: symmetryEnabled, ar: arView.enabled, trying: tryOn.enabled,
-    sound: sculptSounds.enabled, paused: editingPaused, cameraOn: Boolean(stream), positionResetDisabled: positionResetButton.disabled,
+    controlMode, sound: sculptSounds.enabled, paused: editingPaused, cameraOn: Boolean(stream), positionResetDisabled: positionResetButton.disabled,
     busy: Boolean(clayMenu?.isBusy || clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending),
   }),
   onPause: pauseForHandUI,
   onAction: (action, value) => {
-    if (action === 'sound') { sculptSounds.toggle(); handUI.sync(); }
+    if (action === 'control-mode') setControlMode(value);
+    else if (action === 'sound') { sculptSounds.toggle(); handUI.sync(); }
     else if (action === 'color') {if(activeTool==='paint')setPaintColor(value);else clayMenu.setColor(value);}
     else if(action === 'size' && !sizeInput.disabled) {
       sizeInput.value=String(value);sizeInput.dispatchEvent(new Event('input',{bubbles:true}));
@@ -1981,7 +2048,7 @@ handUI = new HandUI({
     else if (action === 'remove') document.querySelector('#remove-clay').click();
     else if (action === 'reset') resetClay();
     else if (action === 'camera-off') stopCamera();
-    else if (action === 'tutorial') studioTutorial.start();
+    else if (action === 'tutorial') { setControlMode('index'); studioTutorial.start(); }
     else if (action === 'pause') {
       editingPaused = !editingPaused; pauseForHandUI();
       sceneHint.textContent = editingPaused ? 'Editing paused · choose More, then Resume creating' : 'Ready to create · pinch a patch or choose a tool';
@@ -2069,7 +2136,7 @@ document.addEventListener('sculpt-save-pending',()=>{
 if (new URLSearchParams(location.search).has('diagnostics')) {
   window.clayPlayDebug = { objects: clayObjects, camera, tryOn,
     feedHands: (hands, now, { sampleAt = now, handedness } = {}) => processHandResult({ landmarks: hands, handedness }, now, sampleAt),
-    feedHand: updateThreeSkeleton, pauseHand: pauseTracking, cancel: cancelMouseStroke,
+    setControlMode, feedHand: updateThreeSkeleton, pauseHand: pauseTracking, cancel: cancelMouseStroke,
     getState: () => ({ arEnabled: arView.enabled, arLive: arView.live, cameraOn: Boolean(stream),
       trying: tryOn.enabled, wearing: tryOn.mask.visible, faceReady: Boolean(faceTracker), cursorEnabled: cursorInputEnabled(),
       handMenuOpen: handUI.isOpen, handMenuPage: handUI.page, handUICaptured, editingPaused,
@@ -2080,6 +2147,6 @@ if (new URLSearchParams(location.search).has('diagnostics')) {
       cutPreview: cutPreview.visible, pulling: Boolean(clayVolume.pulling), pending: Boolean(clayVolume.meshQueue?.pending),
       erasing: Boolean(clayVolume.erasing), eraseHeld: Boolean(clayVolume.surfaceErase?.active && !clayVolume.surfaceErase?.released), eraseCircle: activeTool === 'erase' && brushCue.visible,
       symmetry: symmetryEnabled, brushSize: activeSize, brushRadius: brushRadius(), hoverRadius: brushCue.visible ? brushCue.scale.x / clay.scale.x : 0,
-      held: pinchGesture.held, grabbed: Boolean(previousPullPoint), undo: clayVolume.undoStack?.length ?? 0,
+      controlMode, palmPhase:palmControlState?.phase, held: pinchGesture.held, grabbed: Boolean(previousPullPoint), undo: clayVolume.undoStack?.length ?? 0,
       redo: clayVolume.redoStack?.length ?? 0, anchor: previousPullPoint?.toArray(), ...diagnostics }) };
 }

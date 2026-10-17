@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { SurfacePull } from '../src/surfacePull.js';
+import { enablePaintMaterial } from '../src/paintLayer.js';
 
 function fixture(t) {
   const previousWorker = globalThis.Worker, previousDocument = globalThis.document;
@@ -45,6 +46,27 @@ test('Slow pull keeps its frozen preview and saves when the final reply arrives'
   assert.deepEqual(f.volume.pullWarp,warp);
   assert.equal(f.pull.preview.uniforms.pullEnabled.value,0);
 });
+
+for(const repartition of [false,true]) {
+  test(`Pull ${repartition?'repartition':'replacement'} preserves transparent paint data on unpainted clay`,t=>{
+    const f=fixture(t);enablePaintMaterial(f.volume.material);
+    const base=f.volume.material.color.getHex();
+    f.pull.update(new THREE.Vector3(.3,0,0));f.pull.finish();
+    const response=f.response(f.pull.lastWarp,true);response.repartition=repartition;
+    // A changed vertex count forces replacement even without repartitioning.
+    response.bricks[0].positions=new Float32Array([...response.bricks[0].positions,...response.bricks[0].positions]);
+    response.bricks[0].normals=new Float32Array([...response.bricks[0].normals,...response.bricks[0].normals]);
+    f.worker.reply(response);
+    const geometry=f.volume.bricks.get('0,0,0').mesh.geometry;
+    const colors=geometry.getAttribute('paintColor');
+    assert.ok(colors,'replacement geometry must provide the shader attribute');
+    assert.equal(colors.count,geometry.attributes.position.count);
+    assert.ok(colors.array.every(value=>value===0),'unpainted clay has transparent paint, not opaque black');
+    assert.equal(f.volume.material.color.getHex(),base);
+    assert.deepEqual(f.volume.material.defaultAttributeValues.paintColor,[0,0,0,0]);
+    geometry.dispose();
+  });
+}
 
 test('Live pull updates the GPU without queuing worker previews; release commits the last measured target', t => {
   const f = fixture(t);

@@ -30,6 +30,9 @@ export function samplePaint(volume,x,y,z) {
 }
 
 export function enablePaintMaterial(material) {
+  // Missing custom attributes otherwise use WebGL's opaque (0,0,0,1).
+  // An uninitialized mesh must show its clay color, never black paint.
+  material.defaultAttributeValues={...material.defaultAttributeValues,paintColor:[0,0,0,0]};
   const state={dirty:true,uniforms:{paintEnabled:{value:0},paintMap:{value:null},paintOrigin:{value:new THREE.Vector3()},paintExtent:{value:new THREE.Vector3(1,1,1)}}};
   material.userData.surfacePaint=state;
   const previous=material.onBeforeCompile,cache=material.customProgramCacheKey(),render=material.onBeforeRender;
