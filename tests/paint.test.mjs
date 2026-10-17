@@ -7,6 +7,8 @@ import { samplePaint,applyVertexPaint,enablePaintMaterial,paintSegment } from '.
 import { restoreHistory } from '../src/sculptHistory.js';
 import { makeWarp,forwardWarp } from '../src/maskWarp.js';
 import { PullPreview } from '../src/pullPreview.js';
+import { syncPaintTexture } from '../src/paintTexture.js';
+import { hasPaint } from '../src/paintLayer.js';
 
 function fixture(t) {
   const oldDocument=globalThis.document;globalThis.document=new EventTarget();
@@ -53,7 +55,7 @@ test('Paint sweeps a continuous soft stroke without changing geometry or paintin
   assert.ok(center[2]>.8 && center[3]>.95);
   assert.equal(samplePaint(volume,0,0,.4)[3],0);
   assert.equal(geometry.attributes.position.array,positions);
-  assert.equal(volume.field.size,0);assert.ok(volume.paint.size<2000);
+  assert.equal(volume.field.size,0);assert.ok(volume.paint.size<16000);
   paint.finish();paint.finish();assert.equal(changes(),1);assert.equal(volume.undoStack.length,1);
   assert.equal(volume.undoStack[0].paintOnly,true);
   assert.equal(volume.undoStack[0].bricks,undefined,'paint history stores color changes, not geometry');
@@ -107,6 +109,40 @@ test('Paint shader composes with Pull and preserves actual pigments independentl
   material.onBeforeCompile(shader);
   assert.ok(shader.vertexShader.includes('vPaintColor = paintColor'));
   assert.ok(shader.vertexShader.includes('pullVertex(pullPosition, objectNormal)'));
-  assert.ok(shader.fragmentShader.includes('+ vPaintColor.rgb'));
+  assert.ok(shader.fragmentShader.includes('+ pigment.rgb'));
+  assert.ok(shader.fragmentShader.includes('texture(paintMap,uvw)'),'color is sampled per pixel rather than interpolated across mesh triangles');
+  assert.ok(shader.fragmentShader.includes('fwidth(pigment.a)'),'bold edges are antialiased at screen resolution');
   material.dispose();
+});
+
+test('Pixel paint texture reuses its allocation, updates colors and clears on Undo',t=>{
+  const {volume,paint}=fixture(t);
+  enablePaintMaterial(volume.material);
+  const normal=new THREE.Vector3(0,0,1),state=volume.material.userData.surfacePaint;
+  paint.begin(.04,'#2299ff');paint.update(new THREE.Vector3(-.2,0,.7),normal);paint.update(new THREE.Vector3(.2,0,.7),normal);paint.finish();
+  syncPaintTexture(state,volume,samplePaint,hasPaint);
+  assert.equal(state.uniforms.paintEnabled.value,1);
+  const texture=state.texture;
+  assert.ok(texture.image.data.byteLength<=8_000_000);
+  assert.ok(texture.image.data.some(v=>v>0));
+  const version=texture.version;
+  syncPaintTexture(state,volume,samplePaint,hasPaint);assert.equal(texture.version,version,'idle frames perform no texture upload');
+  paint.begin(.04,'#ff2233');paint.update(new THREE.Vector3(0,0,.7),normal);paint.finish();
+  syncPaintTexture(state,volume,samplePaint,hasPaint);assert.equal(state.texture,texture,'nearby strokes reuse the texture');
+  restoreHistory(volume);restoreHistory(volume);
+  syncPaintTexture(state,volume,samplePaint,hasPaint);assert.equal(state.uniforms.paintEnabled.value,0);
+  restoreHistory(volume,true);syncPaintTexture(state,volume,samplePaint,hasPaint);
+  assert.equal(state.uniforms.paintEnabled.value,1);
+});
+
+test('Pixel paint texture includes inherited pigment after a Pull',t=>{
+  const {volume,paint}=fixture(t);
+  paint.begin(.05,'#2299ff');paint.update(new THREE.Vector3(0,0,.7),new THREE.Vector3(0,0,1));paint.finish();
+  const source=volume.snapshot();
+  volume.pullSource=source;volume.pullWarp=makeWarp([0,0,.7],[.08,0,0],.3);volume.paint=new Map();
+  enablePaintMaterial(volume.material);
+  const state=volume.material.userData.surfacePaint;
+  syncPaintTexture(state,volume,samplePaint,hasPaint);
+  assert.equal(state.uniforms.paintEnabled.value,1);
+  assert.ok(state.texture.image.data.some(v=>v>0));
 });

@@ -1,3 +1,5 @@
+import { PaintPicker } from './paintPicker.js';
+import { SculptSounds } from './sculptSounds.js';
 import * as THREE from 'three';
 import { ClayObjects } from './clayObjects.js';
 import { setupClayMenu } from './clayMenu.js';
@@ -26,6 +28,11 @@ import { StudioTutorial } from './studioTutorial.js';
 import { MaskShapePicker } from './maskShapePicker.js';
 import { MASK_SHAPES } from './clayShapes.js';
 
+const sculptSounds = new SculptSounds();
+document.addEventListener('pointerdown', () => sculptSounds.unlock());
+document.addEventListener('keydown', () => sculptSounds.unlock());
+document.addEventListener('visibilitychange', () => { if (document.hidden) sculptSounds.stop(); });
+window.addEventListener('blur', () => sculptSounds.stop());
 const video = document.querySelector('#camera-video');
 const previewCanvas = document.querySelector('#preview-overlay');
 const previewContext = previewCanvas.getContext('2d');
@@ -59,17 +66,11 @@ const strengthContext = document.querySelector('#strength-context');
 const sizeInput = document.querySelector('#tool-size');
 const sizeValue = document.querySelector('#size-value');
 let paintColor=CLAY_COLORS[4][1];
-const paintPalette=document.createElement('section');
-paintPalette.className='paint-palette';paintPalette.hidden=true;
-paintPalette.setAttribute('aria-label','Paint color palette');
-paintPalette.innerHTML=`<div class="paint-palette-heading"><strong>PAINT COLOR</strong><span id="paint-color-name">Ocean</span></div><div class="paint-swatches">${CLAY_COLORS.map(([name,hex],i)=>`<button type="button" id="paint-swatch-${i}" data-paint-color="${hex}" aria-label="Paint with ${name}" aria-pressed="${hex===paintColor}" title="${name}" style="--paint-color:${hex}"></button>`).join('')}</div>`;
-paintPalette.addEventListener('pointerdown',event=>event.stopPropagation());
-paintPalette.addEventListener('click',event=>{const button=event.target.closest('[data-paint-color]');if(button)setPaintColor(button.dataset.paintColor);});
-document.querySelector('#stage').append(paintPalette);
-function setPaintColor(color) {
+const paintPicker=new PaintPicker(document.querySelector('#stage'),paintColor,color=>setPaintColor(color,true));
+const paintPalette=paintPicker.element;
+function setPaintColor(color,fromPicker=false) {
   cancelMouseStroke();paintColor=color;
-  paintPalette.querySelector('#paint-color-name').textContent=CLAY_COLORS.find(([,hex])=>hex===color)?.[0] ?? 'Custom';
-  for(const button of paintPalette.querySelectorAll('[data-paint-color]'))button.setAttribute('aria-pressed',String(button.dataset.paintColor===color));
+  if(!fromPicker)paintPicker.setColor(color);
 }
 const surfaceStatus=document.createElement('div');
 surfaceStatus.className='surface-status';surfaceStatus.hidden=true;
@@ -820,7 +821,25 @@ function resizeScene() {
 }
 new ResizeObserver(resizeScene).observe(sceneHost);
 
+function updateSculptSound() {
+  const held = mousePinching || (pinchGesture.held && performance.now() - lastHandAt < 250);
+  if (!held || document.hidden || handUICaptured || editingPaused || tryOn.enabled) { sculptSounds.stop(); return; }
+  let point, amount = 0;
+  if (activeTool === 'pinch' && previousPullPoint) {
+    point = previousPullPoint.toArray(); amount = grabAnchor ? previousPullPoint.distanceTo(grabAnchor) : 0;
+  } else if (activeTool === 'extrude' && clayVolume.surfaceExtrude?.active) {
+    const points = clayVolume.surfaceExtrude.points;
+    point = points.at(-1)?.toArray(); amount = point ? points.at(-1).distanceTo(points[0]) : 0;
+  } else if (activeTool === 'erase' && clayVolume.surfaceErase?.active && !clayVolume.surfaceErase.released) {
+    point = clayVolume.surfaceErase.lastPoint;
+  } else if (activeTool === 'paint' && clayVolume.surfacePaint?.active) {
+    point = clayVolume.surfacePaint.last?.toArray();
+  } else if (activeTool === 'cut' && cutStroke) point = cutStroke.points.at(-1);
+  sculptSounds.update(activeTool, point, amount);
+}
+
 function renderScene() {
+  updateSculptSound();
   for(const item of clayObjects.items)item.volume.surfacePaint?.tick();
   arView.update();
   const now = performance.now();
@@ -905,7 +924,7 @@ function renderScene() {
   } else renderer.render(scene, camera);
   updateHistoryButtons();
   handUI?.tick(now);
-  paintPalette.hidden=activeTool!=='paint' || tryOn.enabled;
+  paintPalette.hidden=activeTool!=='paint' || tryOn.enabled || Boolean(handUI?.isOpen);
   const building=Boolean(clayVolume.meshQueue?.pending || (clayVolume.pulling && clayVolume.surfacePull?.released) || (clayVolume.cutting && clayVolume.surfaceErase?.released));
   const refining=Boolean(clayVolume.meshQueue?.refining);
   surfaceStatus.hidden=!building && !refining;
@@ -1868,6 +1887,7 @@ sceneHost.addEventListener('pointerup', (event) => {
 });
 
 function cancelMouseStroke() {
+  sculptSounds.stop();
   clayVolume.surfacePaint?.finish();
   clayVolume.surfaceExtrude?.finish();
   finishMoveStroke(true);
@@ -1937,12 +1957,13 @@ handUI = new HandUI({
     smoothness: Math.round((1 - clayObjects.active.material.roughness) * 100),
     masks: clayObjects.items.map(item => ({ id: item.id, label: item.label, shape: item.shape, color: `#${item.material.color.getHexString()}` })),
     edited: clayObjects.active.edited, symmetry: symmetryEnabled, ar: arView.enabled, trying: tryOn.enabled,
-    paused: editingPaused, cameraOn: Boolean(stream), positionResetDisabled: positionResetButton.disabled,
+    sound: sculptSounds.enabled, paused: editingPaused, cameraOn: Boolean(stream), positionResetDisabled: positionResetButton.disabled,
     busy: Boolean(clayMenu?.isBusy || clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending),
   }),
   onPause: pauseForHandUI,
   onAction: (action, value) => {
-    if (action === 'color') {if(activeTool==='paint')setPaintColor(value);else clayMenu.setColor(value);}
+    if (action === 'sound') { sculptSounds.toggle(); handUI.sync(); }
+    else if (action === 'color') {if(activeTool==='paint')setPaintColor(value);else clayMenu.setColor(value);}
     else if(action === 'size' && !sizeInput.disabled) {
       sizeInput.value=String(value);sizeInput.dispatchEvent(new Event('input',{bubbles:true}));
     }
@@ -2021,6 +2042,7 @@ resetButton.addEventListener('click', (event) => {
 });
 
 window.addEventListener('beforeunload', () => {
+  sculptSounds.dispose();
   for(const item of clayObjects.items)item.volume.surfacePaint?.finish();
   for (const item of clayObjects.items) item.volume.surfaceExtrude?.abort();
   for (const item of clayObjects.items) item.volume.surfaceCut?.abort();

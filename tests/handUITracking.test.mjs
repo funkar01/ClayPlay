@@ -60,6 +60,20 @@ test('Slider dragging freezes on blocked input or missing hand measurements',()=
   ui.receive({landmarks:[]},250);assert.equal(ui.sizeDrag,null);assert.equal(changes,0);
 });
 
+test('HSV sliders use pinch capture and input events without invoking sculpt size',()=>{
+  const {ui,result,target}=fixture();
+  Object.assign(target,{id:'paint-hue',min:'0',max:'360',step:'1',value:'120',hasAttribute:name=>name==='data-hand-range'});
+  target.getBoundingClientRect=()=>({left:550,right:650,top:250,bottom:350,width:100});
+  let inputs=0;target.dispatchEvent=event=>{assert.equal(event.type,'input');inputs++;};
+  ui.onAction=()=>assert.fail('color slider must not resize the sculpt brush');
+  ui.receive(result,0);assert.equal(inputs,0);
+  const pinched=structuredClone(result);pinched.landmarks[0][4].x=.59;
+  ui.receive(pinched,100);assert.ok(ui.sizeDrag);assert.equal(inputs,0);
+  pinched.landmarks[0][4].x+=.09;pinched.landmarks[0][8].x+=.09;
+  assert.equal(ui.receive(pinched,200).owns,true);assert.ok(inputs>0);assert.ok(Number(target.value)>120);
+  ui.receive({landmarks:[]},250);assert.equal(ui.sizeDrag,null);
+});
+
 test('Size slider maps left, center and right to reachable stepped values',()=>{
   const rect={left:100,width:300};
   assert.equal(rangeValueAt(100,rect),0);assert.equal(rangeValueAt(250,rect),45);

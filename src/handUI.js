@@ -130,7 +130,8 @@ export class HandUI {
       const pause = button(s.paused ? 'Resume creating' : 'Pause editing', 'pause'); pause.disabled = s.trying;
       const camera = button('Turn camera off', 'camera-off'); camera.disabled = !s.cameraOn;
       const tutorial = button('Replay tutorial', 'tutorial'); tutorial.disabled = s.busy;
-      grid.append(symmetry, ar, position, reset, pause, camera, tutorial);
+      const sound = button(`Sounds ${s.sound ? 'On' : 'Off'}`, 'sound'); sound.setAttribute('aria-pressed', String(s.sound));
+      grid.append(sound, symmetry, ar, position, reset, pause, camera, tutorial);
     } else if (this.page === 'masks') {
       const start = Math.max(0, Math.min(this.maskPage, Math.ceil(s.masks.length / 4) - 1)); this.maskPage = start;
       for (const item of s.masks.slice(start * 4, start * 4 + 4)) {
@@ -243,7 +244,7 @@ export class HandUI {
       const b = this.highlight.getBoundingClientRect();
       if (point.x >= b.left - 12 && point.x <= b.right + 12 && point.y >= b.top - 12 && point.y <= b.bottom + 12) return this.highlight;
     }
-    const targets = [...root.querySelectorAll('button, summary, #tool-size')].filter(target => !target.disabled && this.visible(target));
+    const targets = [...root.querySelectorAll('button, summary, #tool-size, input[data-hand-range]')].filter(target => !target.disabled && this.visible(target));
     return targets.find(target => {
       const b = target.getBoundingClientRect();
       if (this.isOpen && this.body?.contains(target)) {
@@ -282,15 +283,16 @@ export class HandUI {
     const wasDragging=Boolean(this.sizeDrag);
     if(blocked || fist || !held || (this.sizeDrag && (this.sizeDrag.target.disabled || !this.visible(this.sizeDrag.target)))) this.sizeDrag=null;
     const pinchPoint=this.mapPoint({x:(measured[4].x+measured[8].x)/2,y:(measured[4].y+measured[8].y)/2,z:(measured[4].z+measured[8].z)/2});
-    if(!this.sizeDrag && !wasDragging && target?.id==='tool-size' && held && !fist && !blocked) {
+    if(!this.sizeDrag && !wasDragging && (target?.id==='tool-size' || target?.hasAttribute?.('data-hand-range')) && held && !fist && !blocked) {
       this.sizeDrag={target,startX:pinchPoint.x,startValue:Number(target.value)};
     }
     if(this.sizeDrag) target=this.sizeDrag.target;
     const key = target && (target.id || target.dataset.maskBase || target.dataset.eyeBase || (target.classList.contains('mask-picker-start') ? 'picker-next' : target.classList.contains('mask-picker-back') ? 'picker-back' : `${this.page}:${target.dataset.handAction}:${target.dataset.value ?? ''}`));
     const rect = target?.getBoundingClientRect();
     const bounds = rect && { left: rect.left - 12, right: rect.right + 12, top: rect.top - 12, bottom: rect.bottom + 12 };
-    const slider=target?.id==='tool-size' || wasDragging;
-    const response = slider && !blocked ? {owns:true,phase:this.sizeDrag?'selected':'point',progress:this.sizeDrag?1:0,target:this.sizeDrag?.target ?? (target?.id==='tool-size'?target:null)} : this.selection.update({ point, target, key, bounds, fist, blocked,
+    const isRange=target?.id==='tool-size' || target?.hasAttribute?.('data-hand-range');
+    const slider=isRange || wasDragging;
+    const response = slider && !blocked ? {owns:true,phase:this.sizeDrag?'selected':'point',progress:this.sizeDrag?1:0,target:this.sizeDrag?.target ?? (isRange?target:null)} : this.selection.update({ point, target, key, bounds, fist, blocked,
       modal: this.isOpen || Boolean(overTutorial && !blocked), now });
     if(slider)this.selection.reset();
     const adjustingSize=Boolean(this.sizeDrag) && !blocked;
@@ -298,7 +300,10 @@ export class HandUI {
       const {startX,startValue}=this.sizeDrag;
       const min=Number(target.min),max=Number(target.max),step=Number(target.step)||1;
       const value=Math.max(min,Math.min(max,min+Math.round((startValue-min+(pinchPoint.x-startX)*(max-min)/Math.max(1,rect.width-24))/step)*step));
-      if(Number(target.value)!==value) this.onAction('size',value);
+      if(Number(target.value)!==value) {
+        if(target.id==='tool-size')this.onAction('size',value);
+        else {target.value=String(value);target.dispatchEvent(new Event('input',{bubbles:true}));}
+      }
     }
     this.lastAt = now; this.gapAt = null;
     this.highlight?.classList.remove('hand-hover', 'hand-selected');
@@ -319,7 +324,7 @@ export class HandUI {
       this.announce(response.phase === 'point' ? 'Point with your index to choose' : `Hold for 0.5 seconds to select ${label}`);
     } else if (this.isOpen) this.announce('Hold your index on an option for 0.5 seconds');
     else this.feedback.hidden = true;
-    if (response.activated?.id !== 'tool-size' && response.activated?.isConnected && !response.activated.disabled && this.visible(response.activated)) {
+    if (response.activated?.id !== 'tool-size' && !response.activated?.hasAttribute?.('data-hand-range') && response.activated?.isConnected && !response.activated.disabled && this.visible(response.activated)) {
       response.activated.click();
       this.announce('Selected · move away to choose again');
     }
