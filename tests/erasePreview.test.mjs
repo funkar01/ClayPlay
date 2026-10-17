@@ -1,0 +1,35 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as THREE from 'three';
+import { ErasePreview } from '../src/erasePreview.js';
+import { PullPreview } from '../src/pullPreview.js';
+
+test('Erase preview uses fixed storage, preserves material hooks and clears on completion', t => {
+  const oldDocument = globalThis.document;
+  t.after(()=>{globalThis.document=oldDocument;});
+  let lines=0, clears=0;
+  const context = {clearRect(){clears++;},save(){},restore(){},scale(){},beginPath(){},moveTo(){},lineTo(){lines++;},stroke(){},arc(){},fill(){}};
+  globalThis.document={createElement:()=>({getContext:()=>context})};
+  const material=new THREE.MeshPhysicalMaterial();
+  const pull=new PullPreview(material), preview=new ErasePreview(material);
+  const shader={uniforms:{},vertexShader:'#include <common>\n#include <beginnormal_vertex>\n#include <begin_vertex>\n#include <project_vertex>',fragmentShader:'#include <common>\n#include <clipping_planes_fragment>'};
+  material.onBeforeCompile(shader);
+  assert.equal(shader.uniforms.pullEnabled,pull.uniforms.pullEnabled);
+  assert.equal(shader.uniforms.eraseCoverage,preview.uniforms.eraseCoverage);
+  assert.ok(shader.vertexShader.includes('eraseLocalPosition = transformed'));
+  assert.ok(shader.fragmentShader.includes('discard;'));
+  assert.ok(!shader.fragmentShader.includes('for ('));
+  const bounds=[{direct:[-1,-1,1,1],mirror:[-1,-1,1,1]}];
+  preview.begin(.2,[0,0,8.6],.9,true,bounds);
+  const texture=preview.texture;
+  for(let i=0;i<1000;i++) preview.update([Math.sin(i)*.5,Math.cos(i)*.5]);
+  assert.equal(lines,1000);
+  assert.equal(preview.texture,texture);
+  assert.equal(preview.canvas.width,256); assert.equal(preview.canvas.height,256);
+  assert.equal(preview.uniforms.eraseMirror.value,true);
+  preview.clear(); assert.equal(preview.uniforms.erasePreviewEnabled.value,0);
+  preview.update([99,99]); assert.equal(lines,1000);
+  preview.begin(.1,[0,0,8.6],.9,false,bounds);
+  assert.equal(clears,2); assert.equal(preview.last,null);
+  preview.dispose(); material.dispose();
+});

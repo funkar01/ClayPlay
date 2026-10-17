@@ -35,16 +35,21 @@
           </div>
 
           <div class="stage-wrap">
-            <div class="stage" id="stage">
+            <div class="stage is-expanded" id="stage">
               <div class="stage-grain"></div>
               <div class="stage-label"><span class="live-dot"></span><span id="stage-caption">YOUR HAND WILL APPEAR HERE</span></div>
-              <div class="tool-switch" role="group" aria-label="Clay tools">
-                <button class="tool-button is-active" id="tool-pinch" type="button" data-tool="pinch" aria-pressed="true">Pinch</button>
-                <button class="tool-button" id="tool-carve" type="button" data-tool="carve" aria-pressed="false">Carve</button>
-                <button class="tool-button" id="tool-bulge" type="button" data-tool="bulge" aria-pressed="false">Bulge</button>
-                <button class="tool-button" id="tool-knife" type="button" data-tool="knife" aria-pressed="false">Knife</button>
+              <div class="tool-switch" role="group" aria-label="Mask sculpting controls">
+                <button class="tool-button is-active" id="tool-pinch" type="button" data-tool="pinch" aria-pressed="true">Pull</button>
+                <button class="tool-button" id="tool-extrude" type="button" data-tool="extrude" aria-pressed="false">Extrude</button>
+                <button class="tool-button" id="tool-paint" type="button" data-tool="paint" aria-pressed="false">Paint</button>
+                <button class="tool-button" id="tool-cut" type="button" data-tool="cut" aria-pressed="false" hidden>Cut</button>
+                <button class="tool-button" id="tool-erase" type="button" data-tool="erase" aria-pressed="false" title="Pinch and move the circle to erase the mask">Erase</button>
+                <button class="tool-button symmetry-button is-active" id="vertical-symmetry" type="button" aria-label="Vertical symmetry" aria-pressed="true" title="Mirror new drags across the mask’s vertical center">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5 12 19 20 5"/><path class="symmetry-axis" d="M12 3v18"/></svg>
+                  <span>Symmetry</span><span id="symmetry-state">On</span>
+                </button>
               </div>
-              <div class="strength-control" aria-label="Sculpt strength control">
+              <div class="strength-control" aria-label="Sculpt strength control" hidden>
                 <div class="strength-heading">
                   <label for="tool-strength">STRENGTH</label>
                   <output id="strength-value" for="tool-strength">55</output>
@@ -56,11 +61,11 @@
                     <label for="tool-size">SIZE</label>
                     <output id="size-value" for="tool-size">24%</output>
                   </div>
-                  <input id="tool-size" type="range" min="10" max="90" step="1" value="24" aria-label="Sculpt brush size" aria-describedby="size-context" />
+                  <input id="tool-size" type="range" min="0" max="90" step="1" value="24" aria-label="Sculpt brush size" aria-describedby="size-context" />
                   <span class="strength-context" id="size-context">Brush width · % of starting shape</span>
                 </div>
               </div>
-              <div class="axis-gizmo" role="img" aria-label="Scene axes: X points right, Y points up, Z points toward you">
+              <div class="axis-gizmo" role="img" aria-label="Scene axes: X points right, Y points up, Z points toward you" hidden>
                 <svg viewBox="0 0 76 76" aria-hidden="true">
                   <circle class="gizmo-face" cx="38" cy="38" r="35"></circle>
                   <path class="gizmo-axis gizmo-x" d="M24 45H57"></path>
@@ -76,7 +81,12 @@
                 </svg>
               </div>
               <div class="stage-scene" id="three-scene" aria-label="Three dimensional hand tracking view">
-                <button class="clay-reset" id="clay-reset" type="button" hidden>Reset clay <span>↺</span></button>
+                <video id="ar-camera-video" autoplay muted playsinline aria-hidden="true" hidden></video>
+                <div class="sculpt-history" role="group" aria-label="Undo or redo sculpting">
+                  <button type="button" id="sculpt-undo" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
+                  <button type="button" id="sculpt-redo" disabled title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
+                </div>
+                <button class="clay-reset" id="clay-reset" type="button" hidden>Reset mask <span>↺</span></button>
                 <div class="scene-placeholder is-hidden" id="scene-placeholder">
                   <div class="placeholder-orbit orbit-one"></div>
                   <div class="placeholder-orbit orbit-two"></div>
@@ -84,28 +94,51 @@
                   <span>YOUR HAND, IN 3D</span>
                 </div>
               </div>
-              <div class="scene-hint" id="scene-hint"><span class="hint-icon">↗</span> Keep your hand inside the frame</div>
-              <span class="selected-clay-name" id="selected-clay-name">Sphere 1</span>
+              <div class="scene-hint studio-message" id="studio-message" role="group" aria-labelledby="studio-message-text">
+                <span id="studio-message-text">Enable camera for a better experience with hand controls.</span>
+                <button id="studio-message-ok" type="button" aria-label="OK, enable camera">OK</button>
+              </div>
+              <div class="scene-hint" id="scene-hint" role="status" hidden><span class="hint-icon">↗</span> Keep your hand inside the frame</div>
+              <span class="selected-clay-name" id="selected-clay-name">Full-face mask 1</span>
               <details class="clay-menu" id="clay-menu">
-                <summary>＋ Shapes &amp; color <span id="clay-object-count">1</span></summary>
+                <summary>＋ Masks &amp; color <span id="clay-object-count">1</span></summary>
                 <div class="clay-menu-panel">
-                  <div class="clay-menu-heading">Make room for a new idea</div>
-                  <p class="clay-menu-copy">Add a piece. Each keeps its own shape and color.</p>
-                  <div class="shape-grid" id="shape-grid" role="group" aria-label="Add a clay shape"></div>
-                  <label class="clay-field-label" for="clay-object">SELECTED OBJECT</label>
-                  <select id="clay-object" aria-label="Selected clay object"></select>
-                  <div class="clay-color-heading"><label class="clay-field-label" for="clay-color">CLAY COLOR</label><input id="clay-color" type="color" value="#bd7455" aria-label="Custom clay color" title="Choose any clay color" /></div>
+                  <div class="clay-menu-heading">Choose a starter mask</div>
+                  <p class="clay-menu-copy">Start with a full-face, half-face, or animal mask.</p>
+                  <div class="shape-grid" id="shape-grid" role="group" aria-label="Add a starter mask"></div>
+                  <label class="clay-field-label" for="clay-object">SELECTED MASK</label>
+                  <select id="clay-object" aria-label="Selected mask"></select>
+                  <div class="clay-color-heading"><label class="clay-field-label" for="clay-color">CLAY COLOR</label><input id="clay-color" type="color" value="#cd6e45" aria-label="Custom clay color" title="Choose any clay color" /></div>
                   <div class="clay-swatches" id="clay-swatches" role="group" aria-label="Clay colors"></div>
-                  <div class="clay-menu-footer"><span>Click a piece to select it.</span><button type="button" id="remove-clay" disabled>Remove selected</button></div>
-                  <p class="clay-menu-status" id="clay-menu-status" role="status">Add up to eight pieces to your table.</p>
+                  <div class="clay-menu-footer"><span>Click a mask to select it.</span><button type="button" id="remove-clay" disabled>Remove selected</button></div>
+                  <p class="clay-menu-status" id="clay-menu-status" role="status">Add up to eight masks to your table.</p>
                 </div>
               </details>
+              <button class="ar-toggle" id="ar-toggle" type="button" aria-pressed="false" title="Show your live camera behind the mask">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h4l2-3h6l2 3h4v13H3Z"/><circle cx="12" cy="13" r="4"/></svg>
+                <span>AR mode</span><span class="ar-state">Off</span>
+              </button>
+              <button class="ar-toggle try-toggle" id="try-toggle" type="button" aria-pressed="false" title="Wear your selected mask in the camera view">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5q8-5 16 0v7q0 7-8 10-8-3-8-10Z"/><path d="M7 10h3m4 0h3"/></svg>
+                <span>Try it</span><span class="try-state">Off</span>
+              </button>
+              <div class="mask-transform-controls">
+                <span class="resize-help" id="resize-help" hidden>Automatic · show two hands to resize</span>
+                <div class="ar-toggle resize-toggle" id="resize-toggle" role="status" aria-live="polite" aria-describedby="resize-help" aria-label="2-hand Resize: Off. Automatic." title="Automatic: two hands resize; one hand moves, pinches or cuts" hidden>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4H4v4m12-4h4v4M4 16v4h4m12-4v4h-4M4 4l5 5m11-5-5 5M4 20l5-5m11 5-5-5"/></svg>
+                  <span>2-hand Resize</span><span class="resize-state">Off</span>
+                </div>
+                <button class="ar-toggle position-reset" id="position-reset" type="button" disabled title="Return the selected mask to its starting position without changing its shape or size">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8V3m0 5h5M5 8a8 8 0 1 1-1 8M12 8v8m-4-4h8"/></svg>
+                  <span>Reset position</span>
+                </button>
+              </div>
               <button class="fullscreen-button" id="fullscreen-button" type="button" aria-controls="stage" aria-pressed="false" title="Expand the play area">
                 <svg viewBox="0 0 20 20" aria-hidden="true"><path class="expand-icon" d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4"/><path class="collapse-icon" d="M3 7h4V3m6 0v4h4M7 17v-4H3m14 0h-4v4"/></svg>
                 <span id="fullscreen-label">Full screen</span>
               </button>
               <span class="sr-only" id="fullscreen-status" role="status"></span>
-              <details class="reach-calibration" id="reach-calibration">
+              <details class="reach-calibration" id="reach-calibration" hidden>
                 <summary id="reach-label">Calibrate reach</summary>
                 <div class="reach-calibration-panel">
                   <strong>Place the clay in your reach</strong>
@@ -169,7 +202,7 @@
             </ul>
           </div>
 
-          <button class="quiet-button" id="mouse-button">Preview with mouse <span>→</span></button>
+          <button class="quiet-button" id="mouse-button" hidden>Use cursor <span>→</span></button>
         </aside>
       </main>
       <footer class="footer"><span>MADE FOR CURIOUS HANDS</span><span class="footer-center"><i></i> TAKE YOUR TIME · THERE’S NO WRONG WAY TO BEGIN</span><span>CLAYPLAY STUDIO <b>✳</b></span></footer>

@@ -1,4 +1,4 @@
-export const diagnostics = { inferenceMs: 0, frameMs: 0, meshMs: 0, sculptMs: 0, dropouts: 0, pinch: 'open', pause: 'setup', meshPending: 0 };
+export const diagnostics = { inferenceMs: 0, captureMs: 0, roundTripMs: 0, resultAgeMs: 0, frameTiming: 'callback', cameraHz: 0, trackingHz: 0, predictionMs: 0, pointerAgeMs: 0, poseAgeMs: 0, frameMs: 0, meshMs: 0, sculptMs: 0, pullWorkerMs: 0, pullInstallMs: 0, cutWorkerMs: 0, dropouts: 0, pinch: 'open', pause: 'setup', meshPending: 0 };
 // Opt-in diagnostics leave the studio free of technical controls by default.
 const enabled = typeof document !== 'undefined' && new URLSearchParams(location.search).has('diagnostics');
 if (enabled) {

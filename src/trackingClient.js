@@ -1,7 +1,11 @@
-let preferCompatibility = false;
+import { trackingOptions, visionRuntime } from './trackingOptions.js';
+import { handTrackingBudget } from './twoHandScale.js';
+const preferCompatibility = new Set();
 
 export class TrackingClient {
-  constructor() {
+  constructor(task = 'hand') {
+    this.task = task;
+    this.minInterval = task === 'face' ? 33 : 0;
     this.mode = 'worker';
     this.worker = new Worker(new URL('./trackingWorker.js', import.meta.url), { type: 'module' });
     this.pending = new Map();
@@ -11,7 +15,11 @@ export class TrackingClient {
       if (!request) return;
       this.pending.delete(data.id);
       clearTimeout(request.timer);
-      this.duration = data.duration ?? 0;
+      if (data.duration !== undefined) {
+        this.duration = data.duration;
+        this.averageDuration = this.averageDuration == null ? data.duration : this.averageDuration * .8 + data.duration * .2;
+        if (this.task !== 'face') this.minInterval = handTrackingBudget(this.handCount ?? 1, this.averageDuration).interval;
+      }
       if (data.error) {
         const error = new Error(data.error);
         error.name = data.errorName ?? 'Error';
@@ -31,9 +39,21 @@ export class TrackingClient {
     });
   }
   async detectForVideo(video, timestamp) {
-    const bitmap = await createImageBitmap(video);
+    const budget = handTrackingBudget(this.handCount ?? 1, this.averageDuration);
+    if (this.task !== 'face') this.minInterval = budget.interval;
+    const width = Math.min(this.task === 'face' ? 640 : budget.width, video.videoWidth);
+    const captureStart = performance.now();
+    const bitmap = await createImageBitmap(video, { resizeWidth: width,
+      resizeHeight: Math.max(1, Math.round(video.videoHeight * width / video.videoWidth)), resizeQuality: 'low' });
+    this.captureMs = performance.now() - captureStart;
     if (this.closed) { bitmap.close(); throw new Error('Tracking stopped'); }
     return this.request('frame', { bitmap, timestamp }, [bitmap]);
+  }
+  async setHandCount(count) {
+    if (this.task === 'face' || ![1, 2].includes(count)) throw new Error('Invalid hand tracking mode');
+    if (this.handCount === count) return;
+    await this.request('configure', { numHands: count });
+    this.handCount = count; this.minInterval = handTrackingBudget(count, this.duration).interval;
   }
   close(error = new Error('Tracking stopped')) {
     this.closed = true;
@@ -41,54 +61,79 @@ export class TrackingClient {
     for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(error); }
     this.pending.clear();
   }
-  static async create() {
-    if (preferCompatibility) return CompatibilityTracker.create();
+  static async create(task = 'hand', signal) {
+    if (signal?.aborted) throw new DOMException('Tracking canceled', 'AbortError');
+    if (preferCompatibility.has(task)) return CompatibilityTracker.create(task, signal);
     let client;
+    const abort = () => client?.close(new DOMException('Tracking canceled', 'AbortError'));
     try {
-      client = new TrackingClient();
-      await client.request('init');
+      client = new TrackingClient(task);
+      signal?.addEventListener('abort', abort, { once: true });
+      await client.request('init', { task });
       return client;
     } catch (error) {
       client?.close();
+      if (signal?.aborted) throw new DOMException('Tracking canceled', 'AbortError');
       console.warn('Background tracking unavailable; using compatibility mode:', error);
-      try { return await TrackingClient.createCompatibility(); }
+      try { return await TrackingClient.createCompatibility(task, signal); }
       catch (fallbackError) {
         throw new Error(`Background tracking: ${error.message}. Compatibility tracking: ${fallbackError.message}`);
       }
-    }
+    } finally { signal?.removeEventListener('abort', abort); }
   }
 
-  static async createCompatibility() {
+  static async createCompatibility(task = 'hand', signal) {
     // Avoid repeatedly selecting a worker that failed during this page session.
-    preferCompatibility = true;
-    return CompatibilityTracker.create();
+    preferCompatibility.add(task);
+    return CompatibilityTracker.create(task, signal);
+  }
+
+  static async createBackgroundHands() {
+    const client = new TrackingClient('hand');
+    try {
+      await client.request('init', { task: 'hand', numHands: 2 });
+      client.handCount = 2; client.minInterval = handTrackingBudget(2).interval;
+      return client;
+    } catch (error) { client.close(); throw error; }
   }
 }
 
 // Preserve the previously working browser path if worker/WebGL setup fails.
 class CompatibilityTracker {
-  constructor(tracker) {
+  constructor(tracker, task) {
     this.tracker = tracker;
+    this.task = task;
     this.mode = 'compatibility';
-    this.minInterval = 65;
+    this.minInterval = 33;
     this.duration = 0;
   }
   async detectForVideo(video, timestamp) {
     const start = performance.now();
     const result = this.tracker.detectForVideo(video, timestamp);
     this.duration = performance.now() - start;
+    if (this.task !== 'face') this.minInterval = Math.max(33, handTrackingBudget(this.handCount ?? 1, this.duration).interval);
     return result;
   }
+  async setHandCount(count) {
+    if (this.task === 'face' || ![1, 2].includes(count)) throw new Error('Invalid hand tracking mode');
+    if (this.handCount === count) return;
+    await this.tracker.setOptions({ numHands: count });
+    this.handCount = count; this.minInterval = Math.max(33, handTrackingBudget(count, this.duration).interval);
+  }
   close() { this.tracker.close(); }
-  static async create() {
-    const { FilesetResolver, HandLandmarker } = await import('@mediapipe/tasks-vision');
-    const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm');
-    const options = {
-      baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task', delegate: 'GPU' },
-      runningMode: 'VIDEO', numHands: 1,
-      minHandDetectionConfidence: 0.52, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.48,
-    };
-    try { return new CompatibilityTracker(await HandLandmarker.createFromOptions(vision, options)); }
-    catch { options.baseOptions.delegate = 'CPU'; return new CompatibilityTracker(await HandLandmarker.createFromOptions(vision, options)); }
+  static async create(task = 'hand', signal) {
+    const { FilesetResolver, HandLandmarker, FaceLandmarker } = await import('@mediapipe/tasks-vision');
+    const vision = await FilesetResolver.forVisionTasks(visionRuntime);
+    const options = trackingOptions(task), Tracker = task === 'face' ? FaceLandmarker : HandLandmarker;
+    if (signal?.aborted) throw new DOMException('Tracking canceled', 'AbortError');
+    let tracker;
+    try { tracker = await Tracker.createFromOptions(vision, options); }
+    catch (error) {
+      if (signal?.aborted) throw new DOMException('Tracking canceled', 'AbortError');
+      if (options.baseOptions.delegate === 'CPU') throw error;
+      options.baseOptions.delegate = 'CPU'; tracker = await Tracker.createFromOptions(vision, options);
+    }
+    if (signal?.aborted) { tracker.close(); throw new DOMException('Tracking canceled', 'AbortError'); }
+    return new CompatibilityTracker(tracker, task);
   }
 }

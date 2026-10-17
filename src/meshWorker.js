@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { ClayVolume } from './clayVolume.js';
+import { cacheVolumeNodes } from './cacheVolumeNodes.js';
 
 const fields = new Map();
 self.onmessage = ({ data }) => {
@@ -9,11 +10,14 @@ self.onmessage = ({ data }) => {
     const start = performance.now();
     let volume = fields.get(id);
     if (!volume || reset) {
-      volume = Object.create(ClayVolume.prototype);
-      Object.assign(volume, { shape, cuts: data.cuts ?? [], field: new Map(), bricks: new Map(), parent: new THREE.Group(), material: null });
+      volume = data.state ? ClayVolume.fromState(data.state) : Object.create(ClayVolume.prototype);
+      Object.assign(volume, { shape, bricks: new Map(), parent: new THREE.Group(), material: null });
+      volume.field ??= new Map();
+      cacheVolumeNodes(volume);
       fields.set(id, volume);
     }
     for (const [key, value] of edits) volume.field.set(key, value);
+    volume.meshStep=data.step ?? 1;
     const bricks = [];
     const transfer = [];
     for (const key of keys) {
