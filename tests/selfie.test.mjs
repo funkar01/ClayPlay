@@ -53,8 +53,10 @@ test('Unavailable camera and failed encoding report errors rather than blank sel
 
 test('Share data includes the captured image and exact application URL',()=>{
   const file=new File(['photo'],'mask.jpg',{type:'image/jpeg'}),data=selfieShareData(file);
-  assert.deepEqual(data.files,[file]);assert.equal(data.url,'https://creativecraft-maskstudio.vercel.app/');
-  assert.equal(data.url,CLAYPLAY_URL);assert.ok(data.text.includes('ClayPlay'));
+  assert.deepEqual(data.files,[file]);assert.ok(data.text.includes(CLAYPLAY_URL));
+  assert.equal(data.text,`Creating the masks is fun, want to try it out? ${CLAYPLAY_URL}`);
+  assert.equal(data.text.split(CLAYPLAY_URL).length-1,1);
+  assert.equal(data.url,undefined,'do not send the same URL separately from the message');
 });
 
 function studioFixture(t,prepare) {

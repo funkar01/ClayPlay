@@ -19,7 +19,7 @@ export async function composeSelfie(video,maskCanvas,createCanvas=()=>document.c
 }
 
 export function selfieShareData(file) {
-  return {title:'My ClayPlay mask',text:`I made this mask in ClayPlay! Create and try on your own: ${CLAYPLAY_URL}`,url:CLAYPLAY_URL,files:[file]};
+  return {title:'My ClayPlay mask',text:`Creating the masks is fun, want to try it out? ${CLAYPLAY_URL}`,files:[file]};
 }
 
 // Pure timing controller; a missing face restarts the full two-second countdown.
