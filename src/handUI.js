@@ -46,6 +46,7 @@ export class HandUI {
     for (const id of ['tool-pinch', 'tool-extrude', 'tool-paint', 'tool-erase']) this.dock.append(document.getElementById(id));
     this.tryIt = button('Try it', 'try'); this.tryIt.id = 'hand-try';
     this.tryIt.setAttribute('aria-label', 'Try it: wear your mask'); this.dock.append(this.tryIt);
+    this.selfieButton=button('Selfie','selfie');this.selfieButton.id='hand-selfie';this.selfieButton.setAttribute('aria-label','Take a mask selfie');this.dock.append(this.selfieButton);
     for (const id of ['sculpt-undo', 'sculpt-redo']) this.dock.append(document.getElementById(id));
     this.more = button('More', 'more'); this.more.id = 'hand-more';
     this.more.setAttribute('aria-expanded', 'false'); this.more.setAttribute('aria-controls', 'hand-panel');
@@ -55,6 +56,7 @@ export class HandUI {
       'tool-extrude':'M3 19h18M6 19v-5l6-7 6 7v5M12 7V2m-3 3 3-3 3 3',
       'tool-paint':'m14 4 6 6-8 8H6v-6zM5 18c0 3-3 3-3 3s0-3 3-3',
       'tool-erase':'m4 15 9-11 8 7-9 10H9zM8 11l8 7M12 21h9',
+      'hand-selfie':'M4 7h4l2-3h4l2 3h4v13H4zM16 13a4 4 0 1 1-8 0 4 4 0 0 1 8 0',
       'hand-try':'M5 4h14v12l-7 5-7-5zM8 10h2m4 0h2M9 15q3 3 6 0',
       'sculpt-undo':'M9 5 3 10l6 5M3 10h11a6 6 0 0 1 0 12',
       'sculpt-redo':'m15 5 6 5-6 5M21 10H10a6 6 0 0 0 0 12',
@@ -66,6 +68,9 @@ export class HandUI {
       const icon = document.createElementNS('http://www.w3.org/2000/svg','svg'); icon.setAttribute('viewBox','0 0 24 24'); icon.setAttribute('aria-hidden','true');
       const path = document.createElementNS(icon.namespaceURI,'path'); path.setAttribute('d',icons[target.id]); icon.append(path); target.prepend(icon);
     }
+    this.selfieButton.classList.add('stage-selfie');
+    this.selfieButton.addEventListener('pointerdown',event=>event.stopPropagation());
+    stage.append(this.selfieButton);
     this.panel = document.createElement('section'); this.panel.id = 'hand-panel'; this.panel.className = 'hand-panel'; this.panel.hidden = true;
     this.panel.setAttribute('aria-label', 'Studio options'); stage.append(this.panel);
     this.done = button('Back to creating', 'try-done'); this.done.id = 'hand-try-done'; this.done.className = 'hand-try-done'; this.done.hidden = true; stage.append(this.done);
@@ -117,8 +122,9 @@ export class HandUI {
     this.signature = null; this.sync();
   }
   sync() {
-    const s = this.getState(); this.controlMode=s.controlMode ?? 'index'; this.done.hidden = !s.trying;
-    this.tryIt.disabled = s.busy;
+    const s = this.getState(); this.controlMode=s.controlMode ?? 'palm'; this.done.hidden = !s.trying;
+    this.tryIt.disabled = s.busy || s.selfieBusy;
+    this.selfieButton.disabled=s.busy || s.selfieBusy;
     this.tryIt.setAttribute('aria-pressed', String(s.trying));
     // Keep the slider and dwell targets mounted while the finish changes.
     // Replacing the panel here would interrupt an ongoing pointer drag.
@@ -308,7 +314,7 @@ export class HandUI {
     }
     if(palmMode)this.palmPointer=palm.point;
     const point = this.mapPoint(palmMode ? palm.point : measured[8]);
-    const tutorial = this.stage.querySelector('#mask-shape-picker:not([hidden]), #studio-tutorial:not([hidden])');
+    const tutorial = this.stage.querySelector('#selfie-preview:not([hidden]), #mask-shape-picker:not([hidden]), #studio-tutorial:not([hidden])');
     const tutorialBounds = tutorial?.getBoundingClientRect();
     const overTutorial = tutorialBounds && point.x >= tutorialBounds.left && point.x <= tutorialBounds.right
       && point.y >= tutorialBounds.top && point.y <= tutorialBounds.bottom;

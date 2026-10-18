@@ -1,3 +1,4 @@
+import { SelfieStudio } from './selfie.js';
 import { PalmControl } from './palmControl.js';
 import { PaintPicker } from './paintPicker.js';
 import { SculptSounds } from './sculptSounds.js';
@@ -28,6 +29,10 @@ import { HandUI, HAND_UI_SAMPLE_AGE_MS } from './handUI.js';
 import { StudioTutorial } from './studioTutorial.js';
 import { MaskShapePicker } from './maskShapePicker.js';
 import { MASK_SHAPES } from './clayShapes.js';
+import { inject } from '@vercel/analytics';
+
+// Count page views in deployed builds, keeping development sessions out.
+if (import.meta.env.PROD) inject({ mode: 'production' });
 
 const sculptSounds = new SculptSounds();
 document.addEventListener('pointerdown', () => sculptSounds.unlock());
@@ -99,25 +104,15 @@ const connectionLines = [
 const pinchGesture = new PinchGesture();
 const palmControl = new PalmControl();
 let palmControlState=null;
-let controlMode='index';
-try { if(localStorage.getItem('clayplay-control-mode')==='palm')controlMode='palm'; } catch {}
-const controlCard=document.createElement('section');
-controlCard.className='control-mode-card';controlCard.setAttribute('aria-label','Hand control');
-controlCard.innerHTML=`<strong>Hand control</strong><div role="group" aria-label="Choose hand control"><button type="button" id="control-index" data-hand-action="control-mode" data-value="index">Index & pinch</button><button type="button" id="control-palm" data-hand-action="control-mode" data-value="palm">Palm & grip</button></div><p id="control-mode-help"></p>`;
-controlCard.addEventListener('pointerdown',event=>event.stopPropagation());
-document.querySelector('#stage').append(controlCard);
-function refreshControlCard() {
-  for(const button of controlCard.querySelectorAll('button'))button.setAttribute('aria-pressed',String(button.dataset.value===controlMode));
-  controlCard.querySelector('p').textContent=controlMode==='palm' ? 'Move your palm · close to apply · open to release' : 'Point with your index · pinch to apply';
-}
-refreshControlCard();
+let controlMode='palm';
+try { const saved=localStorage.getItem('clayplay-control-mode'); if(['index','palm'].includes(saved))controlMode=saved; } catch {}
 function setControlMode(mode) {
   if(!['index','palm'].includes(mode) || mode===controlMode)return;
   cancelMouseStroke();setResizeMode(false);finishMoveStroke();
   controlMode=mode;palmControl.reset();palmControlState=null;handMotion.reset();
   poseTarget=null;poseDisplayed=null;smoothedPoints=null;handUI?.reset();
   try {localStorage.setItem('clayplay-control-mode',mode);}catch{}
-  refreshControlCard();showToolInstructions();
+  showToolInstructions();
 }
 
 const handMotion = new HandMotion({ staleMs: HAND_SOURCE_MAX_AGE_MS });
@@ -147,6 +142,7 @@ let cameraRequestEpoch = 0;
 let arStartedCamera = false;
 let arAction = 0;
 let faceTracker, faceAbort, faceFrame;
+let selfie;
 let faceEpoch = 0, lastFaceVideoTime = -1, nextFaceTrackingAt = 0;
 let tryPreviousAR = false, tryStartedCamera = false;
 let tryHandWasDone = false;
@@ -255,9 +251,10 @@ const clayObjects = new ClayObjects(scene);
 const tryOn = new MaskTryOn(scene.children.filter(child => child.isLight));
 const tryButton = document.querySelector('#try-toggle');
 tryButton.addEventListener('pointerdown', event => event.stopPropagation());
-tryButton.addEventListener('click', async () => {
+tryButton.addEventListener('click', () => {if(tryOn.enabled)endTryOn();else startTryOn();});
+async function startTryOn() {
+  if(tryOn.enabled)return true;
   setResizeMode(false);
-  if (tryOn.enabled) { endTryOn(); return; }
   if (clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending) {
     sceneHint.textContent = 'Finishing your mask · try it in a moment'; return;
   }
@@ -293,15 +290,18 @@ tryButton.addEventListener('click', async () => {
     }
     cameraButton.disabled = false; buttonLabel.textContent = 'Camera on';
     faceTrackingLoop(epoch);
+    return true;
   } catch (error) {
     if (epoch !== faceEpoch || !tryOn.enabled) return;
     console.warn('Mask try-on could not start:', error);
     endTryOn();
     setPrompt('Try it could not start.', 'Face tracking could not load. Check your connection and try again; your mask is ready to keep creating.', 'warning');
+    return false;
   }
-});
+}
 
 function endTryOn({ restoreView = true, resumeTracking = true } = {}) {
+  if(selfie?.busy){selfie.close();return;}
   if (!tryOn.enabled) return;
   faceEpoch++; faceAbort?.abort(); faceTracker?.close(); faceTracker = null;
   cancelAnimationFrame(faceFrame); tryOn.setEnabled(false);
@@ -877,7 +877,6 @@ function renderScene() {
   for(const item of clayObjects.items)item.volume.surfacePaint?.tick();
   arView.update();
   const now = performance.now();
-  controlCard.hidden=tryOn.enabled || Boolean(studioTutorial?.active) || Boolean(handUI?.isOpen);
   diagnostics.poseAgeMs = poseTarget ? now - poseSampleAt : 0;
   diagnostics.pointerAgeMs = handUI?.motion.time != null ? Math.max(0, now - handUI.motion.time) : 0;
   const dt = Math.min(0.05, (now - previousRenderAt) / 1000);
@@ -962,6 +961,7 @@ function renderScene() {
     }
     renderer.render(tryOn.scene, tryOn.camera);
   } else renderer.render(scene, camera);
+  selfie?.tick(now,{ready:!document.hidden && tryOn.enabled && tryOn.mask.visible && Boolean(tryOn.target) && arView.live && now-tryOn.receivedAt<300,video:arView.video,canvas:renderer.domElement});
   updateHistoryButtons();
   handUI?.tick(now);
   if(controlMode==='palm' && stream && !tryOn.enabled && !resizeEnabled) {
@@ -2048,12 +2048,13 @@ handUI = new HandUI({
     smoothness: Math.round((1 - clayObjects.active.material.roughness) * 100),
     masks: clayObjects.items.map(item => ({ id: item.id, label: item.label, shape: item.shape, color: `#${item.material.color.getHexString()}` })),
     edited: clayObjects.active.edited, symmetry: symmetryEnabled, ar: arView.enabled, trying: tryOn.enabled,
-    controlMode, sound: sculptSounds.enabled, paused: editingPaused, cameraOn: Boolean(stream), positionResetDisabled: positionResetButton.disabled,
+    selfieBusy:Boolean(selfie?.busy), controlMode, sound: sculptSounds.enabled, paused: editingPaused, cameraOn: Boolean(stream), positionResetDisabled: positionResetButton.disabled,
     busy: Boolean(clayMenu?.isBusy || clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending),
   }),
   onPause: pauseForHandUI,
   onAction: (action, value) => {
-    if (action === 'control-mode') setControlMode(value);
+    if (action === 'selfie') {if(handUI.isOpen)handUI.close();selfie?.start();}
+    else if (action === 'control-mode') setControlMode(value);
     else if (action === 'sound') { sculptSounds.toggle(); handUI.sync(); }
     else if (action === 'color') {if(activeTool==='paint')setPaintColor(value);else clayMenu.setColor(value);}
     else if(action === 'size' && !sizeInput.disabled) {
@@ -2146,6 +2147,8 @@ studioTutorial = new StudioTutorial({
   },
 });
 
+selfie=new SelfieStudio({stage:document.querySelector('#stage'),prepare:()=>startTryOn(),onExit:()=>endTryOn(),onChange:()=>handUI?.sync()});
+
 setupFullscreen(document.querySelector('#stage'), cancelMouseStroke, { controls: [cameraButton, mouseButton] });
 scenePlaceholder.classList.add('is-hidden');
 showToolInstructions();
@@ -2157,6 +2160,7 @@ resetButton.addEventListener('click', (event) => {
 });
 
 window.addEventListener('beforeunload', () => {
+  selfie?.dispose();
   sculptSounds.dispose();
   for(const item of clayObjects.items)item.volume.surfacePaint?.finish();
   for (const item of clayObjects.items) item.volume.surfaceExtrude?.abort();

@@ -508,3 +508,10 @@ Try the rigged hand in mouse mode, then set up the camera and bring your tracked
 - Apply a half-space cut to the base field and existing edited samples, then remesh the retained clay with a closed planar face. Subsequent Pinch, Carve, and Bulge edits can modify that face. Reset restores the original shape. Snapshot and mesh-worker messages now preserve prior cuts.
 - Tracking loss, a changed cutting plane, tool/menu changes, or an incomplete sweep cancel the unfinished gesture. Pending cuts are ignored after object reset/removal. Field edits pause while the selected object's cut is calculated; worker errors/timeouts show retry guidance.
 - Production build passed with the existing bundle-size warning. No automated tests or live hand/mouse walkthrough performed. Side selection is a voxel-volume estimate, and an irregular object can contain multiple components within either retained/discarded half-space. Live open-palm thresholds and sweep feel need user feedback.
+
+### 2026-10-17 — Publishing to Vercel reminder
+
+- User requested deployment instructions. Confirmed this project uses Vite, npm run build, and Git remote https://github.com/funkar01/ClayPlay.git.
+- For an existing Git-connected Vercel project, commit/push the intended changes to its configured Production Branch. Redeploying an old deployment does not include unpushed local work.
+- For a new import, choose funkar01/ClayPlay, Vite preset, repository root, npm run build, and dist output.
+- Alternative: run npx vercel from the local project folder, link the existing project for a preview, then npx vercel --prod for production. No deployment, commit, or push was performed in this turn.
