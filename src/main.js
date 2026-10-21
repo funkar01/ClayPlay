@@ -199,7 +199,7 @@ const arView = new CameraBackdrop({ video: document.querySelector('#ar-camera-vi
     cancelMouseStroke(); poseTarget = null; poseDisplayed = null; smoothedPoints = null;
     sceneHost.setAttribute('aria-label', arView.live ? 'Camera view with editable mask' : 'Three dimensional hand tracking view');
   },
-  onError: () => setPrompt('Camera view could not start.', 'The studio is ready. Try AR mode again to show the camera behind your mask.', 'warning'),
+  onError: () => setPrompt('Camera view could not start.', 'The studio is ready. Set up the camera again to show the camera behind your mask.', 'warning'),
 });
 arButton.addEventListener('pointerdown', event => event.stopPropagation());
 arButton.addEventListener('click', async () => {

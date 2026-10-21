@@ -30,6 +30,7 @@ export class HandUI {
   constructor({ stage, getState, onAction, onPause, mapPoint }) {
     Object.assign(this, { stage, getState, onAction, onPause, mapPoint });
     this.selection = new HandSelection();
+    this.selection.dwellMs = 800;
     try { const dwell=Number(localStorage.getItem('clayplay-dwell')); if([500,800,1200].includes(dwell))this.selection.dwellMs=dwell; } catch {} this.identity = new ControlHand({ graceMs: cursorGraceMs });
     this.motion = new HandMotion({ staleMs: HAND_UI_SAMPLE_AGE_MS });
     this.page = 'more'; this.maskPage = 0;
@@ -150,14 +151,13 @@ export class HandUI {
       symmetry.classList.add('hand-symmetry');
       const symmetryIcon = document.querySelector('#vertical-symmetry svg')?.cloneNode(true);
       if (symmetryIcon) symmetry.prepend(symmetryIcon);
-      const ar = button(`AR mode ${s.ar ? 'On' : 'Off'}`, 'ar'); ar.setAttribute('aria-pressed', String(s.ar));
       const position = button('Reset position', 'position'); position.disabled = s.positionResetDisabled || s.trying;
       const reset = button('Reset mask', 'reset'); reset.disabled = !s.edited || s.busy || s.trying;
       const pause = button(s.paused ? 'Resume creating' : 'Pause editing', 'pause'); pause.disabled = s.trying;
       const camera = button(s.cameraOn ? 'Turn camera off' : 'Set up camera', s.cameraOn ? 'camera-off' : 'camera-on');
       const tutorial = button('Replay tutorial', 'tutorial'); tutorial.disabled = s.busy;
       const sound = button(`Sounds ${s.sound ? 'On' : 'Off'}`, 'sound'); sound.setAttribute('aria-pressed', String(s.sound));
-      grid.append(sound, symmetry, ar, position, reset, pause, camera, tutorial);
+      grid.append(sound, symmetry, position, reset, pause, camera, tutorial);
     } else if (this.page === 'controls') {
       const note=document.createElement('p');note.className='hand-panel-caption';
       note.textContent='Try both and choose what feels natural. Your choice is remembered.';grid.append(note);
@@ -165,7 +165,7 @@ export class HandUI {
         const choice=button(label,'control-mode',mode);choice.setAttribute('aria-pressed',String(s.controlMode===mode));grid.append(choice);
       }
       const timing=document.createElement('p');timing.className='hand-panel-caption';timing.textContent='Button selection speed';grid.append(timing);
-      for(const [ms,label] of [[500,'Quick · 0.5s'],[800,'Relaxed · 0.8s'],[1200,'Steady · 1.2s']]) {const option=button(label,'dwell',String(ms));option.setAttribute('aria-pressed',String((this.selection.dwellMs ?? 500)===ms));grid.append(option);}
+      for(const [ms,label] of [[500,'Quick · 0.5s'],[800,'Relaxed · 0.8s'],[1200,'Steady · 1.2s']]) {const option=button(label,'dwell',String(ms));option.setAttribute('aria-pressed',String((this.selection.dwellMs ?? 800)===ms));grid.append(option);}
       const help=document.createElement('p');help.className='hand-panel-caption';
       help.textContent='Palm: move your palm to aim, close gently to apply, open to release. Hover with an open hand to choose buttons; close and slide to adjust sliders. Keep your wrist visible. One closed hand applies a tool; two fists resize. Use Index control for the whole-mask move gesture.';grid.append(help);
     } else if (this.page === 'masks') {
