@@ -20,7 +20,22 @@ const combinations = [
   ['spikes','curve','colour','notch'],
   ['colour','horns','spikes','notch'],
 ];
-const colours=['#df7e87','#719fb2','#9b88bd','#79a572','#e4b44d','#d98055'];
+// Alternate cheerful brights, soft pastels, and rich jewel tones between runs.
+// Pair light masks with deeper pigments and rich masks with lighter accents.
+const palettes=[
+  {maskColour:'#e87967',colour:'#49244f'}, // Coral / deep plum
+  {maskColour:'#3d67c9',colour:'#fff0c8'}, // Cobalt / vanilla
+  {maskColour:'#87cdb1',colour:'#294252'}, // Mint / ink blue
+  {maskColour:'#b987d4',colour:'#392044'}, // Orchid / mulberry
+  {maskColour:'#e6b946',colour:'#3e3a72'}, // Sunflower / indigo
+  {maskColour:'#259a9b',colour:'#302039'}, // Lagoon / blackberry
+  {maskColour:'#eba873',colour:'#3c426e'}, // Peach / midnight blue
+  {maskColour:'#aa3b6b',colour:'#fbe9b7'}, // Raspberry / buttercream
+  {maskColour:'#72b8db',colour:'#42316d'}, // Sky blue / violet
+  {maskColour:'#b8ca70',colour:'#354a45'}, // Pistachio / pine
+  {maskColour:'#6b458a',colour:'#a8e2cf'}, // Royal plum / seafoam
+  {maskColour:'#ef9953',colour:'#422a61'}, // Tangerine / aubergine
+];
 
 // Guides diverge from the midline on either side, including vertical horn strokes.
 export function outwardGuideTarget(mission) {
@@ -47,15 +62,29 @@ export function createTutorialRecipe(run=0) {
     const lesson=challenges[key];
     return {...lesson,target:surfaceTarget(shape,eye,lesson.target)};
   });
-  return {run,shape,eyes:eye,shapeLabel:MASK_SHAPES[shape].label,eyeLabel:EYE_SHAPES[eye].label,colour:colours[run%colours.length],steps};
+  return {run,shape,eyes:eye,shapeLabel:MASK_SHAPES[shape].label,eyeLabel:EYE_SHAPES[eye].label,...palettes[run%palettes.length],steps};
 }
+function paintTouchesTarget(mission,data) {
+  const radius=.45+(Number.isFinite(data?.radius)?Math.max(0,Math.min(.5,data.radius)):0);
+  const near=(a,b=a,mirror=false)=>{
+    if(!a || !b || ![a[0],a[1],b[0],b[1]].every(Number.isFinite))return false;
+    const sign=mirror?-1:1,ax=a[0]*sign,dx=(b[0]-a[0])*sign,dy=b[1]-a[1];
+    const length=dx*dx+dy*dy;
+    const t=length?Math.max(0,Math.min(1,((mission.target[0]-ax)*dx+(mission.target[1]-a[1])*dy)/length)):0;
+    return Math.hypot(ax+t*dx-mission.target[0],a[1]+t*dy-mission.target[1])<=radius;
+  };
+  if(Array.isArray(data?.segments))return data.segments.some(segment=>Array.isArray(segment)
+    && (near(segment[0],segment[1]) || (data.symmetry && near(segment[0],segment[1],true))));
+  return near(data?.point);
+}
+
 export function acceptsTutorialAction(mission,tool,data) {
   if(!mission || mission.tool!==tool)return false;
   if(tool==='pinch')return acceptsTutorialPull(mission,data);
   if(tool==='erase')return data?.changed===true;
+  if(tool==='paint')return paintTouchesTarget(mission,data);
   const point=tool==='extrude' ? data?.points?.[0] : data?.point;
   if(!point || Math.hypot(point[0]-mission.target[0],point[1]-mission.target[1])>.45)return false;
-  if(tool==='paint')return true;
   if(tool==='extrude') {
     const end=data.points.at(-1);
     return data.points.length>1 && Math.hypot(...end.map((v,i)=>v-point[i]))>.09;

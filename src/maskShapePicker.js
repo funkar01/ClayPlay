@@ -1,9 +1,10 @@
 import { MASK_SHAPES, EYE_SHAPES, eyePreview } from './clayShapes.js';
 
 export class MaskShapePicker {
-  constructor({ stage, onChoose, onOpen }) {
+  constructor({ stage, onChoose, onOpen, onContinue }) {
     this.onChoose = onChoose;
     this.onOpen = onOpen;
+    this.onContinue = onContinue;
     this.card = document.createElement('section');
     this.card.id = 'mask-shape-picker';
     this.card.hidden = true;
@@ -13,7 +14,8 @@ export class MaskShapePicker {
     this.card.innerHTML = `<div class="mask-picker-card"><span class="mask-picker-eyebrow">YOUR NEXT CREATION</span>
       <h2 id="mask-picker-title">Every mask starts with a shape.</h2>
       <p>Pick a clay canvas. Give it your own character.</p>
-      <div class="mask-picker-grid">${Object.entries(MASK_SHAPES).map(([key, shape]) => `<button type="button" data-mask-base="${key}" aria-pressed="${key === 'full'}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${shape.icon}"/><ellipse cx="9.2" cy="10" rx="1.5" ry=".7"/><ellipse cx="14.8" cy="10" rx="1.5" ry=".7"/></svg><strong>${shape.label}</strong><span>${shape.description}</span></button>`).join('')}</div>
+      <div class="mask-picker-grid">${Object.entries(MASK_SHAPES).map(([key, shape]) => `<button type="button" data-mask-base="${key}" aria-pressed="${key === 'full'}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${shape.icon}"/><ellipse cx="9.2" cy="10" rx="1.5" ry=".7"/><ellipse cx="14.8" cy="10" rx="1.5" ry=".7"/></svg><strong>${shape.label}</strong><span>${shape.description}</span></button>`).join('')}
+      <button type="button" id="mask-picker-continue" class="mask-picker-continue"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h7a6 6 0 1 1-6 8M7 7l4-4M7 7l4 4"/></svg><strong>Continue with current mask</strong><span>Keep your shape, eyes and edits.</span></button></div>
       <div class="mask-picker-grid eye-picker-grid" hidden>${Object.entries(EYE_SHAPES).map(([key, eyes]) => `<button type="button" data-eye-base="${key}" aria-pressed="${key === 'oval'}">${eyePreview(key)}<strong>${eyes.label}</strong><span>${eyes.description}</span></button>`).join('')}</div>
       <div class="mask-picker-footer"><button type="button" class="mask-picker-back" hidden>← Mask shapes</button><span role="status">Step 1 of 2 · Choose your mask.</span><button type="button" class="mask-picker-start">Choose eye shape →</button></div></div>`;
     stage.append(this.card);
@@ -34,6 +36,12 @@ export class MaskShapePicker {
       this.card.querySelectorAll('[data-mask-base]').forEach(b => b.setAttribute('aria-pressed', String(b === option)));
     });
     this.card.querySelector('.mask-picker-back').addEventListener('click', () => this.showStep('mask'));
+    this.card.querySelector('#mask-picker-continue').addEventListener('click', () => {
+      if(this.busy)return;
+      this.card.hidden=true;
+      this.onContinue?.();
+      document.querySelector('.tool-button[data-tool].is-active')?.focus({preventScroll:true});
+    });
     this.card.addEventListener('keydown', e => {
       if (e.key !== 'Tab') return;
       const buttons = [...this.card.querySelectorAll('button:not(:disabled)')].filter(b => !b.closest('[hidden]'));

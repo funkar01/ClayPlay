@@ -30,6 +30,7 @@ import { PalmMove, PalmGesture, closedPalm } from './palmMove.js';
 import { HandUI, HAND_UI_SAMPLE_AGE_MS } from './handUI.js';
 import { StudioTutorial } from './studioTutorial.js';
 import { MaskShapePicker } from './maskShapePicker.js';
+import { StudioBackdrop } from './studioBackdrop.js';
 import { MASK_SHAPES } from './clayShapes.js';
 import { inject } from '@vercel/analytics';
 
@@ -182,7 +183,7 @@ let lastPinchHint = false;
 
 const sceneHost = document.querySelector('#three-scene');
 const scene = new THREE.Scene();
-scene.background = new THREE.Color('#eadfd2');
+const studioBackdrop=new StudioBackdrop({scene,stage:document.querySelector('#stage')});
 const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
 camera.position.set(0, 0, 8.6);
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -376,9 +377,9 @@ const contactCue = new THREE.Mesh(new THREE.SphereGeometry(0.065, 16, 12), new T
 contactCue.visible = false;
 contactCue.renderOrder = 5;
 scene.add(contactCue);
-const brushCue = new THREE.LineLoop(
-  new THREE.BufferGeometry().setFromPoints(Array.from({ length: 48 }, (_, i) => new THREE.Vector3(Math.cos(i / 48 * Math.PI * 2), Math.sin(i / 48 * Math.PI * 2), 0))),
-  new THREE.LineBasicMaterial({ color: '#538c68', transparent: true, opacity: 0.85, depthTest: false }),
+const brushCue = new THREE.Mesh(
+  new THREE.RingGeometry(.97, 1, 96),
+  new THREE.MeshBasicMaterial({ color: '#286743', transparent: true, opacity: 1, depthTest: false, depthWrite: false, side: THREE.DoubleSide }),
 );
 brushCue.visible = false; brushCue.renderOrder = 6; scene.add(brushCue);
 const grabTether = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
@@ -898,6 +899,7 @@ function renderScene() {
     tracked: performance.now() - lastHandAt < 600, mouse: cursorInputEnabled(), busy: clayVolume.pulling || clayVolume.meshQueue?.pending, tool: activeTool });
   updateSculptSound();
   for(const item of clayObjects.items)item.volume.surfacePaint?.tick();
+  studioBackdrop.update(clayObjects.active.material.color);
   arView.update();
   const now = performance.now();
   diagnostics.poseAgeMs = poseTarget ? now - poseSampleAt : 0;
@@ -954,12 +956,12 @@ function renderScene() {
     symmetryGuide.position.copy(clay.localToWorld(new THREE.Vector3(0, 0, 0.9)));
     symmetryGuide.scale.setScalar(radius * clay.scale.x);
   }
-  mirroredBrush.visible = (activeTool === 'pinch' || activeTool === 'erase' || activeTool === 'paint') && symmetryEnabled && (brushCue.visible || Boolean(previousPullPoint && pinchActive));
+  mirroredBrush.visible = ['pinch', 'extrude', 'erase', 'paint'].includes(activeTool) && symmetryEnabled && brushCue.visible;
   if (mirroredBrush.visible) {
     const point = previousPullPoint?.clone() ?? clay.worldToLocal(brushCue.position.clone());
     point.x = -point.x;
     mirroredBrush.position.copy(clay.localToWorld(point)); mirroredBrush.position.z += 0.035;
-    mirroredBrush.scale.setScalar(brushRadius() * clay.scale.x);
+    mirroredBrush.scale.copy(brushCue.scale);
     mirroredBrush.material.color.copy(brushCue.material.color);
   }
   if (arView.live) handModel.visible = false;
@@ -1311,7 +1313,14 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null, worldLandmark
 function processErase(handPoint, held, wasHeld, cursorInput = false) {
   grabTether.visible = false; pinchCue.visible = false; contactCue.visible = false;
   if (!held) {
-    clayVolume.surfaceErase?.finish(); brushCue.visible = false; mirroredBrush.visible = false;
+    clayVolume.surfaceErase?.finish();
+    const hit = getClaySurfaceHit(handPoint);
+    brushCue.visible = Boolean(hit);
+    if (hit) {
+      brushCue.position.copy(hit.worldPoint); brushCue.position.z += .035;
+      brushCue.scale.setScalar(brushRadius() * clay.scale.x);
+      brushCue.material.color.set('#286743');
+    }
     contactLabel.textContent = cursorInput ? 'Hold to erase' : 'Pinch to erase';
     return;
   }
@@ -1341,7 +1350,7 @@ function processErase(handPoint, held, wasHeld, cursorInput = false) {
   const eraser = clayVolume.surfaceErase;
   if (!eraser?.active || eraser.released) return;
   brushCue.visible = true; brushCue.position.copy(world);
-  brushCue.scale.setScalar(eraser.radius * clay.scale.x); brushCue.material.color.set('#c86348');
+  brushCue.scale.setScalar(eraser.radius * clay.scale.x); brushCue.material.color.set('#286743');
   eraser.update([point.x, point.y]);
   stageCaption.textContent = 'ERASING · RELEASE TO STOP'; lastPinchHint = true;
   sceneHint.textContent = 'Brush away the mask inside the circle · release to stop';
@@ -1464,13 +1473,13 @@ function processSculptPoint(sculptPoint, pinchOverride, pinchRatio = 1, cursor =
     brushCue.visible=Boolean(hit);contactCue.visible=false;grabTether.visible=false;
     if(hit) {
       brushCue.position.copy(hit.worldPoint);brushCue.position.z+=.025;
-      brushCue.scale.setScalar(paintRadius*clay.scale.x);brushCue.material.color.set(paintColor);
+      brushCue.scale.setScalar(paintRadius*clay.scale.x);brushCue.material.color.set('#286743');
     }
     if(!pinchActive){clayVolume.surfacePaint?.finish();return;}
     if(!hit){clayVolume.surfacePaint?.breakPath();return;}
     const volume=clayVolume,item=clayObjects.active;
-    volume.surfacePaint ??=new SurfacePaint(volume,point=>{item.edited=true;if(volume===clayVolume)markClayEdited();
-      queueMicrotask(()=>{if(volume===clayVolume)studioTutorial?.recordPaint(point);});});
+    volume.surfacePaint ??=new SurfacePaint(volume,(point,stroke)=>{item.edited=true;if(volume===clayVolume)markClayEdited();
+      queueMicrotask(()=>{if(volume===clayVolume)studioTutorial?.recordPaint(point,stroke);});});
     if(!volume.surfacePaint.active && !volume.surfacePaint.begin(paintRadius,paintColor,symmetryEnabled))return;
     const normal=hit.worldNormal.clone().transformDirection(clay.matrixWorld.clone().invert());
     volume.surfacePaint.update(hit.point,normal);
@@ -1478,7 +1487,15 @@ function processSculptPoint(sculptPoint, pinchOverride, pinchRatio = 1, cursor =
   }
 
   if (activeTool === 'extrude') {
-    brushCue.visible=false; contactCue.visible=false; grabTether.visible=false;
+    const hover = getClaySurfaceHit(sculptPoint);
+    brushCue.visible = Boolean(hover); contactCue.visible=false; grabTether.visible=false;
+    brushCue.scale.setScalar(brushRadius() * clay.scale.x);
+    brushCue.material.color.set('#286743');
+    if (hover) {
+      brushCue.position.copy(hover.worldPoint); brushCue.position.z += .035;
+      brushCue.scale.setScalar(brushRadius() * clay.scale.x);
+      brushCue.material.color.set('#286743');
+    }
     if (!pinchActive) {
       clayVolume.surfaceExtrude?.finish(); previousPullPoint=null; grabCursorOrigin=null; grabAnchor=null;
       return;
@@ -1507,6 +1524,8 @@ function processSculptPoint(sculptPoint, pinchOverride, pinchRatio = 1, cursor =
     target.z+=Math.min(.55,delta.length()*.22);
     clayVolume.surfaceExtrude.update(target);
     previousPullPoint=target;
+    brushCue.visible = true;
+    brushCue.position.copy(clay.localToWorld(target.clone())); brushCue.position.z += .035;
     sceneHint.textContent='Extruding · trace your curve, then release for a narrow tip';
     return;
   }
@@ -1540,7 +1559,7 @@ function processSculptPoint(sculptPoint, pinchOverride, pinchRatio = 1, cursor =
   if (brushCue.visible) {
     brushCue.position.copy(contact.worldPoint); brushCue.position.z += 0.035;
     brushCue.scale.setScalar(brushRadius() * clay.scale.x);
-    brushCue.material.color.set(clayVolume.meshQueue?.pending ? '#be914b' : '#538c68');
+    brushCue.material.color.set('#286743');
   }
   diagnostics.pinch = pinchActive ? 'held' : 'open';
   diagnostics.pause = 'none';
@@ -1550,6 +1569,10 @@ function processSculptPoint(sculptPoint, pinchOverride, pinchRatio = 1, cursor =
   if (previousPullPoint) {
     pinchCue.position.copy(clay.localToWorld(previousPullPoint.clone()));
     pinchCue.position.z += 0.09;
+    brushCue.visible = true;
+    brushCue.position.copy(pinchCue.position);
+    brushCue.scale.setScalar(brushRadius() * clay.scale.x);
+    brushCue.material.color.set('#286743');
   }
   const hasPinchContact = pinchActive && Boolean(previousPullPoint);
   if (hasPinchContact) {
@@ -2126,6 +2149,10 @@ handUI = new HandUI({
 maskShapePicker = new MaskShapePicker({
   stage: document.querySelector('#stage'),
   onOpen: () => { if (handUI.isOpen) handUI.close(); pauseForHandUI(); editingPaused = true; },
+  onContinue: () => {
+    pauseForHandUI();editingPaused=false;
+    showToolInstructions();handUI.sync();
+  },
   onChoose: async (shape, eyes) => {
     if (volumeBusy() || clayVolume.meshQueue?.pending) throw new Error('Please wait for your current edit to finish.');
     const item = clayObjects.active;
@@ -2157,9 +2184,10 @@ studioTutorial = new StudioTutorial({
     if(phase==='shape') {
       let item=clayObjects.active;
       if(item.edited) {
-        item=clayObjects.add(recipe.shape,`#${item.material.color.getHexString()}`);
+        item=clayObjects.add(recipe.shape,recipe.maskColour);
         if(!item)throw new Error('Remove a saved mask to try a new recipe.');
       } else item.volume.reset(recipe.shape,'oval');
+      item.material.color.set(recipe.maskColour);
       item.shape=recipe.shape;item.label=`${recipe.shapeLabel} ${item.id}`;
       item.volume.undoStack=[];item.volume.redoStack=[];
       item.volume.userScale=1;item.volume.userOffset=[0,0];

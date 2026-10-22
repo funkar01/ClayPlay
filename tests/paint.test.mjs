@@ -9,8 +9,9 @@ import { makeWarp,forwardWarp } from '../src/maskWarp.js';
 import { PullPreview } from '../src/pullPreview.js';
 import { syncPaintTexture } from '../src/paintTexture.js';
 import { hasPaint } from '../src/paintLayer.js';
+import { acceptsTutorialAction } from '../src/tutorialRecipes.js';
 
-function fixture(t) {
+function fixture(t,onChange) {
   const oldDocument=globalThis.document;globalThis.document=new EventTarget();
   const volume=ClayVolume.fromState({shape:'full',field:[]});
   Object.assign(volume,{bricks:new Map(),parent:new THREE.Group(),material:new THREE.MeshPhysicalMaterial()});
@@ -18,7 +19,7 @@ function fixture(t) {
   geometry.setAttribute('position',new THREE.Float32BufferAttribute([0,0,.7,.1,0,.7,0,.1,.7],3));
   geometry.setAttribute('normal',new THREE.Float32BufferAttribute([0,0,1,0,0,1,0,0,1],3));
   const mesh=new THREE.Mesh(geometry,volume.material);volume.parent.add(mesh);volume.bricks.set('4,4,5',{mesh});
-  let changes=0;const paint=new SurfacePaint(volume,()=>changes++);
+  let changes=0;const paint=new SurfacePaint(volume,(...args)=>{changes++;onChange?.(...args);});
   t.after(()=>{paint.finish();for(const {mesh}of volume.bricks.values())mesh.geometry.dispose();volume.material.dispose();globalThis.document=oldDocument;});
   return {volume,paint,geometry,changes:()=>changes};
 }
@@ -34,6 +35,34 @@ test('Slow and fast samples give the same soft stroke instead of accumulating gr
     const a=samplePaint(fast.volume,x,y,.7),b=samplePaint(slow.volume,x,y,.7);
     assert.ok(a.every((v,i)=>Math.abs(v-b[i])<.003),`coverage differs at ${x},${y}`);
   }
+});
+
+test('The first outward paint stroke completes its lesson on release even when its endpoint is outside the target',t=>{
+  const mission={tool:'paint',target:[0,0,.7]},commits=[];
+  const {paint,volume}=fixture(t,(point,stroke)=>commits.push({point:point.toArray(),...stroke}));
+  const normal=new THREE.Vector3(0,0,1);
+  paint.begin(.08,'#2299ff');paint.update(new THREE.Vector3(...mission.target),normal);paint.tick();
+  paint.update(new THREE.Vector3(.7,0,.7),normal);paint.tick();
+  assert.equal(commits.length,0,'the lesson waits for release');
+  paint.finish();paint.finish();
+  assert.equal(commits.length,1,'release scores a stroke once');
+  assert.ok(volume.paint.size>0);
+  assert.equal(acceptsTutorialAction(mission,'paint',{point:commits[0].point}),false,'the old endpoint check rejects this stroke');
+  assert.equal(acceptsTutorialAction(mission,'paint',commits[0]),true);
+  paint.begin(.08,'#ff2233');paint.update(new THREE.Vector3(1.3,0,.7),normal);paint.finish();
+  assert.equal(acceptsTutorialAction(mission,'paint',commits[1]),false,'an unrelated later stroke cannot reuse the prior path');
+  assert.equal(acceptsTutorialAction(mission,'paint',commits[0]),true,'a new stroke does not mutate queued completion data');
+});
+
+test('Paint tutorial scoring respects missing surface gaps and mirrored brush coverage',t=>{
+  const mission={tool:'paint',target:[0,0,.7]},commits=[];
+  const {paint}=fixture(t,(point,stroke)=>commits.push({point:point.toArray(),...stroke}));
+  const normal=new THREE.Vector3(0,0,1);
+  paint.begin(.08,'#2299ff');paint.update(new THREE.Vector3(-.8,0,.7),normal);
+  paint.breakPath();paint.update(new THREE.Vector3(.8,0,.7),normal);paint.finish();
+  assert.equal(acceptsTutorialAction(mission,'paint',commits[0]),false,'disconnected dabs must not count as painting through their gap');
+  paint.begin(.08,'#ff2233',true);paint.update(new THREE.Vector3(-.8,0,.7),normal);paint.finish();
+  assert.equal(acceptsTutorialAction({tool:'paint',target:[.8,0,.7]},'paint',commits[1]),true,'the mirrored paint also counts');
 });
 
 test('Paint precision survives save/load and legacy paint remains correctly positioned',()=>{

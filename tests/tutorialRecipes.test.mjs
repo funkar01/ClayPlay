@@ -69,3 +69,16 @@ test('Every deformation and paint guide diverges from the mask midline', async (
     assert.equal(mirroredEnd[0],-end[0]);
   }
 });
+
+test('Every demonstrated outward paint stroke qualifies, including paths crossing between samples',async()=>{
+  const {outwardGuideTarget}=await import('../src/tutorialRecipes.js');
+  for(let run=0;run<42;run++) {
+    const mission=createTutorialRecipe(run).steps.find(step=>step.tool==='paint');
+    const start=mission.target,end=outwardGuideTarget(mission);
+    assert.equal(acceptsTutorialAction(mission,'paint',{point:end}),false,'the guide ends beyond the old endpoint tolerance');
+    assert.equal(acceptsTutorialAction(mission,'paint',{point:end,segments:[[start,end]]}),true);
+    const a=[start[0]-.7,start[1],start[2]],b=[start[0]+.7,start[1],start[2]];
+    assert.equal(acceptsTutorialAction(mission,'paint',{segments:[[a,b]]}),true,'continuous coverage between samples counts');
+    assert.equal(acceptsTutorialAction(mission,'paint',{segments:[[a,a],[b,b]]}),false,'a missing-surface gap never counts');
+  }
+});

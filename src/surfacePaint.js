@@ -8,7 +8,7 @@ export class SurfacePaint {
     if(radius<=0 || this.volume.pulling || this.volume.cutting || this.volume.meshQueue?.pending)return false;
     this.volume.meshQueue?.pauseRefinement?.();
     this.radius=Math.max(.04,Math.min(.5,radius));this.color=new THREE.Color(color);this.symmetry=symmetry;
-    this.changes=new Map();this.coverage=new Map();this.bases=new Map();this.pending=[];this.last=null;this.active=true;return true;
+    this.changes=new Map();this.coverage=new Map();this.bases=new Map();this.pending=[];this.segments=[];this.last=null;this.active=true;return true;
   }
   update(point,normal) {
     if(!this.active)return;
@@ -28,6 +28,7 @@ export class SurfacePaint {
         const mirror=p=>new THREE.Vector3(-p.x,p.y,p.z);
         bounds.union(paintSegment(this.volume,mirror(a),mirror(point),mirror(normal),this.radius,this.color,this.changes,this.coverage,this.bases,mirror(fromNormal)));
       }
+      this.segments.push([a.toArray(),point.toArray()]);
       this.applied=point;
       this.appliedNormal=normal;
     }
@@ -36,7 +37,10 @@ export class SurfacePaint {
   finish() {
     if(!this.active)return;
     this.tick();const lastPoint=this.applied?.clone();this.active=false;this.last=null;this.applied=null;this.appliedNormal=null;
-    if(this.changes.size){checkpointPaint(this.volume,this.changes);this.onChange(lastPoint);}
+    // Preserve the whole committed path for tutorial scoring, including gaps.
+    // The final point alone can be outside a correctly painted target.
+    const stroke={segments:this.segments,radius:this.radius,symmetry:this.symmetry};this.segments=null;
+    if(this.changes.size){checkpointPaint(this.volume,this.changes);this.onChange(lastPoint,stroke);}
     this.coverage.clear();this.bases.clear();this.changes.clear();
     this.volume.meshQueue?.resumeRefinement?.();
   }

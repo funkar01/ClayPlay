@@ -47,7 +47,9 @@ h1 em { color: var(--coral); font-style: normal; font-weight: 500; }
 .is-fullscreen .collapse-icon { display: initial; }
 .stage button:focus-visible { outline: 2px solid var(--coral); outline-offset: 3px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
-.stage { position: relative; height: clamp(440px, 62vh, 740px); overflow: hidden; border: 1px solid rgba(124,88,65,.1); border-radius: 8px; background: radial-gradient(ellipse at 50% 44%, #f5eee5 0%, #eee3d7 58%, #e6d9cc 100%); box-shadow: 0 13px 34px rgba(99,68,44,.055), inset 0 1px 0 rgba(255,255,255,.7); }
+.stage { position: relative; height: clamp(440px, 62vh, 740px); overflow: hidden; border: 1px solid rgba(124,88,65,.1); border-radius: 8px; background: var(--studio-background, #eadfd2); box-shadow: 0 13px 34px rgba(99,68,44,.055), inset 0 1px 0 rgba(255,255,255,.7); }
+.stage[data-studio-backdrop="dark"]:not(.is-ar) .stage-label { color: #e3d7c9; }
+.stage[data-studio-backdrop="dark"]:not(.is-ar) .corner { border-color: #c0ccd3; }
 .stage-grain { position: absolute; inset: 0; z-index: 1; pointer-events: none; opacity: .12; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.22'/%3E%3C/svg%3E"); }
 .stage-label { z-index: 3; position: absolute; top: 19px; left: 21px; display: flex; align-items: center; gap: 8px; color: #aa9a8b; font-size: 8px; font-weight: 700; letter-spacing: .14em; }.live-dot { width: 6px; height: 6px; background: #d59a79; border-radius: 50%; }
 .tool-switch { z-index: 5; position: absolute; top: 48px; right: 17px; display: flex; gap: 3px; padding: 3px; border: 1px solid rgba(255,255,255,.62); border-radius: 6px; background: rgba(249,245,239,.74); box-shadow: 0 2px 8px rgba(94,67,48,.07); backdrop-filter: blur(8px); }.tool-button { min-width: 48px; padding: 6px 8px; border: 0; border-radius: 4px; background: transparent; color: #927d6b; font-size: 9px; cursor: pointer; transition: background .16s ease,color .16s ease,box-shadow .16s ease; }.tool-button:hover { color: var(--coral-dark); }.tool-button.is-active { background: #fffaf4; color: #a9573e; box-shadow: 0 1px 4px rgba(94,67,48,.12); font-weight: 700; }
@@ -116,7 +118,7 @@ body.play-area-fullscreen { overflow: hidden; }
   border: 0; border-radius: 0; box-shadow: none;
 }
 .stage.is-expanded { position: fixed; inset: 0; z-index: 1000; }
-.stage::backdrop { background: #eadfd2; }
+.stage::backdrop { background: var(--studio-background, #eadfd2); }
 .is-fullscreen .fullscreen-button { right: max(17px, env(safe-area-inset-right)); bottom: max(17px, env(safe-area-inset-bottom)); }
 .stage-session-controls { position: absolute; z-index: 6; top: 146px; left: 19px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 .stage-session-controls[hidden] { display: none; }
@@ -439,6 +441,9 @@ body.play-area-fullscreen { overflow: hidden; }
 .mask-picker-grid button { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 8px; border: 2px solid transparent; border-radius: 18px; background: #eee4d6; color: inherit; cursor: pointer; font: inherit; }
 .mask-picker-grid button[aria-pressed="true"] { border-color: #9b5840; background: #f2ddcc; }
 .mask-picker-grid button:hover { background: #e8d6c5; }
+.mask-picker-grid .mask-picker-continue { background: #e2e9df; border-color: #b5c7ac; text-align: center; }
+.mask-picker-grid .mask-picker-continue:hover { background: #d3dfce; }
+.mask-picker-grid .mask-picker-continue svg { fill: none; stroke: #47745e; stroke-width: 1.5; stroke-linecap: round; }
 .mask-picker-grid svg { width: 76px; height: 76px; fill: #b98261; stroke: #774a36; stroke-width: .5; stroke-linejoin: round; }
 .mask-picker-grid svg ellipse { fill: #eee4d6; stroke: none; }
 .mask-picker-grid strong { font-size: 13px; }

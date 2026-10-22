@@ -101,8 +101,8 @@ export class StudioTutorial {
   recordPull(warp) {
     this.recordAction('pinch',warp);
   }
-  recordPaint(point) {
-    this.recordAction('paint',{point:point?.toArray()});
+  recordPaint(point,stroke) {
+    this.recordAction('paint',{point:point?.toArray(),...stroke});
   }
   recordAction(tool,data) {
     if(!this.active || this.phase!=='create' || !acceptsTutorialAction(this.mission,tool,data))return;
