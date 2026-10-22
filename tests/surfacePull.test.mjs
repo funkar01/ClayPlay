@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { SurfacePull } from '../src/surfacePull.js';
-import { enablePaintMaterial } from '../src/paintLayer.js';
+import { enablePaintMaterial,applyVertexPaint } from '../src/paintLayer.js';
 
-function fixture(t) {
+function fixture(t,{beforeBegin,anchor=new THREE.Vector3()}={}) {
   const previousWorker = globalThis.Worker, previousDocument = globalThis.document;
   globalThis.document = { dispatchEvent() {} };
   globalThis.Worker = class {
@@ -22,7 +22,8 @@ function fixture(t) {
     snapshot: () => ({ original: true }), undoStack: [{}], field: new Map() };
   let changes = 0;
   const pull = new SurfacePull(volume, () => changes++);
-  assert.equal(pull.begin(new THREE.Vector3(), .336, .55), true);
+  beforeBegin?.(volume);
+  assert.equal(pull.begin(anchor, .336, .55), true);
   const worker = pull.worker;
   t.after(() => { pull.abort(); geometry.dispose(); material.dispose();
     if (previousWorker === undefined) delete globalThis.Worker; else globalThis.Worker = previousWorker;
@@ -33,6 +34,28 @@ function fixture(t) {
     normals: new Float32Array([0,0,1, 0,0,1, 0,0,1]) }] });
   return { pull, worker, volume, geometry, response, changes: () => changes };
 }
+
+test('Starting a pull inserts its anchor without resampling unchanged paint',t=>{
+  let texture,version,state;
+  const f=fixture(t,{anchor:new THREE.Vector3(.02,.02,0),beforeBegin(volume){
+    enablePaintMaterial(volume.material);
+    volume.paint=new Map([['1,1,0',[1,0,0,1]]]);volume.paintCell=.02;
+    // Install the paint texture as a preceding rendered paint stroke would.
+    const geometry=volume.bricks.get('0,0,0').mesh.geometry;
+    applyVertexPaint(volume,geometry);volume.material.onBeforeRender();
+    state=volume.material.userData.surfacePaint;
+    texture=state.texture;version=texture.version;
+  }});
+  assert.equal(f.geometry.attributes.position.count,9,'the interior grab subdivides the triangle');
+  assert.equal(f.geometry.attributes.paintColor.count,9,'new vertices still have paint attributes');
+  assert.equal(state.dirty,false,'subdivision must not invalidate the unchanged paint field');
+  f.volume.material.onBeforeRender();
+  assert.equal(state.texture,texture);
+  assert.equal(texture.version,version,'the first grabbed frame does not rebuild or upload paint');
+  // Real paint/field changes must continue to invalidate the texture.
+  applyVertexPaint(f.volume,f.geometry);
+  assert.equal(state.dirty,true);
+});
 
 test('Slow pull keeps its frozen preview and saves when the final reply arrives',t=>{
   const f=fixture(t),original=globalThis.setTimeout;let warning;

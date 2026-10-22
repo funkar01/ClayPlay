@@ -2,17 +2,17 @@ import { HandMotion } from './handMotion.js';
 
 const clamp=v=>Math.max(0,Math.min(1,v));
 // Use the wrist and finger bases, never the bounding box or fingertip cluster.
-export function palmPosture(points,aspect=1) {
-  if(!points || points.length<21 || points.some(p=>!['x','y','z'].every(k=>Number.isFinite(p[k]))))return null;
+export function palmPosture(points,aspect=1,onInvalid) {
+  if(!points || points.length<21 || points.some(p=>!['x','y','z'].every(k=>Number.isFinite(p[k])))){onInvalid?.('invalid-landmarks');return null;}
   const ids=[0,5,9,13,17];
-  if(ids.some(i=>points[i].x<.015 || points[i].x>.985 || points[i].y<.015 || points[i].y>.985))return null;
+  if(ids.some(i=>points[i].x<.015 || points[i].x>.985 || points[i].y<.015 || points[i].y>.985)){onInvalid?.('palm-at-frame-edge');return null;}
   const center={x:0,y:0,z:0};
   for(const i of ids)for(const k of ['x','y','z'])center[k]+=points[i][k]/ids.length;
   const d=(a,b)=>Math.hypot((points[a].x-points[b].x)*aspect,points[a].y-points[b].y);
   const width=d(5,17),length=d(0,9),scale=Math.max(width,length);
-  if(scale<.04 || length<.025)return null;
+  if(scale<.04 || length<.025){onInvalid?.('palm-too-small');return null;}
   const area=Math.abs((points[5].x-points[0].x)*aspect*(points[17].y-points[0].y)-(points[17].x-points[0].x)*aspect*(points[5].y-points[0].y));
-  if(area/(scale*scale)<.08)return null;
+  if(area/(scale*scale)<.08){onInvalid?.('palm-too-edge-on');return null;}
   let curled=0,extended=0;
   for(const [base,joint,tip]of [[5,6,8],[9,10,12],[13,14,16],[17,18,20]]) {
     const a=points[base],b=points[joint],c=points[tip];
@@ -30,11 +30,13 @@ export class PalmControl {
   reset(){this.held=false;this.armed=false;this.openAt=null;this.closeAt=null;this.uncertainAt=null;this.last=null;this.offset={x:0,y:0};this.time=null;this.raw=null;this.motion.reset();}
   lose(){this.reset();return {valid:false,held:false,open:false,phase:'lost',point:null};}
   update(points,now,aspect=1) {
-    if(this.time!==null && now-this.time>250)this.reset();
-    const posture=palmPosture(points,aspect);
+    this.diagnostic={gapMs:this.time===null?null:now-this.time,heldBefore:this.held,armedBefore:this.armed};
+    if(this.time!==null && now-this.time>250){this.diagnostic.reason='palm-frame-gap';this.reset();}
+    const posture=palmPosture(points,aspect,reason=>{this.diagnostic.reason=reason;});
     if(!posture)return this.lose();
+    Object.assign(this.diagnostic,{open:posture.open,opening:posture.opening,closed:posture.closed});
     const raw=posture.center;
-    if(this.raw && this.time!==null && now-this.time<120 && Math.hypot((raw.x-this.raw.x)*aspect,raw.y-this.raw.y)>posture.scale*1.1)return this.lose();
+    if(this.raw && this.time!==null && now-this.time<120 && Math.hypot((raw.x-this.raw.x)*aspect,raw.y-this.raw.y)>posture.scale*1.1){this.diagnostic.reason='palm-position-jump';return this.lose();}
     this.raw={...raw};this.time=now;
     // Inner 70% of the view reaches the workspace edges without clipping fingers.
     const measured={x:clamp((raw.x-.15)/.7),y:clamp((raw.y-.15)/.7),z:0};
@@ -63,6 +65,8 @@ export class PalmControl {
       return {valid:true,held:true,open:false,phase:'holding',point:this.last};
     }
     this.closeAt=null;this.uncertainAt??=now;
+    this.diagnostic.reason='ambiguous-palm-posture';
+    this.diagnostic.uncertainMs=now-this.uncertainAt;
     if(this.held && now-this.uncertainAt>120)return this.lose();
     return {valid:false,held:this.held,open:false,phase:'uncertain',point:this.last};
   }

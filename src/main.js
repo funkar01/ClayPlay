@@ -1,4 +1,5 @@
 import { SelfieStudio } from './selfie.js';
+import { ComfortSetup } from './comfortSetup.js';
 import { PalmControl } from './palmControl.js';
 import { PaintPicker } from './paintPicker.js';
 import { SculptSounds } from './sculptSounds.js';
@@ -14,6 +15,7 @@ import { HandMotion } from './handMotion.js';
 import { HAND_SOURCE_MAX_AGE_MS, usableHandSample, currentHandPose } from './handTrackingTiming.js';
 import { PinchGesture } from './pinchGesture.js';
 import { diagnostics } from './diagnostics.js';
+import { trackingTrace } from './trackingTrace.js';
 import { SurfacePull } from './surfacePull.js';
 import { SurfaceExtrude } from './surfaceExtrude.js';
 import { SurfacePaint } from './surfacePaint.js';
@@ -230,10 +232,18 @@ function dismissStudioMessage() {
   sceneHint.hidden = false;
 }
 studioMessageOK.addEventListener('pointerdown', event => event.stopPropagation());
+const comfortSetup = new ComfortSetup({
+  stage: sceneHost.parentElement,
+  startCamera: async () => {
+    if (!stream) await startCamera();
+    else if (!landmarker) await startTracking();
+  },
+  onReady: (cursor = false) => { if (cursor) stopCamera(); sceneHint.hidden = false; studioTutorial.start(); },
+});
 studioMessageOK.addEventListener('click', () => {
   dismissStudioMessage();
-  if (!stream && !cameraOpening) startCamera();
-  studioTutorial.start();
+  sceneHint.hidden = true;
+  comfortSetup.open(() => Boolean(stream && landmarker));
 });
 video.addEventListener('resize', () => {
   if (arView.live) { cancelMouseStroke(); poseTarget = null; poseDisplayed = null; smoothedPoints = null; }
@@ -527,6 +537,7 @@ resizeButton.addEventListener('pointerdown', event => event.stopPropagation());
 updateResizeControl();
 
 function processHandResult(result, now, sampleAt = now) {
+  trackingTrace.record('tracking-result',{sampleAgeMs:now-sampleAt,hands:result.landmarks?.length??0,grabbing:Boolean(previousPullPoint),held:pinchActive,meshPending:Boolean(clayVolume.meshQueue?.pending)});
   const inputStream = stream;
   const wasTrying = tryOn.enabled;
   const editingMask = Boolean(previousPullPoint || cutStroke || palmMove.active || twoHandScale.active || pinchActive);
@@ -534,6 +545,12 @@ function processHandResult(result, now, sampleAt = now) {
   const indices = (result.landmarks ?? []).map((hand, i) => palmCenter(hand) ? i : -1).filter(i => i >= 0).slice(0, 2);
   const hands = indices.map(i => result.landmarks[i]);
   const aspect = video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 1;
+  if (comfortSetup.active) {
+    if (hands[0]) drawPreviewSkeleton(hands[0]);
+    else clearPreview();
+    comfortSetup.observe(usableHandSample(sampleAt, now) ? hands : [], aspect, sampleAt);
+    return;
+  }
   const bothFists = hands.length === 2 && hands.every(hand => closedFist(hand, aspect));
   const resizeIntent = bothFists && !resizeAutoPaused && !handUI?.isOpen && !editingPaused;
   diagnostics.detectedHands = hands.length;
@@ -549,17 +566,18 @@ function processHandResult(result, now, sampleAt = now) {
   if (wasTrying || tryOn.enabled) return;
   // Stable camera/inference delay must not look like repeated hand loss.
   // Only new, usable measurements may edit; missing detections still pause.
-  if (!usableHandSample(sampleAt, now)) { showNoHand(now); return; }
+  if (!usableHandSample(sampleAt, now)) { showNoHand(now,'stale-tracking-result'); return; }
   // A detector miss is not a release or a hand switch. Keep the existing
   // patch during the short tracking grace period and stop applying movement.
   if (active && !twoHandScale.active && !resizeIntent && ui?.index === null && !ui.owns && !handUI?.isOpen && !editingPaused) {
-    showNoHand(now); return;
+    showNoHand(now,'editing-hand-missing'); return;
   }
   // Do not transfer a held stroke to a surviving, different hand. Keep the
   // visible edit and wait for an open hand before accepting another gesture.
   const lostEditHand = active && !twoHandScale.active && !resizeIntent && (ui?.index === null || ui?.changed);
   if (ui?.changed) smoothedPoints = null;
   if (((ui?.owns || ui?.missing) && !resizeIntent) || lostEditHand || handUI?.isOpen || editingPaused || (handUICaptured && ui?.needsOpen && !resizeIntent)) {
+    if(!handUICaptured && controlMode==='palm' && editingMask)trackingTrace.incident('ui-input-capture',{owns:ui?.owns,missing:ui?.missing,changed:ui?.changed,needsOpen:ui?.needsOpen,menuOpen:handUI?.isOpen,editingPaused,grabbing:Boolean(previousPullPoint),uiPalm:handUI?.palmInput?.diagnostic});
     if (!handUICaptured) cancelMouseStroke();
     setResizeMode(false);
     poseTarget = null; poseDisplayed = null; smoothedPoints = null;
@@ -590,7 +608,7 @@ function processHandResult(result, now, sampleAt = now) {
   } else {
     landmarkCount.textContent = '0 LANDMARKS · WAITING';
     setStatus('searching', 'LOOKING FOR HAND');
-    showNoHand(now);
+    showNoHand(now,'no-hand-detected');
   }
 }
 
@@ -811,8 +829,13 @@ function pullClayAlongPath(handPoint, isPulling, surfacePoint = undefined) {
     });
     // Save one reversible action, then deform the same original patch on every
     // update. No resampling or old path backlog runs in the drawing loop.
+    const pullSetupAt=performance.now();
+    trackingTrace.record('pull-begin-start');
     checkpoint(volume);
-    if (!volume.surfacePull.begin(currentPoint, brushRadius(), activeStrength / 100, symmetryEnabled)) return;
+    const checkpointMs=performance.now()-pullSetupAt;
+    const started=volume.surfacePull.begin(currentPoint, brushRadius(), activeStrength / 100, symmetryEnabled);
+    trackingTrace.record('pull-begin-finish',{started,checkpointMs,setupMs:performance.now()-pullSetupAt});
+    if (!started) return;
     previousPullPoint = currentPoint;
     grabAnchor = currentPoint.clone();
     pullPlane.constant = -clay.localToWorld(currentPoint.clone()).z;
@@ -919,7 +942,7 @@ function renderScene() {
     drawPreviewSkeleton(visualPoints);
     diagnostics.predictionMs = Math.min(Math.max(0, now - handMotion.receivedAt), handMotion.period, handMotion.maxPredictionMs);
   } else if (!resizeEnabled && !tryOn.enabled && poseTarget && !currentHandPose(handMotion.receivedAt, now)) {
-    pauseTracking(now);
+    pauseTracking(now,'no-fresh-pose-for-300ms');
   }
   depthGuide.hidden = true;
   for (const item of clayObjects.items) {
@@ -940,6 +963,7 @@ function renderScene() {
     mirroredBrush.material.color.copy(brushCue.material.color);
   }
   if (arView.live) handModel.visible = false;
+  const renderStarted=performance.now();
   if (tryOn.enabled) {
     tryOn.setItem(clayObjects.active);
     const wearing = tryOn.update(now, dt);
@@ -961,6 +985,8 @@ function renderScene() {
     }
     renderer.render(tryOn.scene, tryOn.camera);
   } else renderer.render(scene, camera);
+  const renderMs=performance.now()-renderStarted;
+  if(renderMs>50)trackingTrace.record('slow-render',{renderMs,grabbing:Boolean(previousPullPoint),meshPending:Boolean(clayVolume.meshQueue?.pending)});
   selfie?.tick(now,{ready:!document.hidden && tryOn.enabled && tryOn.mask.visible && Boolean(tryOn.target) && arView.live && now-tryOn.receivedAt<300,video:arView.video,canvas:renderer.domElement});
   updateHistoryButtons();
   handUI?.tick(now);
@@ -1046,7 +1072,7 @@ function palmInstruction(text) {
   return text.replace(/keep your fingers pinched/gi,'keep your hand closed').replace(/pinching/gi,'holding your hand closed').replace(/pinched/gi,'closed').replace(/pinch/gi,'close your hand').replace(/your index(?: finger)?/gi,'your palm').replace(/open your fingers/gi,'open your hand');
 }
 
-function cursorInputEnabled() { return !stream && !cameraOpening && !tryOn.enabled; }
+function cursorInputEnabled() { return !comfortSetup.active && !stream && !cameraOpening && !tryOn.enabled; }
 
 function showToolInstructions() {
   const details = toolDetails();
@@ -1238,6 +1264,8 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null, worldLandmark
   const aspect = video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 1;
   if(controlMode==='palm') {
     palmControlState=palmControl.update(landmarks,sampleAt,aspect);
+    trackingTrace.record('sculpt-palm',{...palmControl.diagnostic,phase:palmControlState.phase,valid:palmControlState.valid,held:palmControlState.held});
+    if(palmControl.diagnostic.reason && (palmControl.diagnostic.heldBefore || previousPullPoint))trackingTrace.incident(palmControl.diagnostic.reason,{...palmControl.diagnostic,grabbing:Boolean(previousPullPoint)});
     if(!palmControlState.valid) {
       poseTarget=null;clayVolume.surfacePaint?.breakPath();
       if(palmControlState.phase==='lost')cancelMouseStroke();
@@ -1301,6 +1329,7 @@ function processErase(handPoint, held, wasHeld, cursorInput = false) {
       if (event.pending) {sceneHint.textContent='Finishing your erasure · your stroke is kept while the surface updates';return;}
       if (event.error) { sceneHint.textContent = 'Erase could not finish · completed parts are kept; the unfinished preview was not saved. Undo to restore the stroke.'; return; }
       if (event.done) {
+        if(event.changed)queueMicrotask(()=>{if(volume===clayVolume)studioTutorial?.recordAction('erase',{changed:true});});
         sceneHint.textContent = event.changed ? 'Erased · Undo brings it back' : 'Point the circle at the mask and pinch again';
         stageCaption.textContent = 'ERASE · READY FOR ANOTHER STROKE';
       }
@@ -1458,7 +1487,11 @@ function processSculptPoint(sculptPoint, pinchOverride, pinchRatio = 1, cursor =
       const hit=getClaySurfaceHit(sculptPoint);
       if (!hit || clayVolume.meshQueue?.pending) return;
       const volume=clayVolume;
-      volume.surfaceExtrude ??= new SurfaceExtrude(volume,()=>{if(volume===clayVolume) markClayEdited();});
+      volume.surfaceExtrude ??= new SurfaceExtrude(volume,()=>{
+        if(volume===clayVolume)markClayEdited();
+        const points=volume.extrusion?.points;
+        queueMicrotask(()=>{if(volume===clayVolume)studioTutorial?.recordAction('extrude',{points});});
+      });
       if (!volume.surfaceExtrude.begin(hit.point,brushRadius(),symmetryEnabled)) return;
       grabAnchor=hit.point.clone(); previousPullPoint=hit.point.clone();
       pullPlane.constant=-clay.localToWorld(hit.point.clone()).z;
@@ -1568,7 +1601,8 @@ function showTracking(landmarks, now, worldLandmarks, handedness, sampleAt = now
   updateThreeSkeleton(landmarks, now, null, worldLandmarks, handedness, true, sampleAt);
 }
 
-function pauseTracking(now) {
+function pauseTracking(now,reason='tracking-pause') {
+  if(controlMode==='palm' && gapStartedAt===null && (previousPullPoint || pinchGesture.held))trackingTrace.incident(reason,{grabbing:Boolean(previousPullPoint),held:pinchGesture.held,poseGapMs:now-handMotion.receivedAt,inferenceMs:diagnostics.inferenceMs,roundTripMs:diagnostics.roundTripMs,frameMs:diagnostics.frameMs,sculptMs:diagnostics.sculptMs});
   if(controlMode==='palm' && gapStartedAt===null) {
     cancelMouseStroke();handUI?.palmInput?.lose();
     sceneHint.textContent='Tracking paused · open your hand when it returns';
@@ -1596,9 +1630,9 @@ function pauseTracking(now) {
   }
 }
 
-function showNoHand(now) {
+function showNoHand(now,reason='hand-unavailable') {
   setResizeMode(false);
-  pauseTracking(now);
+  pauseTracking(now,reason);
   if (now - gapStartedAt <= 700) {
     contactLabel.textContent = 'Tracking paused · hold your pose';
     return;
@@ -1671,7 +1705,7 @@ async function trackingLoop(epoch, frame) {
       // Never sculpt using an old result after a long inference stall.
       if (performance.now() - frame.sampleAt >= HAND_UI_SAMPLE_AGE_MS) {
         handUI?.suspend(performance.now());
-        if (!tryOn.enabled) showNoHand(performance.now());
+        if (!tryOn.enabled) showNoHand(performance.now(),'tracking-result-over-500ms');
       } else processHandResult(result, performance.now(), frame.sampleAt);
     }
   } catch (error) {
@@ -2049,6 +2083,7 @@ handUI = new HandUI({
     masks: clayObjects.items.map(item => ({ id: item.id, label: item.label, shape: item.shape, color: `#${item.material.color.getHexString()}` })),
     edited: clayObjects.active.edited, symmetry: symmetryEnabled, ar: arView.enabled, trying: tryOn.enabled,
     selfieBusy:Boolean(selfie?.busy), controlMode, sound: sculptSounds.enabled, paused: editingPaused, cameraOn: Boolean(stream), positionResetDisabled: positionResetButton.disabled,
+    trackingIssue:Boolean(trackingTrace.failure),
     busy: Boolean(clayMenu?.isBusy || clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending),
   }),
   onPause: pauseForHandUI,
@@ -2076,6 +2111,11 @@ handUI = new HandUI({
     else if (action === 'camera-off') stopCamera();
     else if (action === 'camera-on') { handUI.close(); cameraButton.click(); }
     else if (action === 'tutorial') { studioTutorial.start(); }
+    else if(action==='tracking-report') {
+      const report=JSON.stringify({diagnostics,...trackingTrace.report()},null,2);
+      const copied=navigator.clipboard?.writeText(report) ?? Promise.reject(new Error('Clipboard unavailable'));
+      copied.then(()=>{sceneHint.textContent='Issue report copied.';handUI.announce('Issue report copied');},()=>{sceneHint.textContent='Could not copy the report; try clicking with the mouse.';});
+    }
     else if (action === 'pause') {
       editingPaused = !editingPaused; pauseForHandUI();
       sceneHint.textContent = editingPaused ? 'Editing paused · choose More, then Resume creating' : (controlMode==='palm' ? 'Ready to create · close your hand on a patch or choose a tool' : 'Ready to create · pinch a patch or choose a tool');
@@ -2113,6 +2153,22 @@ maskShapePicker = new MaskShapePicker({
 
 studioTutorial = new StudioTutorial({
   getControlMode: () => controlMode,
+  onPrepare: async (recipe,phase) => {
+    if(phase==='shape') {
+      let item=clayObjects.active;
+      if(item.edited) {
+        item=clayObjects.add(recipe.shape,`#${item.material.color.getHexString()}`);
+        if(!item)throw new Error('Remove a saved mask to try a new recipe.');
+      } else item.volume.reset(recipe.shape,'oval');
+      item.shape=recipe.shape;item.label=`${recipe.shapeLabel} ${item.id}`;
+      item.volume.undoStack=[];item.volume.redoStack=[];
+      item.volume.userScale=1;item.volume.userOffset=[0,0];
+      clayObjects.layout(camera);selectClayObject(item.id);
+    } else {
+      clayVolume.setEyeShape(recipe.eyes);
+      clayMenu?.refresh();
+    }
+  },
   onFinish: reason => {
     if (reason === 'skip') { maskShapePicker.open(); return; }
     setPrompt('Made by you.', 'Your mask is yours to keep shaping. Undo lets you experiment.', 'success');
@@ -2120,8 +2176,6 @@ studioTutorial = new StudioTutorial({
   onTryOn: () => tryButton.click(),
   locate: target => {
     const local = new THREE.Vector3(...target);
-    // Half masks have a shorter forehead; keep horn hints on solid clay.
-    if (clayVolume.shape === 'half' && local.y > 1) local.y = .8;
     const world = clay.localToWorld(local);
     const projected = world.project(camera);
     if (projected.z < -1 || projected.z > 1) return null;
@@ -2143,7 +2197,11 @@ studioTutorial = new StudioTutorial({
       sizeInput.value = '22'; sizeInput.dispatchEvent(new Event('input'));
       strengthInput.value = '65'; strengthInput.dispatchEvent(new Event('input'));
     }
-    if (mission.id === 'cheeks') setPaintColor('#df7e87');
+    if(tool==='paint')setPaintColor(studioTutorial.recipe.colour);
+    if(tool==='erase' || tool==='paint' || tool==='extrude') {
+      sizeInput.value=tool==='erase'?'12':tool==='paint'?'18':'24';
+      sizeInput.dispatchEvent(new Event('input'));
+    }
   },
 });
 
@@ -2185,6 +2243,7 @@ document.addEventListener('sculpt-save-pending',()=>{
 
 // Opt-in local inspection for replaying landmark traces and comparing field
 // and mesh state. Camera data is never retained or transmitted by this hook.
+window.clayPlayTrackingReport=()=>JSON.stringify({diagnostics,...trackingTrace.report()},null,2);
 if (new URLSearchParams(location.search).has('diagnostics')) {
   window.clayPlayDebug = { objects: clayObjects, camera, tryOn,
     feedHands: (hands, now, { sampleAt = now, handedness } = {}) => processHandResult({ landmarks: hands, handedness }, now, sampleAt),

@@ -1,4 +1,5 @@
 import { PalmControl } from './palmControl.js';
+import { trackingTrace } from './trackingTrace.js';
 import { HandSelection, ControlHand } from './handSelection.js';
 import { palmCenter } from './twoHandScale.js';
 import { closedPalm } from './palmMove.js';
@@ -158,6 +159,7 @@ export class HandUI {
       const tutorial = button('Replay tutorial', 'tutorial'); tutorial.disabled = s.busy;
       const sound = button(`Sounds ${s.sound ? 'On' : 'Off'}`, 'sound'); sound.setAttribute('aria-pressed', String(s.sound));
       grid.append(sound, symmetry, position, reset, pause, camera, tutorial);
+      if(s.trackingIssue)grid.append(button('Copy issue report','tracking-report'));
     } else if (this.page === 'controls') {
       const note=document.createElement('p');note.className='hand-panel-caption';
       note.textContent='Try both and choose what feels natural. Your choice is remembered.';grid.append(note);
@@ -183,7 +185,20 @@ export class HandUI {
       }
       const caption = document.createElement('p'); caption.textContent = 'Add a starter mask'; caption.className = 'hand-panel-caption'; grid.append(caption);
       for (const [shape, details] of Object.entries(MASK_SHAPES)) {
-        const add = button(`＋ ${details.label}`, 'add-mask', shape); add.disabled = s.busy || s.masks.length >= 8; grid.append(add);
+        const add = button(`＋ ${details.label}`, 'add-mask', shape);
+        add.className = 'hand-mask-card hand-starter-mask';
+        const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        icon.setAttribute('viewBox', '0 0 24 24'); icon.setAttribute('aria-hidden', 'true');
+        const outline = document.createElementNS(icon.namespaceURI, 'path');
+        outline.setAttribute('d', details.icon); icon.append(outline);
+        for (const cx of ['9.2', '14.8']) {
+          const eye = document.createElementNS(icon.namespaceURI, 'ellipse');
+          eye.setAttribute('cx', cx); eye.setAttribute('cy', '10');
+          eye.setAttribute('rx', '1.5'); eye.setAttribute('ry', '.7');
+          icon.append(eye);
+        }
+        add.prepend(icon);
+        add.disabled = s.busy || s.masks.length >= 8; grid.append(add);
       }
       const remove = button('Remove selected', 'remove'); remove.disabled = s.busy || s.masks.length < 2; grid.append(remove);
     } else if (this.page === 'eyes') {
@@ -308,6 +323,7 @@ export class HandUI {
     const palmMode=this.controlMode==='palm';
     this.palmInput ??=new PalmControl();
     const palm=palmMode ? this.palmInput.update(hand.points,sampleAt,aspect) : null;
+    if(palmMode)trackingTrace.record('ui-palm',{...this.palmInput.diagnostic,phase:palm.phase,valid:palm.valid,held:palm.held});
     if(palmMode && (!palm.valid || !palm.point)) {
       this.selection.pause(now);this.sizeDrag=null;
       return {owns:this.isOpen,index:hand.index,needsOpen:!palm.held,missing:palm.phase==='lost',changed:hand.changed};

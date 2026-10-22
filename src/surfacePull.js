@@ -98,7 +98,9 @@ export class SurfacePull {
       const geometry = this.volume.bricks.get(bricks[i].key).mesh.geometry;
       geometry.setAttribute('position', new THREE.BufferAttribute(bricks[i].positions.slice(), 3));
       geometry.setAttribute('normal', new THREE.BufferAttribute(bricks[i].normals.slice(), 3));
-      applyVertexPaint(this.volume,geometry);
+      // Inserting an anchor only subdivides the existing surface. Its paint
+      // field and bounds are unchanged, so keep the already sampled texture.
+      applyVertexPaint(this.volume,geometry,null,{invalidateTexture:false});
       geometry.boundingBox = null; geometry.boundingSphere = null;
     }
     for (const { mesh } of this.volume.bricks.values()) mesh.frustumCulled = false;

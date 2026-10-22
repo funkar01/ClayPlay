@@ -13,6 +13,7 @@
   --cream: #f5efe7;
   --selected-fill: #326b49;
   --selected-ink: #fffaf3;
+  --instruction-font-size: 14px;
 }
 
 * { box-sizing: border-box; }
@@ -40,6 +41,7 @@ h1 em { color: var(--coral); font-style: normal; font-weight: 500; }
 .stage-wrap { position: relative; }
 .fullscreen-button { position: absolute; z-index: 6; right: 17px; bottom: 17px; min-height: 38px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 12px; border: 1px solid rgba(255,255,255,.8); border-radius: 5px; background: rgba(255,251,246,.9); color: #806550; font-size: 11px; cursor: pointer; box-shadow: 0 2px 8px rgba(94,67,48,.08); backdrop-filter: blur(8px); }
 .fullscreen-button:hover { background: #fffaf4; color: var(--coral-dark); }
+.fullscreen-button[hidden] { display: none; }
 .fullscreen-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .fullscreen-button .collapse-icon, .is-fullscreen .expand-icon { display: none; }
 .is-fullscreen .collapse-icon { display: initial; }
@@ -63,6 +65,19 @@ h1 em { color: var(--coral); font-style: normal; font-weight: 500; }
 .scene-hint { z-index: 3; position: absolute; bottom: 19px; left: 50%; transform: translateX(-50%); padding: 9px 13px; border: 1px solid rgba(255,255,255,.55); border-radius: 4px; background: rgba(249,245,239,.58); color: #938171; font-size: 10px; white-space: nowrap; backdrop-filter: blur(9px); }.hint-icon { margin-right: 7px; color: var(--coral); }
 .studio-message { z-index: 6; display: flex; align-items: center; gap: 12px; padding: 8px 10px 8px 14px; background: rgba(255,251,246,.94); color: #765844; font-size: 11px; box-shadow: 0 3px 14px rgba(94,67,48,.1); }
 .studio-message > span { min-width: 0; }
+.comfort-setup { position: absolute; z-index: 25; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(360px, calc(100% - 32px)); box-sizing: border-box; padding: 26px; border: 1px solid #fffaf5; border-radius: 12px; background: #fffaf5; color: #765844; box-shadow: 0 12px 48px #55362026; }
+.comfort-setup[hidden] { display: none; }
+.comfort-step { color: #9b7159; font-size: 10px; font-weight: 700; letter-spacing: .12em; }
+.comfort-setup h2 { margin: 12px 0; font-size: 23px; font-weight: 500; line-height: 1.2; color: #604b3b; }
+.comfort-setup h2:focus { outline: none; }
+.comfort-setup p { margin: 0; font-size: 14px; line-height: 1.6; }
+.comfort-setup .comfort-status { margin-top: 16px; font-size: 12px; color: #806550; }
+.comfort-status:empty { display: none; }
+.comfort-setup button { margin-top: 20px; min-height: 44px; padding: 10px 22px; border: 0; border-radius: 5px; background: var(--coral); color: #fffaf5; font: inherit; font-weight: 700; cursor: pointer; }
+.comfort-setup button:hover { background: var(--coral-dark); }
+.comfort-setup button:disabled { opacity: .65; cursor: wait; }
+.comfort-setup button:focus-visible { outline: 2px solid #765844; outline-offset: 3px; }
+.comfort-setup .comfort-skip { display: block; }
 .studio-message button { flex-shrink: 0; min-width: 44px; min-height: 36px; padding: 7px 12px; border: 0; border-radius: 4px; background: var(--coral); color: #fffaf5; font: inherit; font-weight: 700; cursor: pointer; }
 .studio-message button:hover { background: var(--coral-dark); }
 .studio-message button:focus-visible { outline: 2px solid #765844; outline-offset: 3px; }
@@ -234,6 +249,9 @@ body.play-area-fullscreen { overflow: hidden; }
 .hand-panel-help { flex-shrink: 0; margin: 14px 0 0; color: #9a8878; font-size: 10px; text-align: center; }
 .hand-mask-card { display: flex; flex-direction: column; align-items: center; gap: 7px; }
 .hand-mask-card svg { width: 38px; height: 38px; stroke: #806550; stroke-width: .9; stroke-linecap: round; stroke-linejoin: round; }
+.hand-starter-mask svg { width: 48px; height: 48px; flex-shrink: 0; }
+.hand-starter-mask svg path { fill: #e89a60; }
+.hand-starter-mask svg ellipse { fill: #fffaf5; stroke: none; }
 .hand-symmetry { display: flex; align-items: center; justify-content: center; gap: 6px; }
 .hand-symmetry svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .hand-colors { grid-template-columns: repeat(3,minmax(0,1fr)); }
@@ -493,22 +511,22 @@ body.play-area-fullscreen { overflow: hidden; }
 .mission-target { position:absolute; width:0; height:0; }
 .mission-ring { position:absolute; left:-23px; top:-23px; width:46px; height:46px; border:2px solid #fff7d9; border-radius:50%; box-shadow:0 0 0 6px #e5b85c40,0 0 26px #ffe6a6; animation:mission-pulse 1.6s ease-in-out infinite; }
 .mission-dot { position:absolute; width:9px; height:9px; left:-4.5px; top:-4.5px; border-radius:50%; background:#fff9dd; }
+.mission-direction { position:absolute; left:0; top:0; width:0; height:0; transform:rotate(var(--guide-angle,0deg)); }
 .mission-path { position:absolute; width:140px; height:140px; left:-70px; top:-110px; overflow:visible; }
 .mission-path path { fill:none; stroke:#fff6ce; stroke-width:3; stroke-dasharray:5 5; stroke-linecap:round; filter:drop-shadow(0 1px 3px #60452e); }
-.mission-hand { position:absolute; width:100px; height:100px; left:-20px; top:-22px; animation:mission-pull 4.8s infinite; filter:drop-shadow(0 3px 6px #60452e50); opacity:.85; }
+.mission-travel { position:absolute; left:0; top:0; animation:mission-pull 4.8s infinite; }
+.mission-hand { position:absolute; width:var(--mission-hand-size,100px); height:var(--mission-hand-size,100px); left:calc(var(--mission-hand-size,100px) / -2); top:calc(var(--mission-hand-size,100px) / -2); transform:rotate(calc(0deg - var(--guide-angle,0deg))); filter:drop-shadow(0 3px 6px #60452e50); opacity:.85; }
 .mission-hand img { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
 .mission-open { animation:mission-open 4.8s infinite; }
 .mission-pinched { animation:mission-pinch 4.8s infinite; }
 .tutorial-overlay[data-held="true"] .mission-ring { border-color:#86e0a3; box-shadow:0 0 20px #86e0a3; }
-.tutorial-overlay[data-motion="nose"] .mission-path, .tutorial-overlay[data-motion="cheeks"] .mission-path { transform:rotate(90deg); transform-origin:70px 110px; }
-.tutorial-overlay[data-motion="nose"] .mission-hand, .tutorial-overlay[data-motion="cheeks"] .mission-hand { animation-name:mission-sideways; }
 #tutorial-copy { font-size:14px; line-height:1.6; margin:12px 0; }
 #tutorial-state { padding:12px; border-radius:10px; background:#e8efdf; font-size:12px; line-height:1.5; min-height:54px; }
 #tutorial-explore { margin-top:10px; }
 .studio-tutorial { width:300px; }
 @keyframes mission-pulse { 50% { transform:scale(1.15); opacity:.6; } }
-@keyframes mission-pull { 0%,43% { transform:translate(0,0); } 77%,92% { transform:translate(0,-85px); } 100% { transform:translate(0,0); } }
-@keyframes mission-sideways { 0%,43% { transform:translate(0,0); } 77%,92% { transform:translate(85px,0); } 100% { transform:translate(0,0); } }
+/* Arrow and hand travel share one rotated axis; hide the reset so it never teaches a reverse stroke. */
+@keyframes mission-pull { 0%,43% { transform:translateY(0); opacity:1; } 77%,92% { transform:translateY(-85px); opacity:1; } 95% { transform:translateY(-85px); opacity:0; } 96%,100% { transform:translateY(0); opacity:0; } }
 @keyframes mission-open { 0%,24%,78%,100% { opacity:1; } 25%,77% { opacity:0; } }
 @keyframes mission-pinch { 0%,24%,78%,100% { opacity:0; } 25%,77% { opacity:1; } }
 @media(max-width:760px) {
@@ -516,7 +534,7 @@ body.play-area-fullscreen { overflow: hidden; }
   #tutorial-copy { margin:6px 0; font-size:12px; }
   #tutorial-state { padding:8px; min-height:0; margin:6px 0; }
   .tutorial-heading > span { font-size:8px; }
-  .mission-hand { width:76px; height:76px; }
+  .mission-hand { --mission-hand-size:76px; }
 }
 @media(prefers-reduced-motion:reduce) {
   .tutorial-overlay * { animation:none !important; }
@@ -533,9 +551,45 @@ body.play-area-fullscreen { overflow: hidden; }
 
 /* UI practice demonstrates hovering with an open hand, without a grab gesture. */
 .tutorial-overlay[data-motion="ui"] { z-index:11; }
-.tutorial-overlay[data-motion="ui"] .mission-path { display:none; }
-.tutorial-overlay[data-motion="ui"] .mission-hand { animation:mission-ui-hover 4s ease-in-out infinite; left:12px; top:-36px; }
+.tutorial-overlay[data-motion="ui"] .mission-path,
+.tutorial-overlay[data-motion="ui"] .mission-ring,
+.tutorial-overlay[data-motion="ui"] .mission-dot { display:none; }
+.tutorial-overlay[data-motion="ui"] .mission-direction { transform:none; }
+.tutorial-overlay[data-motion="ui"] .mission-travel { animation:mission-ui-hover 4s ease-in-out infinite; }
+.tutorial-overlay[data-motion="ui"] .mission-hand { transform:none; left:12px; top:-36px; }
 .tutorial-overlay[data-motion="ui"] .mission-open { animation:none; opacity:1; }
 .tutorial-overlay[data-motion="ui"] .mission-pinched { display:none; }
 .studio-tutorial[data-lesson="ui"] #tutorial-next { min-width:160px; min-height:64px; box-shadow:0 0 0 4px #d2e4c8; }
 @keyframes mission-ui-hover { 0%,15% { transform:translate(55px,-40px); opacity:.45; } 40%,85% { transform:translate(0,0); opacity:.9; } 100% { transform:translate(55px,-40px); opacity:.45; } }
+
+/* One readable body size for messages and instructions at every screen width. */
+.scene-hint,
+.studio-message,
+#tutorial-copy,
+.comfort-setup p,
+.comfort-setup .comfort-status,
+.prompt-copy > span,
+.hand-feedback,
+.hand-panel-help,
+.hand-confirm-copy,
+.clay-menu-copy,
+.clay-menu-status,
+.mask-picker-card > p,
+.mask-picker-footer [role="status"],
+.reach-calibration-panel p,
+.tip-card p,
+#paint-slider-help,
+#control-mode-help,
+.size-hand-help,
+.surface-status,
+.selfie-status {
+  font-size: var(--instruction-font-size);
+  line-height: 1.6;
+}
+.scene-hint,
+.surface-status {
+  white-space: normal;
+  width: max-content;
+  max-width: calc(100% - 40px);
+  overflow-wrap: anywhere;
+}

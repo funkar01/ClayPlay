@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { syncPaintTexture } from './paintTexture.js';
+import { syncPaintTexture,canBuildPaintInWorker } from './paintTexture.js';
 import { inverseWarp } from './maskWarp.js';
 
 export const PAINT_CELL=.02;
@@ -40,7 +40,7 @@ export function enablePaintMaterial(material) {
     render?.apply(this,args);
     if(state.volume)syncPaintTexture(state,state.volume,samplePaint,hasPaint);
   };
-  material.addEventListener('dispose',()=>state.texture?.dispose());
+  material.addEventListener('dispose',()=>{state.disposed=true;state.queue?.dispose();state.texture?.dispose();});
   material.onBeforeCompile=(shader,renderer)=>{
     previous.call(material,shader,renderer);
     Object.assign(shader.uniforms,state.uniforms);
@@ -68,15 +68,18 @@ export function enablePaintMaterial(material) {
   material.customProgramCacheKey=()=>`${cache}:surface-paint-v2`;material.needsUpdate=true;
 }
 
-export function applyVertexPaint(volume,geometry,bounds=null) {
+export function applyVertexPaint(volume,geometry,bounds=null,{invalidateTexture=true}={}) {
   const textureState=volume.material?.userData.surfacePaint;
-  if(textureState){textureState.volume=volume;textureState.dirty=true;textureState.bounds=null;}
+  if(textureState && invalidateTexture){textureState.volume=volume;textureState.dirty=true;textureState.bounds=null;}
   const positions=geometry.attributes.position;
   let colors=geometry.getAttribute('paintColor');
   if(!colors || colors.count!==positions.count) {
     colors=new THREE.BufferAttribute(new Float32Array(positions.count*4),4).setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute('paintColor',colors);
   }
+  // Pixel paint makes per-vertex inherited-paint sampling redundant when
+  // replacement geometry arrives; leave its fallback attribute transparent.
+  if(textureState && canBuildPaintInWorker(volume)) {colors.array.fill(0);colors.needsUpdate=true;return;}
   if(!hasPaint(volume)) {colors.array.fill(0);colors.needsUpdate=true;return;}
   for(let i=0;i<positions.count;i++) {
     const x=positions.getX(i),y=positions.getY(i),z=positions.getZ(i);
@@ -90,6 +93,8 @@ export function refreshPaint(volume,bounds=null) {
   const state=volume.material?.userData.surfacePaint;
   if(state) {
     state.volume=volume;
+    state.paintRevision=(state.paintRevision ?? 0)+1;
+    state.queue?.invalidate();
     if(!state.dirty && bounds)state.bounds=bounds.clone();
     else if(state.bounds && bounds)state.bounds.union(bounds);
     else state.bounds=null;
