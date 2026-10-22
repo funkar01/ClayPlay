@@ -36,7 +36,9 @@ function schedule() {
 }
 function pump() {
   if (busy) return;
-  const entry = [...volumes.values()].find((v) => !v.volume.meshFailed && !v.volume.pulling && !v.volume.cutting && v.keys.size);
+  const entry = [...volumes.values()].find((v) => !v.volume.meshFailed
+    && (!v.volume.pulling || (v.volume.surfaceExtrude?.active && v.volume.surfaceExtrude.committing))
+    && !v.volume.cutting && v.keys.size);
   if (!entry) return;
   busy = true;
   activeId = entry.id;
@@ -62,8 +64,11 @@ export function attachMeshQueue(volume) {
           for(const brick of data.bricks) entry.staged.set(brick.key,brick);
           if(entry.keys.size) {schedule(); return;}
           const bricks=[...entry.staged.values()];entry.staged.clear();
-          if(entry.volume.surfaceExtrude?.committing) entry.volume.surfaceExtrude.clear();
           for(const brick of bricks) installBrick(entry.volume,brick);
+          if(entry.volume.surfaceExtrude?.committing) {
+            const tool=entry.volume.surfaceExtrude;
+            if(tool.onMeshReady)tool.onMeshReady();else tool.clear();
+          }
         }
       }
       schedule();
@@ -87,6 +92,7 @@ export function attachMeshQueue(volume) {
     refine() {},
     remeshSurface() {cleanup.request();},
     prioritize() {},
+    flush() {schedule();},
     invalidate() { cleanup.cancel(); entry.generation++; entry.keys.clear(); entry.edits.clear(); entry.staged.clear(); entry.reset = true; },
     dispose() { cleanup.dispose(); volumes.delete(entry.id); worker.postMessage({ id: entry.id, remove: true }); },
   };

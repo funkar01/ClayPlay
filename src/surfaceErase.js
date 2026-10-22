@@ -7,11 +7,26 @@ import { applyVertexPaint } from './paintLayer.js';
 
 export class SurfaceErase {
   constructor(volume, onChange) { this.volume = volume; this.onChange = onChange; }
+  get saved() { return this.savedStroke === this.strokeId; }
   begin(radius, eye, planeZ, symmetry) {
     const v = this.volume;
+    // Continue accepting distinct strokes while earlier batches catch up.
+    // Keep their boundaries so neither geometry nor Undo joins the gap.
+    if (this.active) {
+      if (!this.released || radius !== this.radius || planeZ !== this.planeZ || symmetry !== this.symmetry ||
+        eye.some((n, i) => Math.abs(n - this.eye[i]) > .0001)) return false;
+      clearTimeout(this.releaseDeadline);
+      this.strokeId++;
+      this.released = false;
+      this.lastPoint = null;
+      if (v.erasePreview) v.erasePreview.last = null;
+      return true;
+    }
     if (radius <= 0 || v.pulling || v.cutting || v.meshQueue?.pending || !v.bricks.size) return false;
     v.meshQueue?.pauseRefinement?.();
-    this.radius = radius; this.pending = []; this.lastPoint = null; this.saved = false;
+    this.radius = radius; this.pending = []; this.lastPoint = null; this.anySaved = false;
+    this.eye = [...eye]; this.planeZ = planeZ; this.symmetry = symmetry;
+    this.strokeId = 0; this.savedStroke = -1; this.sentStroke = -1;
     this.active = true; this.busy = false; this.released = false;
     this.changedKeys=new Set();
     v.erasing = true; v.cutting = true;
@@ -22,7 +37,10 @@ export class SurfaceErase {
       if (data.error) { this.fail(data.error); return; }
       diagnostics.eraseWorkerMs = data.duration;
       if (data.edits.length) {
-        if (!this.saved) { checkpoint(v); this.saved = true; v.meshQueue?.invalidate(); }
+        if (this.savedStroke !== this.inFlightStroke) {
+          checkpoint(v); this.anySaved = true; this.savedStroke = this.inFlightStroke;
+          v.meshQueue?.invalidate();
+        }
         for (const [key, value] of data.edits) v.field.set(key, value);
         for (const brick of data.bricks) {
           this.changedKeys.add(brick.key);
@@ -56,7 +74,7 @@ export class SurfaceErase {
     // Preview exactly the path accepted for saving. Never hide points that the
     // geometry worker will later skip or simplify away.
     this.volume.erasePreview?.update(point);
-    this.lastPoint = [...point]; this.pending.push(this.lastPoint);
+    this.lastPoint = [...point]; this.pending.push({ point: this.lastPoint, stroke: this.strokeId });
     // Work remains batched, but queued curves are never silently discarded.
     this.pump();
   }
@@ -71,7 +89,13 @@ export class SurfaceErase {
     this.watchdog = setTimeout(() => {
       if(this.worker === worker && this.active && this.busy) this.fail('Erase timed out; completed parts were kept.');
     }, 15000);
-    this.worker.postMessage({ type: 'erase', points: this.pending.splice(0, 32) });
+    this.inFlightStroke = this.pending[0].stroke;
+    let count = 0;
+    while (count < 32 && this.pending[count]?.stroke === this.inFlightStroke) count++;
+    const points = this.pending.splice(0, count).map(sample => sample.point);
+    const breakBefore = this.sentStroke !== this.inFlightStroke;
+    this.sentStroke = this.inFlightStroke;
+    this.worker.postMessage({ type: 'erase', points, breakBefore });
   }
   finish() {
     if (!this.active || this.released) return;
@@ -83,7 +107,7 @@ export class SurfaceErase {
     }, 15000);
   }
   complete() {
-    const changed = this.saved;
+    const changed = this.anySaved;
     this.volume.meshQueue?.refine?.([...this.changedKeys]);
     this.abort(); this.onChange({ done: true, changed }); document.dispatchEvent(new Event('sculpt-history-change'));
   }

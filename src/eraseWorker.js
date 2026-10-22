@@ -13,6 +13,7 @@ self.onmessage = ({ data }) => {
       bounds = eraseBrickBounds(data.bricks, data.eye, data.planeZ);
       return;
     }
+    if (data.breakBefore) previous = null;
     const started = performance.now(), points = previous ? [previous, ...data.points] : data.points;
     const result = eraseNodes(volume, bounds, points, config.radius, config.eye, config.planeZ, config.symmetry);
     previous = data.points.at(-1) ?? previous;

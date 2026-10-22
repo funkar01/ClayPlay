@@ -7,6 +7,54 @@ import { SurfaceExtrude } from '../src/surfaceExtrude.js';
 import { checkpoint,restoreHistory } from '../src/sculptHistory.js';
 import { makeWarp,forwardWarp } from '../src/maskWarp.js';
 
+test('New extrusions preview immediately while full-detail strokes commit in order',async t=>{
+  const oldDocument=globalThis.document;
+  globalThis.document=new EventTarget();
+  const volume=ClayVolume.fromState({shape:'full',field:[]});
+  let pending=false,commits=0;
+  Object.assign(volume,{parent:new THREE.Group(),material:new THREE.MeshPhysicalMaterial(),bricks:new Map(),
+    meshQueue:{get pending(){return pending;},reset(){pending=true;},pauseRefinement(){},resumeRefinement(){},flush(){}},rebuildBrick(){}});
+  const tool=volume.surfaceExtrude=new SurfaceExtrude(volume,()=>commits++);
+  t.after(()=>{tool.abort();volume.material.dispose();globalThis.document=oldDocument;});
+  const stroke=(x)=>{
+    assert.equal(tool.begin(new THREE.Vector3(x,0,.7),.2,false),true);
+    tool.update(new THREE.Vector3(x,.4,.8));
+    const preview=tool.preview;tool.finish();return preview;
+  };
+  const first=stroke(.3),second=stroke(-.3);
+  assert.equal(commits,1,'next stroke must not reset the in-flight worker');
+  assert.equal(tool.queue.length,1);
+  assert.ok(volume.parent.children.includes(first));
+  assert.ok(volume.parent.children.includes(second));
+  pending=false;tool.onMeshReady();await Promise.resolve();
+  assert.equal(commits,2);
+  assert.equal(volume.undoStack.length,2);
+  assert.ok(!volume.parent.children.includes(first));
+  assert.ok(volume.parent.children.includes(second));
+  assert.ok(volume.sample(.3,.35,.79)<0,'first deformation survives the second');
+  assert.ok(volume.sample(-.3,.35,.79)<0);
+  pending=false;tool.onMeshReady();await Promise.resolve();
+  assert.equal(tool.committing,false);
+  assert.equal(tool.queue.length,0);
+  assert.ok(!volume.parent.children.includes(second));
+});
+
+test('Publishing an extrusion does not remove the next live preview',async t=>{
+  const oldDocument=globalThis.document;globalThis.document=new EventTarget();
+  const volume=ClayVolume.fromState({shape:'full',field:[]});let pending=false;
+  Object.assign(volume,{parent:new THREE.Group(),material:new THREE.MeshPhysicalMaterial(),bricks:new Map(),
+    meshQueue:{get pending(){return pending;},reset(){pending=true;}},rebuildBrick(){}});
+  const tool=volume.surfaceExtrude=new SurfaceExtrude(volume,()=>{});
+  t.after(()=>{tool.abort();volume.material.dispose();globalThis.document=oldDocument;});
+  tool.begin(new THREE.Vector3(.3,0,.7),.2,false);tool.update(new THREE.Vector3(.3,.4,.8));tool.finish();
+  tool.begin(new THREE.Vector3(-.3,0,.7),.2,false);tool.update(new THREE.Vector3(-.3,.4,.8));
+  const preview=tool.preview;
+  pending=false;tool.onMeshReady();await Promise.resolve();
+  assert.equal(tool.active,true);
+  assert.ok(volume.parent.children.includes(preview));
+  tool.finish();assert.equal(volume.undoStack.length,2);
+});
+
 test('Extrusion follows a bent path with a broad base and narrow released tip',()=>{
   const stroke=taperedStroke([[0,0,.65],[.5,0,.8],[.5,.6,1]],.2,true);
   assert.equal(stroke.radii[0],.2);

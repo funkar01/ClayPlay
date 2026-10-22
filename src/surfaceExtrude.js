@@ -3,11 +3,14 @@ import { taperedStroke } from './extrudeGeometry.js';
 import { checkpoint } from './sculptHistory.js';
 
 export class SurfaceExtrude {
-  constructor(volume,onChange) { this.volume=volume; this.onChange=onChange; }
+  constructor(volume,onChange) { this.volume=volume; this.onChange=onChange; this.queue=[]; }
+  get canBegin() {
+    const v=this.volume;
+    return !this.active && !v.pulling && !v.cutting && (!v.meshQueue?.pending || this.committing) && this.queue.length<4;
+  }
   begin(anchor,radius,symmetry) {
     const v=this.volume;
-    if(v.pulling || v.cutting || v.meshQueue?.pending || radius<=0) return false;
-    this.clear();
+    if(!this.canBegin || radius<=0) return false;
     v.meshQueue?.pauseRefinement?.();
     this.radius=Math.min(.16,Math.max(.04,radius*.4)); this.symmetry=symmetry;
     // Embed the attachment slightly into the existing shell, keeping the root flush.
@@ -70,18 +73,30 @@ export class SurfaceExtrude {
     if(!this.active) return;
     const v=this.volume;
     this.active=false; v.pulling=false;
+    v.meshQueue?.flush?.();
     if(this.stroke) {
-      this.stroke=taperedStroke(this.stroke.points,this.radius,this.symmetry);
+      this.queue.push({stroke:taperedStroke(this.stroke.points,this.radius,this.symmetry),radius:this.radius,symmetry:this.symmetry,preview:this.preview});
+      this.preview=null;this.stroke=null;
+      this.drain();
+    } else {this.removePreview(this.preview);this.preview=null;this.drain();}
+    document.dispatchEvent(new Event('sculpt-history-change'));
+  }
+  drain() {
+    const v=this.volume;
+    if(this.committing || this.active || !this.queue.length) return;
+    if(v.meshQueue?.pending) {clearTimeout(this.timer);this.timer=setTimeout(()=>this.drain(),40);return;}
+    const job=this.current=this.queue.shift();
+    const {stroke,radius,symmetry}=job;
       checkpoint(v);
-      v.extrudeSource=v.snapshot(); v.extrusion=this.stroke;
+      v.extrudeSource=v.snapshot(); v.extrusion=stroke;
       v.pullSource=null; v.pullWarp=null; v.cutSource=null; v.cutRegion=null; v.field.clear();
       v.paint=new Map();
       this.committing=true;
       v.meshQueue?.reset();
       // Union changes only cells near the new path; keep the rest of the mask.
-      const paths=[this.stroke.points];
-      if(this.symmetry) paths.push(this.stroke.points.map(p=>[-p[0],p[1],p[2]]));
-      const keys=new Set(), cell=.6, padding=this.radius+.05;
+      const paths=[stroke.points];
+      if(symmetry) paths.push(stroke.points.map(p=>[-p[0],p[1],p[2]]));
+      const keys=new Set(), cell=.6, padding=radius+.05;
       for(const path of paths) for(let i=1;i<path.length;i++) {
         const points=[path[i-1],path[i]];
         const low=[0,1,2].map(a=>Math.floor((Math.min(...points.map(p=>p[a]))-padding+2.4)/cell));
@@ -90,15 +105,33 @@ export class SurfaceExtrude {
       }
       for(const key of keys) v.rebuildBrick(...key.split(',').map(Number));
       this.onChange();
-      // Keep the preview until the generated surface has replaced it.
-      const wait=()=>{if(v.meshQueue?.pending) this.timer=setTimeout(wait,40); else this.clear();};
+      // New strokes keep their own visible previews while full-detail commits
+      // run in order. Never invalidate or overwrite a preceding deformation.
+      const wait=()=>{if(v.meshQueue?.pending) this.timer=setTimeout(wait,40); else this.onMeshReady();};
       wait();
-    } else this.clear();
-    document.dispatchEvent(new Event('sculpt-history-change'));
+  }
+  onMeshReady() {
+    if(!this.committing) return;
+    clearTimeout(this.timer);
+    this.removePreview(this.current?.preview);
+    this.current=null;this.committing=false;
+    // Start the next revision after publication of all preceding bricks.
+    queueMicrotask(()=>{
+      this.drain();
+      if(!this.active && !this.committing && !this.queue.length)this.volume.meshQueue?.resumeRefinement?.();
+    });
+  }
+  removePreview(preview) {
+    if(!preview)return;
+    this.volume.parent.remove(preview);
+    const geometries=new Set(preview.children.map(child=>child.geometry));
+    for(const geometry of geometries)geometry.dispose();
   }
   clear() {
     clearTimeout(this.timer);
-    if(this.preview) {this.volume.parent.remove(this.preview); for(const child of this.preview.children) child.geometry.dispose();}
+    this.removePreview(this.preview);this.removePreview(this.current?.preview);
+    for(const job of this.queue)this.removePreview(job.preview);
+    this.queue=[];this.current=null;
     this.preview=null; this.stroke=null; this.committing=false;
     this.volume.meshQueue?.resumeRefinement?.();
   }

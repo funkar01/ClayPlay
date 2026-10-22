@@ -1002,7 +1002,9 @@ function renderScene() {
   const building=Boolean(clayVolume.meshQueue?.pending || (clayVolume.pulling && clayVolume.surfacePull?.released) || (clayVolume.cutting && clayVolume.surfaceErase?.released));
   const refining=Boolean(clayVolume.meshQueue?.refining);
   surfaceStatus.hidden=!building && !refining;
-  const surfaceText=building ? 'Keeping your change · keep aiming for your next edit' : 'Ready to create · surface cleanup in background';
+  const canContinue=(activeTool==='erase' && clayVolume.surfaceErase?.active)
+    || (activeTool==='extrude' && clayVolume.surfaceExtrude?.committing && clayVolume.surfaceExtrude.queue.length<4);
+  const surfaceText=building ? (canContinue ? 'Keep creating · saving strokes in the background' : 'Keeping your change · choose your next tool or brush size') : 'Ready to create · surface cleanup in background';
   if(surfaceStatus.textContent!==surfaceText)surfaceStatus.textContent=surfaceText;
   surfaceStatus.dataset.phase=building ? 'building' : 'refining';
   animationFrame = requestAnimationFrame(renderScene);
@@ -1330,7 +1332,7 @@ function processErase(handPoint, held, wasHeld, cursorInput = false) {
   const world = clayRaycaster.ray.intersectPlane(plane, new THREE.Vector3());
   if (!world) return;
   const point = clay.worldToLocal(world.clone());
-  if (!wasHeld || !clayVolume.surfaceErase?.active) {
+  if (!wasHeld || !clayVolume.surfaceErase?.active || clayVolume.surfaceErase.released) {
     const volume = clayVolume, item = clayObjects.active;
     volume.surfaceErase ??= new SurfaceErase(volume, event => {
       if (event.changed) { item.edited = true; if (volume === clayVolume) markClayEdited(); }
@@ -1502,14 +1504,17 @@ function processSculptPoint(sculptPoint, pinchOverride, pinchRatio = 1, cursor =
     }
     if (!clayVolume.surfaceExtrude?.active) {
       const hit=getClaySurfaceHit(sculptPoint);
-      if (!hit || clayVolume.meshQueue?.pending) return;
+      if (!hit || (clayVolume.meshQueue?.pending && !clayVolume.surfaceExtrude?.canBegin)) return;
       const volume=clayVolume;
       volume.surfaceExtrude ??= new SurfaceExtrude(volume,()=>{
         if(volume===clayVolume)markClayEdited();
         const points=volume.extrusion?.points;
         queueMicrotask(()=>{if(volume===clayVolume)studioTutorial?.recordAction('extrude',{points});});
       });
-      if (!volume.surfaceExtrude.begin(hit.point,brushRadius(),symmetryEnabled)) return;
+      if (!volume.surfaceExtrude.begin(hit.point,brushRadius(),symmetryEnabled)) {
+        sceneHint.textContent='Your strokes are catching up · release before starting the next one';
+        return;
+      }
       grabAnchor=hit.point.clone(); previousPullPoint=hit.point.clone();
       pullPlane.constant=-clay.localToWorld(hit.point.clone()).z;
       grabCursorOrigin=null;
@@ -2062,7 +2067,7 @@ function cancelMouseStroke() {
 function volumeBusy() {
   if (clayVolume.surfaceExtrude?.active && activeTool === 'extrude') return false;
   if (clayVolume.erasing) {
-    if (clayVolume.surfaceErase?.active && !clayVolume.surfaceErase.released && activeTool === 'erase') return false;
+    if (clayVolume.surfaceErase?.active && activeTool === 'erase') return false;
     contactLabel.textContent = 'Keeping your erasure…'; return true;
   }
   if (clayVolume.cutting) { contactLabel.textContent = 'Finishing your cut…'; return true; }

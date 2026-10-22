@@ -92,6 +92,47 @@ test('Release freezes erase input, finishes only held samples, and records one U
   assert.ok(worker.messages.every(m=>!(m.points??[]).some(p=>p[0]===99)));
 });
 
+test('A second erase starts immediately while the first saves, with separate paths and Undo entries', t => {
+  const {v,erase,worker}=fixture(t),preview=[];
+  v.erasePreview={last:null,update:p=>preview.push([...p]),clear(){}};
+  erase.update([0,-.6]);erase.update([.1,-.6]);erase.finish();
+  assert.equal(erase.begin(.2,eye,planeZ,false),true);
+  erase.update([.7,.6]);erase.finish();
+  assert.deepEqual(preview,[[0,-.6],[.1,-.6],[.7,.6]]);
+  worker.reply({edits:[[1,.2]],bricks:[],duration:1});
+  assert.equal(worker.messages.at(-1).breakBefore,false);
+  worker.reply({edits:[[2,.2]],bricks:[],duration:1});
+  assert.deepEqual(worker.messages.at(-1).points,[[.7,.6]]);
+  assert.equal(worker.messages.at(-1).breakBefore,true,'never erase across the gap between strokes');
+  worker.reply({edits:[[3,.2]],bricks:[],duration:1});
+  assert.equal(v.undoStack.length,2);
+  assert.deepEqual([...v.undoStack[1].state.field.keys()],[1,2]);
+  assert.equal(erase.active,false);
+});
+
+test('Pending erase refuses a changed brush or camera without losing accepted input', t => {
+  const {erase,worker}=fixture(t);
+  erase.update([0,-.6]);erase.finish();
+  assert.equal(erase.begin(.3,eye,planeZ,false),false);
+  assert.equal(erase.begin(.2,[eye[0]+1,eye[1],eye[2]],planeZ,false),false);
+  worker.reply({edits:[],bricks:[],duration:1});
+  assert.equal(erase.active,false);
+});
+
+test('Undo cancels a new uncommitted erase while preserving the previous saved stroke', t => {
+  const {v,erase,worker}=fixture(t);v.surfaceErase=erase;
+  erase.update([0,-.6]);erase.update([.1,-.6]);erase.finish();
+  worker.reply({edits:[[1,.2]],bricks:[],duration:1});
+  assert.equal(erase.begin(.2,eye,planeZ,false),true);
+  erase.update([.7,.6]);erase.finish();
+  assert.equal(erase.saved,false);
+  assert.equal(restoreHistory(v),true);
+  assert.equal(v.field.get(1),.2);
+  assert.equal(v.undoStack.length,1);
+  worker.reply({edits:[[2,.2]],bricks:[],duration:1});
+  assert.equal(v.field.has(2),false);
+});
+
 test('No-op erasure creates no history and worker failures release input ownership', t => {
   const {v,erase,worker} = fixture(t);
   erase.update([10,10]); erase.finish(); worker.reply({edits:[],bricks:[],duration:1});

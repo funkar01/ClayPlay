@@ -21,11 +21,15 @@ test('Extrusion replaces the live preview only after all geometry batches are re
     originals.push(mesh);parent.add(mesh);volume.bricks.set(`${i},0,0`,{mesh});queue.brick(`${i},0,0`);
   }
   await new Promise(resolve=>setTimeout(resolve,10));
+  // A new live stroke is only a preview; the previous saved field is stable
+  // and its remaining worker batches must continue while the hand moves.
+  volume.pulling=true;volume.surfaceExtrude.active=true;
   const reply=message=>worker.onmessage({data:{id:message.id,generation:message.generation,bricks:message.keys.map(key=>({key,positions:new Float32Array([0,0,0,1,0,0,0,1,0]),normals:new Float32Array([0,0,1,0,0,1,0,0,1])}))}});
   reply(worker.messages[0]);
   assert.equal(clears,0);
   assert.ok(originals.every(mesh=>parent.children.includes(mesh)));
   await new Promise(resolve=>setTimeout(resolve,10));
+  assert.equal(worker.messages.length,2,'a live extrusion must not stall the preceding commit');
   reply(worker.messages[1]);
   assert.equal(clears,1);
   assert.ok(originals.every(mesh=>!parent.children.includes(mesh)));
