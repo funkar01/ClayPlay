@@ -1,3 +1,4 @@
+import { STUDIO_THEMES, savedStudioTheme, applyStudioTheme } from './studioThemes.js';
 import { PalmControl } from './palmControl.js';
 import { trackingTrace } from './trackingTrace.js';
 import { HandSelection, ControlHand } from './handSelection.js';
@@ -34,6 +35,7 @@ export class HandUI {
     this.selection.dwellMs = 800;
     try { const dwell=Number(localStorage.getItem('clayplay-dwell')); if([500,800,1200].includes(dwell))this.selection.dwellMs=dwell; } catch {} this.identity = new ControlHand({ graceMs: cursorGraceMs });
     this.motion = new HandMotion({ staleMs: HAND_UI_SAMPLE_AGE_MS });
+    this.theme=savedStudioTheme();applyStudioTheme(this.theme);
     this.page = 'more'; this.maskPage = 0;
     const sizeControl=document.querySelector('.size-control');
     sizeControl.classList.add('stage-size-control');
@@ -97,6 +99,18 @@ export class HandUI {
   }
   act(action, value) {
     const state = this.getState();
+    if(action === 'theme') {
+      const scrollTop=this.body?.scrollTop ?? 0;
+      if(applyStudioTheme(value)) {
+        this.theme=value;this.signature=null;this.sync();
+        if(this.page==='themes' && this.body) {
+          this.body.scrollTop=scrollTop;
+          this.body.querySelector(`[data-hand-action="theme"][data-value="${value}"]`)?.focus({preventScroll:true});
+        }
+        this.announce(`${STUDIO_THEMES.find(t=>t.id===value).name} theme selected`);
+      }
+      return;
+    }
     if(action === 'dwell') {this.selection.dwellMs=Number(value);this.selection.cancel();try{localStorage.setItem('clayplay-dwell',value);}catch{} this.signature=null;this.sync();return;}
     if (action === 'more') { if (this.isOpen) this.close(); else this.open(); return; }
     if (action === 'close') { this.close(); return; }
@@ -131,14 +145,14 @@ export class HandUI {
     // Keep the slider and dwell targets mounted while the finish changes.
     // Replacing the panel here would interrupt an ongoing pointer drag.
     const { smoothness, ...panelState } = s;
-    const signature = JSON.stringify([this.page, this.maskPage, this.custom, panelState]);
+    const signature = JSON.stringify([this.page, this.maskPage, this.custom, this.theme, panelState]);
     if (!this.isOpen) return;
     if (signature === this.signature) { this.syncFinish(smoothness); return; }
     this.signature = signature;
     this.finishControl = null;
     const header = document.createElement('header');
     header.append(button(this.page === 'more' ? 'Close' : 'Back', this.page === 'more' ? 'close' : 'page', 'more'));
-    const title = document.createElement('strong'); title.textContent = ({controls:'Hand controls',more:'Studio options',masks:'Your masks',eyes:'Mask eyes',colors:'Color & finish',custom:'Mix your color',confirm:'Are you sure?'})[this.page];
+    const title = document.createElement('strong'); title.textContent = ({themes:'Studio themes',controls:'Hand controls',more:'Studio options',masks:'Your masks',eyes:'Mask eyes',colors:'Color & finish',custom:'Mix your color',confirm:'Are you sure?'})[this.page];
     header.append(title);
     if (this.page !== 'more') header.append(button('Close', 'close'));
     const grid = document.createElement('div'); grid.className = 'hand-panel-grid';
@@ -146,7 +160,7 @@ export class HandUI {
     this.panel.replaceChildren(header, this.body);
     if (this.page === 'more') {
       grid.classList.add('hand-options');
-      grid.append(button('Hand controls', 'page', 'controls'));
+      grid.append(button('Studio themes', 'page', 'themes'), button('Hand controls', 'page', 'controls'));
       grid.append(button('Masks', 'page', 'masks'), button('Mask eyes', 'page', 'eyes'), button('Color & finish', 'page', 'colors'));
       const symmetry = button(`Symmetry ${s.symmetry ? 'On' : 'Off'}`, 'symmetry'); symmetry.setAttribute('aria-pressed', String(s.symmetry)); symmetry.disabled = s.trying;
       symmetry.classList.add('hand-symmetry');
@@ -160,6 +174,19 @@ export class HandUI {
       const sound = button(`Sounds ${s.sound ? 'On' : 'Off'}`, 'sound'); sound.setAttribute('aria-pressed', String(s.sound));
       grid.append(sound, symmetry, position, reset, pause, camera, tutorial);
       if(s.trackingIssue)grid.append(button('Copy issue report','tracking-report'));
+    } else if (this.page === 'themes') {
+      grid.classList.add('studio-themes');
+      const note=document.createElement('p');note.className='hand-panel-caption';note.textContent='Try a different mood. Your choice is remembered; mask and paint colors stay yours.';grid.append(note);
+      for(const theme of STUDIO_THEMES) {
+        const choice=button('', 'theme', theme.id);choice.className='studio-theme-card';
+        choice.setAttribute('aria-label',theme.name);choice.setAttribute('aria-pressed',String(this.theme===theme.id));
+        const palette=document.createElement('span');palette.className='studio-theme-palette';palette.setAttribute('aria-hidden','true');
+        for(const color of theme.colors){const chip=document.createElement('i');chip.style.background=color;palette.append(chip);}
+        const name=document.createElement('strong');name.textContent=theme.name;
+        const detail=document.createElement('span');detail.className='studio-theme-description';detail.textContent=theme.description;
+        const selected=document.createElement('span');selected.className='studio-theme-selected';selected.textContent=this.theme===theme.id?'✓ Selected':'Try theme';
+        choice.append(palette,name,detail,selected);grid.append(choice);
+      }
     } else if (this.page === 'controls') {
       const note=document.createElement('p');note.className='hand-panel-caption';
       note.textContent='Try both and choose what feels natural. Your choice is remembered.';grid.append(note);

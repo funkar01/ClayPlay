@@ -598,3 +598,80 @@ body.play-area-fullscreen { overflow: hidden; }
   max-width: calc(100% - 40px);
   overflow-wrap: anywhere;
 }
+
+/* Semantic colors keep experimental themes consistent across studio panels. */
+html[data-studio-theme] { color:var(--ink); background:var(--cream); accent-color:var(--selected-fill); }
+html[data-studio-theme] body { color:var(--ink); }
+html[data-studio-theme] :is(.hand-toolbar,.hand-panel,.paint-palette,.paint-palette-heading,.control-mode-card,.stage-size-control,.studio-tutorial,.comfort-setup,.mask-picker-card,.reach-calibration-panel,.clay-menu-panel,.camera-card,.tip-card,.checklist-card,.selfie-panel) { background:var(--ui-panel); color:var(--ink); border-color:var(--line); }
+html[data-studio-theme] :is(.hand-toolbar > button,.hand-panel button,.control-mode-card button,.paint-scroll button,.paint-adjust button,.paint-swatches button,.mask-picker-grid button,.clay-menu button,.hand-try-done,.stage-selfie,.fullscreen-button) { background:var(--ui-soft); color:var(--ink); border-color:var(--line); }
+html[data-studio-theme] :is(.hand-toolbar > button.is-active,button[aria-pressed="true"],.hand-toolbar > button[aria-expanded="true"],.mask-picker-start,.comfort-setup > button:not(.comfort-skip)) { background:var(--selected-fill); color:var(--selected-ink); border-color:var(--selected-fill); box-shadow:inset 0 0 0 1px var(--selected-fill); }
+html[data-studio-theme] :is(.scene-hint,.hand-feedback,.surface-status,.selfie-status,.prompt-card,.stage-camera-preview) { background:var(--ui-panel); color:var(--ink); border-color:var(--line); text-shadow:none; }
+html[data-studio-theme] :is(.hand-panel-caption,.hand-panel-help,.paint-hex,.paint-palette-heading span,.paint-range output,.control-mode-card p,.size-hand-help,.mask-picker-card > p,.mask-picker-footer > span,.mask-picker-grid button > span,.tip-card p,.prompt-copy > span,#paint-slider-help) { color:var(--muted); }
+html[data-studio-theme] :is(.paint-preview,.hand-color-preview,#tutorial-state,.comfort-status) { background:var(--ui-raised); color:var(--ink); border-color:var(--line); }
+html[data-studio-theme] :is(.paint-mixer > summary,.hand-custom-color) { background:var(--ui-soft); color:var(--ink); }
+html[data-studio-theme] :is(button,summary,input):focus-visible,
+html[data-studio-theme] .hand-hover { outline:3px solid var(--ui-focus); outline-offset:3px; }
+html[data-studio-theme] :is(.stage-size-control output,.prompt-copy strong,.tip-heading,.mask-picker-card h2,.comfort-setup h2) { color:var(--ink); }
+html[data-studio-theme] :is(.mask-picker-grid svg,.hand-starter-mask svg) { fill:var(--coral); stroke:var(--ink); }
+html[data-studio-theme] .mask-picker-grid svg ellipse { fill:var(--ui-soft); }
+html[data-studio-theme] .hand-ui-cursor { --cursor-color:var(--ui-focus); }
+.studio-themes { grid-template-columns:minmax(0,1fr); }
+.hand-panel .studio-theme-card { display:grid; grid-template-columns:minmax(0,1fr) auto; text-align:left; gap:7px 10px; padding:14px; min-height:120px; }
+.studio-theme-palette { grid-column:1/-1; display:flex; height:27px; overflow:hidden; border:1px solid var(--line); border-radius:8px; }
+.studio-theme-palette i { flex:1; }
+.studio-theme-card strong { font-size:15px; }
+.studio-theme-description { grid-column:1/-1; font-size:12px; line-height:1.5; }
+.studio-theme-selected { font-size:12px; align-self:center; }
+html[data-studio-theme] .hand-panel .studio-theme-card[aria-pressed="true"] { background:var(--ui-soft); color:var(--ink); border:2px solid var(--selected-fill); box-shadow:none; }
+html[data-studio-theme] .stage:has(#hand-panel:not([hidden])) .stage-selfie { visibility:hidden; }
+html[data-studio-theme] .stage-size-control input { accent-color:var(--selected-fill); }
+
+/* All controls share these rules, including dialogs and less-used setup flows. */
+:root[data-studio-theme] #app :is(button,summary,select,input:not([type="range"]):not([type="checkbox"]):not([type="radio"])) {
+  background:var(--ui-soft); color:var(--ink); border-color:var(--line); accent-color:var(--selected-fill);
+}
+:root[data-studio-theme] #app :is(button,summary):hover:not(:disabled):not([aria-pressed="true"]):not(.is-active):not(.hand-selected) {
+  background:var(--ui-raised); border-color:var(--ui-focus); color:var(--ink);
+}
+:root[data-studio-theme] #app :is(button.is-active,button[aria-pressed="true"],button[aria-expanded="true"],.primary-button,.mask-picker-start,#tutorial-next,#capture-reach,.comfort-setup > button:not(.comfort-skip),[data-selfie="share"]) {
+  background:var(--selected-fill); color:var(--selected-ink); border-color:var(--selected-fill);
+}
+:root[data-studio-theme] #app button :is(span,small,strong) { color:inherit; }
+:root[data-studio-theme] #app :is(.studio-message button,.tutorial-actions button,.selfie-card button) { box-shadow:none; }
+:root[data-studio-theme] #app :is(.selfie-card,.is-counting .selfie-card,.hand-finish,.reach-depth,.strength-control,.sculpt-history,.paint-preview,.prompt-card,.video-placeholder) {
+  background:var(--ui-panel); color:var(--ink); border-color:var(--line);
+}
+:root[data-studio-theme] #app :is(h1,h2,h3,.eyebrow,.comfort-step,.session-label,.footer,.card-head h2,.clay-menu-heading,.clay-field-label,.reach-calibration-panel strong,.hand-finish-heading output,.hand-finish-endpoints,.selfie-count) { color:var(--ink); }
+:root[data-studio-theme] #app :is(.selfie-link a,.quiet-button,.reach-restart,.mask-picker-back) { color:var(--ui-focus); }
+:root[data-studio-theme] #app :is(.reach-calibration-panel small,.reach-steps,#reach-status,.camera-status,.video-placeholder,.clay-menu-copy,.clay-menu-status,.clay-menu-footer,.mask-picker-eyebrow,.mask-picker-grid button > span) { color:var(--muted); }
+:root[data-studio-theme] #app :is(.hand-finish input,.reach-guide-toggle input,input[type="range"]) { accent-color:var(--selected-fill); }
+:root[data-studio-theme] #app .paint-range input::-webkit-slider-thumb { background:var(--ui-raised); border-color:var(--selected-fill); }
+:root[data-studio-theme] #app .paint-range input::-moz-range-thumb { background:var(--ui-raised); border-color:var(--selected-fill); }
+:root[data-studio-theme] #app :is(button,summary,input,select,a):focus-visible { outline:3px solid var(--ui-focus); outline-offset:3px; }
+:root[data-studio-theme] #app .hand-hover { outline-color:var(--ui-focus) !important; }
+:root[data-studio-theme] #app .hand-ui-cursor { border-color:var(--ui-focus); background:var(--ui-panel); box-shadow:0 0 0 3px var(--line); }
+:root[data-studio-theme] #app .hand-ui-cursor::after { background:conic-gradient(var(--selected-fill) var(--dwell-progress,0deg),var(--line) 0); }
+:root[data-studio-theme] #app .hand-ui-cursor[data-phase="selected"] { background:var(--selected-fill); border-color:var(--selected-fill); }
+:root[data-studio-theme] #app :is(.reach-track,.video-frame,.selfie-image,.tip-window) { background:var(--ui-soft); border-color:var(--line); }
+:root[data-studio-theme] #app :is(.reach-center,#reach-marker,.check-state,.session-dot,.footer-center i,.brand-mark span) { background:var(--selected-fill); border-color:var(--ui-panel); }
+:root[data-studio-theme] #app :is(.check-icon,.camera-glyph,.prompt-icon,.camera-status,.clay-menu summary > span) { background:var(--ui-soft); color:var(--ink); border-color:var(--line); }
+:root[data-studio-theme] #app :is(.checklist-card li,.topbar,.footer) { border-color:var(--line); }
+:root[data-studio-theme] #app .checklist-card li { color:var(--muted); }
+:root[data-studio-theme] #app .checklist-card li.is-done .check-icon { background:var(--selected-fill); color:var(--selected-ink); }
+:root[data-studio-theme] #app .demo-button { fill:var(--ui-soft); stroke:var(--selected-fill); }
+:root[data-studio-theme] #app .demo-tip { fill:var(--ui-panel); stroke:var(--ui-focus); }
+:root[data-studio-theme] #app .demo-dwell { stroke:var(--selected-fill); }
+:root[data-studio-theme] #app .demo-cut-piece { fill:var(--ui-soft); }
+:root[data-studio-theme] #app #tutorial-state { background:var(--ui-raised); color:var(--ink); }
+/* Color chips and palette previews represent artwork, not interface chrome. */
+:root[data-studio-theme] #app button.clay-swatch { background:var(--swatch); border-color:var(--ui-panel); }
+:root[data-studio-theme] #app .studio-theme-card[aria-pressed="true"] { background:var(--ui-soft); color:var(--ink); border:2px solid var(--selected-fill); box-shadow:none; }
+:root[data-studio-theme] #app :is(.tracking-pill,.tracking-pill[data-state],.camera-status.is-on,.prompt-card[data-tone],.prompt-card[data-tone] .prompt-icon) { background:var(--ui-soft); color:var(--ink); border-color:var(--line); }
+:root[data-studio-theme] #app :is(.tracking-dot,.tracking-pill[data-state] .tracking-dot,.live-dot,.video-live span) { background:var(--selected-fill); box-shadow:0 0 0 3px var(--ui-soft); }
+:root[data-studio-theme] #app :is(#mask-shape-picker,#selfie-preview:not(.is-counting)) { background:color-mix(in srgb,var(--ink) 55%,transparent); }
+:root[data-studio-theme] #app .hand-color::before { border-color:var(--line); }
+:root[data-studio-theme] #app .mission-ring { border-color:var(--ui-focus); box-shadow:0 0 0 6px color-mix(in srgb,var(--ui-focus) 20%,transparent),0 0 26px color-mix(in srgb,var(--ui-focus) 45%,transparent); }
+:root[data-studio-theme] #app .mission-dot { background:var(--ui-focus); }
+:root[data-studio-theme] #app .mission-path path { stroke:var(--ui-focus); }
+:root[data-studio-theme] #app .tutorial-overlay[data-held="true"] .mission-ring { border-color:var(--selected-fill); box-shadow:0 0 20px var(--selected-fill); }
+:root[data-studio-theme] #app .studio-tutorial[data-lesson="ui"] #tutorial-next { box-shadow:0 0 0 4px var(--line); }
