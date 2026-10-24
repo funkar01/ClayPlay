@@ -37,6 +37,20 @@ test('Recipes are deterministic across reloads and independent between runs', ()
   assert.deepEqual(createTutorialRecipe(-1),createTutorialRecipe(0));
 });
 
+test('Tutorial guides stay on the right and use distinct, separated surface positions in every recipe',()=>{
+  for(let run=0;run<42;run++) {
+    const recipe=createTutorialRecipe(run);
+    for(let i=0;i<recipe.steps.length;i++) {
+      const mission=recipe.steps[i];
+      assert.ok(mission.target[0]>0,`${recipe.shape}/${recipe.eyes}/${mission.id} must stay on the user's right`);
+      for(const previous of recipe.steps.slice(0,i)) {
+        const gap=Math.hypot(mission.target[0]-previous.target[0],mission.target[1]-previous.target[1]);
+        assert.ok(gap>=.4,`${recipe.shape}/${recipe.eyes}: ${previous.id} and ${mission.id} share a patch (${gap})`);
+      }
+    }
+  }
+});
+
 test('Challenges advance only for the expected tool and a meaningful edit', () => {
   const lessons=new Map(Array.from({length:6},(_,i)=>createTutorialRecipe(i)).flatMap(r=>r.steps).map(s=>[s.id,s]));
   for(const m of lessons.values()) {

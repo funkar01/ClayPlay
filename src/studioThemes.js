@@ -18,8 +18,9 @@ export const STUDIO_THEMES = [
     tokens:['#101114','#17191f','#292e39','#506079','#52617c','#f4f5f8','#d6ddeb','#b1c3e4','#a9baff','#161c2d','#8fe0d0','#efb68f'], dark:true },
 ];
 const tokenNames=['--cream','--studio-background','--ui-panel','--ui-raised','--ui-soft','--ink','--muted','--line','--selected-fill','--selected-ink','--ui-focus','--coral'];
+export const DEFAULT_STUDIO_THEME = 'aurora';
 export function savedStudioTheme() {
-  try { const id=localStorage.getItem('clayplay-studio-theme');return STUDIO_THEMES.some(t=>t.id===id)?id:'clay'; } catch { return 'clay'; }
+  try { const id=localStorage.getItem('clayplay-studio-theme');return STUDIO_THEMES.some(t=>t.id===id)?id:DEFAULT_STUDIO_THEME; } catch { return DEFAULT_STUDIO_THEME; }
 }
 export function applyStudioTheme(id) {
   const theme=STUDIO_THEMES.find(t=>t.id===id);if(!theme)return false;

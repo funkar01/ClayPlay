@@ -4,9 +4,9 @@ import { acceptsTutorialPull } from './tutorialMission.js';
 const shapes = ['animal', 'full', 'half', 'armor', 'cowl', 'wings', 'helmet'].filter(key => MASK_SHAPES[key]);
 const eyes = Object.keys(EYE_SHAPES);
 const challenges = {
-  horns: { id:'horns', tool:'pinch', title:'Using Pull for two little horns.', copy:'Pinch the glowing spot, pull up and out, then open your fingers.', target:[-.43,1.08,.4], motion:'up' },
-  curve: { id:'curve', tool:'pinch', title:'Using Pull for a quirky curve.', copy:'Pinch the glowing spot, pull outward, then open your fingers.', target:[-.64,-.16,.5], motion:'side' },
-  spikes: { id:'spikes', tool:'extrude', title:'Using Extrude for a pair of spikes.', copy:'Pinch the glowing spot, trace up and out, then open your fingers.', target:[-.88,.7,.4], motion:'up' },
+  horns: { id:'horns', tool:'pinch', title:'Using Pull for two little horns.', copy:'Pinch the glowing spot, pull up and out, then open your fingers.', target:[.43,1.08,.4], motion:'up' },
+  curve: { id:'curve', tool:'pinch', title:'Using Pull for a quirky curve.', copy:'Pinch the glowing spot, pull outward, then open your fingers.', target:[.64,-.16,.5], motion:'side' },
+  spikes: { id:'spikes', tool:'extrude', title:'Using Extrude for a pair of spikes.', copy:'Pinch the glowing spot, trace up and out, then open your fingers.', target:[.88,.7,.4], motion:'up' },
   notch: { id:'notch', tool:'erase', title:'Using Erase for a cheek notch.', copy:'Pinch the glowing edge, brush outward, then open your fingers.', target:[.88,-.16,.3], motion:'side' },
   colour: { id:'colour', tool:'paint', title:'Using Paint for a splash of colour.', copy:'Pinch the glowing patch, brush outward, then open your fingers.', target:[.25,.85,.5], motion:'side' },
 };
@@ -43,12 +43,15 @@ export function outwardGuideTarget(mission) {
   return [x+(x<0 ? -.5 : .5),y+(mission.motion==='up' ? .5 : 0),z];
 }
 
-// Fit every hint to solid clay, including masks with open chins/crowns and larger eyes.
-function surfaceTarget(shape, eye, preferred) {
+// Fit every hint to solid clay on the user's right, including open silhouettes
+// and larger eyes. Reserve each position so nearby lessons cannot collapse to
+// the same patch when a preferred spot falls outside the mask or inside an eye.
+function surfaceTarget(shape, eye, preferred, reserved) {
   let best=null,score=Infinity;
-  for(let ix=-30;ix<=30;ix++)for(let iy=-25;iy<=38;iy++) {
+  for(let ix=3;ix<=30;ix++)for(let iy=-25;iy<=38;iy++) {
     const x=ix*.04,y=iy*.04,z=faceSurface(x,y)+.055;
     if(MASK_SHAPES[shape].distance(x,y,z,eye)>-.015)continue;
+    if(reserved.some(point=>Math.hypot(x-point[0],y-point[1])<.4))continue;
     const distance=(x-preferred[0])**2+(y-preferred[1])**2;
     if(distance<score){score=distance;best=[x,y,z];}
   }
@@ -58,9 +61,12 @@ function surfaceTarget(shape, eye, preferred) {
 export function createTutorialRecipe(run=0) {
   run=Number.isSafeInteger(run)&&run>=0 ? run : 0;
   const shape=shapes[run%shapes.length],eye=eyes[run%eyes.length];
+  const reserved=[];
   const steps=combinations[run%combinations.length].map(key=>{
     const lesson=challenges[key];
-    return {...lesson,target:surfaceTarget(shape,eye,lesson.target)};
+    const target=surfaceTarget(shape,eye,lesson.target,reserved);
+    reserved.push(target);
+    return {...lesson,target};
   });
   return {run,shape,eyes:eye,shapeLabel:MASK_SHAPES[shape].label,eyeLabel:EYE_SHAPES[eye].label,...palettes[run%palettes.length],steps};
 }
