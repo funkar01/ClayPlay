@@ -7,6 +7,25 @@ import { SurfaceExtrude } from '../src/surfaceExtrude.js';
 import { checkpoint,restoreHistory } from '../src/sculptHistory.js';
 import { makeWarp,forwardWarp } from '../src/maskWarp.js';
 
+test('Extruding across a stretched triangle replaces its old owner and complete coverage',t=>{
+  const oldDocument=globalThis.document;globalThis.document=new EventTarget();
+  const volume=ClayVolume.fromState({shape:'full',field:[]}),keys=new Set();
+  const geometry=new THREE.BufferGeometry();
+  // A pulled triangle is owned by its centroid's brick, but reaches into
+  // the next brick where a new extrusion begins before cleanup completes.
+  geometry.setAttribute('position',new THREE.Float32BufferAttribute([.1,0,.7,.2,.1,.7,1.4,0,.7],3));
+  geometry.computeVertexNormals();
+  Object.assign(volume,{parent:new THREE.Group(),material:new THREE.MeshPhysicalMaterial(),bricks:new Map(),rebuildBrick:(...key)=>keys.add(key.join(','))});
+  volume.bricks.set('4,4,5',{mesh:new THREE.Mesh(geometry,volume.material)});
+  const tool=new SurfaceExtrude(volume,()=>{});
+  t.after(()=>{tool.abort();geometry.dispose();volume.material.dispose();globalThis.document=oldDocument;});
+  tool.begin(new THREE.Vector3(1.4,0,.7),.2,false);
+  tool.update(new THREE.Vector3(1.4,.3,.8));tool.finish();
+  assert.ok(keys.has('4,4,5'),'remove the stale owner, not just regenerate the stroke cell');
+  assert.ok(keys.has('5,4,5'),'replace the entire stretched triangle without leaving a gap');
+  assert.ok(keys.has('6,4,5'));
+});
+
 test('New extrusions preview immediately while full-detail strokes commit in order',async t=>{
   const oldDocument=globalThis.document;
   globalThis.document=new EventTarget();

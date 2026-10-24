@@ -1,4 +1,5 @@
 import { SelfieStudio } from './selfie.js';
+import { brushApplying } from './brushAvailability.js';
 import { ComfortSetup } from './comfortSetup.js';
 import { PalmControl } from './palmControl.js';
 import { PaintPicker } from './paintPicker.js';
@@ -389,6 +390,41 @@ const mirroredBrush = brushCue.clone();
 mirroredBrush.material = brushCue.material.clone();
 mirroredBrush.material.opacity = 0.55;
 mirroredBrush.visible = false; scene.add(mirroredBrush);
+const brushStatus = document.createElement('span');
+brushStatus.className = 'brush-status'; brushStatus.hidden = true;
+brushStatus.textContent = 'Applying…'; brushStatus.setAttribute('role', 'status');
+document.querySelector('#stage').append(brushStatus);
+const reduceBrushMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+function isBrushApplying() {
+  return brushApplying(clayVolume, activeTool, {
+    radius: brushRadius(), eye: clay.worldToLocal(camera.position.clone()).toArray(), symmetry: symmetryEnabled,
+  });
+}
+function showApplyingBrush(point) {
+  const planeZ = clay.localToWorld(new THREE.Vector3(0, 0, .9)).z;
+  clayRaycaster.set(camera.position, new THREE.Vector3(point.x, point.y, 0).sub(camera.position).normalize());
+  const world = clayRaycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), -planeZ), new THREE.Vector3());
+  brushCue.visible = Boolean(world) && activeSize > 0;
+  if (world) brushCue.position.copy(world);
+  brushCue.scale.setScalar(brushRadius() * clay.scale.x);
+  contactCue.visible = false; pinchCue.visible = false; grabTether.visible = false;
+}
+function updateBrushFeedback(now) {
+  const applying = !tryOn.enabled && isBrushApplying();
+  brushCue.material.color.set(applying ? '#e5a63b' : '#286743');
+  const pulse = applying && !reduceBrushMotion.matches ? .72 + .28 * (.5 + .5 * Math.sin(now * .005)) : 1;
+  brushCue.material.opacity = pulse;
+  mirroredBrush.material.opacity = .55 * pulse;
+  brushStatus.hidden = !applying || !brushCue.visible || tryOn.enabled || resizeEnabled || Boolean(handUI?.isOpen) || editingPaused;
+  if (!brushStatus.hidden) {
+    const point = brushCue.position.clone().project(camera);
+    const canvas = renderer.domElement.getBoundingClientRect(), stage = document.querySelector('#stage').getBoundingClientRect();
+    const x = canvas.left - stage.left + (point.x + 1) * canvas.width / 2;
+    const y = canvas.top - stage.top + (1 - point.y) * canvas.height / 2 + 22;
+    brushStatus.style.left = `${THREE.MathUtils.clamp(x, 48, stage.width - 48)}px`;
+    brushStatus.style.top = `${THREE.MathUtils.clamp(y, 16, stage.height - 32)}px`;
+  }
+}
 const symmetryGuide = new THREE.Line(
   new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 1, 0)]),
   new THREE.LineDashedMaterial({ color: '#538c68', dashSize: 0.07, gapSize: 0.055, transparent: true, opacity: 0.4, depthTest: false }),
@@ -956,6 +992,7 @@ function renderScene() {
     symmetryGuide.position.copy(clay.localToWorld(new THREE.Vector3(0, 0, 0.9)));
     symmetryGuide.scale.setScalar(radius * clay.scale.x);
   }
+  updateBrushFeedback(now);
   mirroredBrush.visible = ['pinch', 'extrude', 'erase', 'paint'].includes(activeTool) && symmetryEnabled && brushCue.visible;
   if (mirroredBrush.visible) {
     const point = previousPullPoint?.clone() ?? clay.worldToLocal(brushCue.position.clone());
@@ -1456,6 +1493,7 @@ function processSculptPoint(sculptPoint, pinchOverride, pinchRatio = 1, cursor =
     contactLabel.textContent = 'Close the menu to sculpt';
     return;
   }
+  if (isBrushApplying()) { showApplyingBrush(sculptPoint); return; }
   if (volumeBusy()) return;
   if (activeSize === 0 && (activeTool === 'pinch' || activeTool === 'erase' || activeTool === 'extrude' || activeTool === 'paint')) {
     brushCue.visible = false; contactCue.visible = false; pinchCue.visible = false;

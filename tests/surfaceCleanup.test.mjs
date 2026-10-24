@@ -61,7 +61,9 @@ test('Queue marks a post-Pull cleanup as refining, never as blocked input',t=>{
   t.after(()=>{queue.dispose();globalThis.Worker=previousWorker;});
   queue.remeshSurface();assert.equal(queue.pending,false);assert.equal(queue.refining,true);
   queue.pauseRefinement();assert.equal(queue.pending,false);
-  queue.invalidate();assert.equal(queue.refining,false);
+  queue.invalidate();assert.equal(queue.refining,true,'new edits pause cleanup without forgetting the unfinished repair');
+  queue.reset();assert.equal(queue.refining,true);
+  queue.resumeRefinement();assert.equal(queue.pending,false);
 });
 
 test('A new Pull begins immediately while previous cleanup is pending',t=>{

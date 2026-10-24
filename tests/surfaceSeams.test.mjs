@@ -3,7 +3,24 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { ClayVolume } from '../src/clayVolume.js';
 import { makeWarp } from '../src/maskWarp.js';
-import { surfaceBrickKeys } from '../src/surfaceBricks.js';
+import { surfaceBrickKeys, spanningSurfaceRegions, expandSurfaceRebuildKeys } from '../src/surfaceBricks.js';
+
+test('Local rebuilding removes overlapping stretched owners through the entire connected region',()=>{
+  const regions=spanningSurfaceRegions([
+    {key:'4,4,5',positions:new Float32Array([.1,.1,.7,1.4,.1,.7,.2,.2,.7])},
+    {key:'7,4,5',positions:new Float32Array([1.7,.1,.7,2,.1,.7,1.8,.2,.7])},
+  ]);
+  const keys=expandSurfaceRebuildKeys(['4,4,5'],regions);
+  assert.ok(keys.has('6,4,5'));
+  assert.ok(keys.has('7,4,5'),'overlapping owners must be replaced transitively');
+  assert.ok(!keys.has('0,0,0'),'unrelated surface stays untouched');
+});
+
+test('Already clipped grid geometry keeps rebuilding local',()=>{
+  const regions=spanningSurfaceRegions([{key:'4,4,5',positions:new Float32Array([.1,.1,.7,.2,.1,.7,.2,.2,.7])}]);
+  assert.equal(regions.length,0);
+  assert.deepEqual([...expandSurfaceRebuildKeys(['4,4,5'],regions)],['4,4,5']);
+});
 
 function boundary(volume,bx,step=1) {
   volume.meshStep=step;volume.rebuildBrick(bx,5,4);

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { taperedStroke } from './extrudeGeometry.js';
 import { checkpoint } from './sculptHistory.js';
+import { spanningSurfaceRegions, expandSurfaceRebuildKeys } from './surfaceBricks.js';
 
 export class SurfaceExtrude {
   constructor(volume,onChange) { this.volume=volume; this.onChange=onChange; this.queue=[]; }
@@ -103,7 +104,8 @@ export class SurfaceExtrude {
         const high=[0,1,2].map(a=>Math.floor((Math.max(...points.map(p=>p[a]))+padding+2.4)/cell));
         for(let z=low[2];z<=high[2];z++)for(let y=low[1];y<=high[1];y++)for(let x=low[0];x<=high[0];x++)keys.add(`${x},${y},${z}`);
       }
-      for(const key of keys) v.rebuildBrick(...key.split(',').map(Number));
+      const regions=spanningSurfaceRegions([...v.bricks].map(([key,{mesh}])=>({key,positions:mesh.geometry.attributes.position.array})));
+      for(const key of expandSurfaceRebuildKeys(keys,regions)) v.rebuildBrick(...key.split(',').map(Number));
       this.onChange();
       // New strokes keep their own visible previews while full-detail commits
       // run in order. Never invalidate or overwrite a preceding deformation.

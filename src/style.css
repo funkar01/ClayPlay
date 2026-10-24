@@ -410,6 +410,8 @@ body.play-area-fullscreen { overflow: hidden; }
 @media(max-width:600px) { .paint-palette { right:10px; bottom:66px; width:min(310px,calc(100% - 120px)); padding:14px; max-height:calc(100% - 180px); } .paint-swatches { grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; } .paint-palette-heading span { display:none; } }
 .surface-status { position: absolute; z-index: 8; top: 140px; left: 50%; transform: translateX(-50%); padding: 7px 12px; border-radius: 20px; background: #fffaf3dd; color: #4b7559; font-size: 10px; pointer-events: none; white-space: nowrap; }
 .surface-status[hidden] { display: none; }
+.brush-status { position: absolute; z-index: 8; transform: translateX(-50%); padding: 5px 9px; border: 1px solid #e5a63b80; border-radius: 6px; background: #fff8e9; color: #765018; font-size: 12px; line-height: 1.4; pointer-events: none; white-space: nowrap; }
+.brush-status[hidden] { display: none; }
 .surface-status[data-phase="building"] { color: #92704f; }
 @media(max-width:600px) { .surface-status { top: 140px; max-width: calc(100% - 100px); font-size: 9px; } }
 .stage-size-control { position: absolute; z-index: 9; top: 18px; left: 50%; transform: translateX(-50%); width: min(300px,calc(100% - 280px)); min-width: 180px; margin: 0; padding: 12px 18px; border: 1px solid #ffffffb8; border-radius: 18px; background: #fffaf3eb; color: #765844; box-shadow: 0 5px 24px #60452e12; backdrop-filter: blur(12px); }
@@ -604,7 +606,7 @@ html[data-studio-theme] { color:var(--ink); background:var(--cream); accent-colo
 html[data-studio-theme] body { color:var(--ink); }
 html[data-studio-theme] :is(.hand-toolbar,.hand-panel,.paint-palette,.paint-palette-heading,.control-mode-card,.stage-size-control,.studio-tutorial,.comfort-setup,.mask-picker-card,.reach-calibration-panel,.clay-menu-panel,.camera-card,.tip-card,.checklist-card,.selfie-panel) { background:var(--ui-panel); color:var(--ink); border-color:var(--line); }
 html[data-studio-theme] :is(.hand-toolbar > button,.hand-panel button,.control-mode-card button,.paint-scroll button,.paint-adjust button,.paint-swatches button,.mask-picker-grid button,.clay-menu button,.hand-try-done,.stage-selfie,.fullscreen-button) { background:var(--ui-soft); color:var(--ink); border-color:var(--line); }
-html[data-studio-theme] :is(.hand-toolbar > button.is-active,button[aria-pressed="true"],.hand-toolbar > button[aria-expanded="true"],.mask-picker-start,.comfort-setup > button:not(.comfort-skip)) { background:var(--selected-fill); color:var(--selected-ink); border-color:var(--selected-fill); box-shadow:inset 0 0 0 1px var(--selected-fill); }
+html[data-studio-theme] :is(.hand-toolbar > button.is-active,button[aria-pressed="true"],.hand-toolbar > button[aria-expanded="true"]) { background:var(--ui-soft); color:var(--ink); border-color:var(--selected-fill); box-shadow:inset 0 0 0 1px var(--selected-fill); }
 html[data-studio-theme] :is(.scene-hint,.hand-feedback,.surface-status,.selfie-status,.prompt-card,.stage-camera-preview) { background:var(--ui-panel); color:var(--ink); border-color:var(--line); text-shadow:none; }
 html[data-studio-theme] :is(.hand-panel-caption,.hand-panel-help,.paint-hex,.paint-palette-heading span,.paint-range output,.control-mode-card p,.size-hand-help,.mask-picker-card > p,.mask-picker-footer > span,.mask-picker-grid button > span,.tip-card p,.prompt-copy > span,#paint-slider-help) { color:var(--muted); }
 html[data-studio-theme] :is(.paint-preview,.hand-color-preview,#tutorial-state,.comfort-status) { background:var(--ui-raised); color:var(--ink); border-color:var(--line); }
@@ -633,8 +635,8 @@ html[data-studio-theme] .stage-size-control input { accent-color:var(--selected-
 :root[data-studio-theme] #app :is(button,summary):hover:not(:disabled):not([aria-pressed="true"]):not(.is-active):not(.hand-selected) {
   background:var(--ui-raised); border-color:var(--ui-focus); color:var(--ink);
 }
-:root[data-studio-theme] #app :is(button.is-active,button[aria-pressed="true"],button[aria-expanded="true"],.primary-button,.mask-picker-start,#tutorial-next,#capture-reach,.comfort-setup > button:not(.comfort-skip),[data-selfie="share"]) {
-  background:var(--selected-fill); color:var(--selected-ink); border-color:var(--selected-fill);
+:root[data-studio-theme] #app :is(button.is-active,button[aria-pressed="true"],button[aria-expanded="true"]) {
+  background:var(--ui-soft); color:var(--ink); border-color:var(--selected-fill);
 }
 :root[data-studio-theme] #app button :is(span,small,strong) { color:inherit; }
 :root[data-studio-theme] #app :is(.studio-message button,.tutorial-actions button,.selfie-card button) { box-shadow:none; }
@@ -675,3 +677,55 @@ html[data-studio-theme] .stage-size-control input { accent-color:var(--selected-
 :root[data-studio-theme] #app .mission-path path { stroke:var(--ui-focus); }
 :root[data-studio-theme] #app .tutorial-overlay[data-held="true"] .mission-ring { border-color:var(--selected-fill); box-shadow:0 0 20px var(--selected-fill); }
 :root[data-studio-theme] #app .studio-tutorial[data-lesson="ui"] #tutorial-next { box-shadow:0 0 0 4px var(--line); }
+
+
+/* One button family: action priority never changes the fill or typography. */
+:root[data-studio-theme] #app button {
+  background:var(--ui-soft); color:var(--ink);
+  border:1px solid var(--line); border-radius:10px;
+  font-family:inherit; font-size:14px; font-weight:600; line-height:1.35;
+  padding:12px 16px; box-shadow:none;
+}
+:root[data-studio-theme] #app :is(button.is-active,button[aria-pressed="true"],button[aria-expanded="true"]) {
+  background:var(--ui-soft); color:var(--ink);
+  border-color:var(--selected-fill); box-shadow:inset 0 0 0 1px var(--selected-fill);
+}
+:root[data-studio-theme] #app button.hand-selected {
+  background-color:var(--ui-soft) !important; color:var(--ink) !important;
+  border-color:var(--selected-fill); box-shadow:inset 0 0 0 1px var(--selected-fill);
+}
+:root[data-studio-theme] #app button:disabled { opacity:.65; cursor:default; }
+:root[data-studio-theme] #app .hand-toolbar > button { padding:9px 4px; }
+:root[data-studio-theme] #app .paint-swatches button { padding:8px 4px; }
+:root[data-studio-theme] #app .paint-adjust button { font-size:22px; }
+:root[data-studio-theme] #app .studio-theme-card { text-align:left; }
+:root[data-studio-theme] #app .comfort-setup button { display:block; width:100%; min-height:48px; }
+:root[data-studio-theme] #app .comfort-setup .comfort-skip { margin-top:12px; }
+:root[data-studio-theme] #app button.clay-swatch { background:var(--swatch); padding:0; border-radius:50%; }
+
+/* Clear separation between canvas, panels and their controls in every theme. */
+:root[data-studio-theme] #app :is(.hand-toolbar,.hand-panel,.comfort-setup,.paint-palette,.stage-size-control,.control-mode-card,.selfie-card,.studio-tutorial) {
+  box-shadow:0 8px 28px color-mix(in srgb,#000 22%,transparent);
+}
+:root[data-studio-theme] #app .strength-heading label { color:var(--muted); }
+:root[data-studio-theme] #app :is(.hand-panel-body,.paint-palette,.hand-toolbar) { scrollbar-color:var(--line) var(--ui-panel); }
+
+/* Selected is a distinct state of the same button family, in every theme. */
+:root[data-studio-theme] #app button:not(.clay-swatch):is(.is-active,[aria-pressed="true"],[aria-expanded="true"],.studio-theme-card[aria-pressed="true"]) {
+  background:var(--selected-fill); color:var(--selected-ink);
+  border-color:var(--selected-fill); font-weight:700;
+  box-shadow:0 0 0 2px var(--selected-fill);
+}
+:root[data-studio-theme] #app button.hand-selected:is(.is-active,[aria-pressed="true"],[aria-expanded="true"]) {
+  background-color:var(--selected-fill) !important; color:var(--selected-ink) !important;
+}
+:root[data-studio-theme] #app :is(.hand-toolbar > button,.hand-panel button,.mask-picker-grid button,.paint-swatches button,.control-mode-card button) { position:relative; }
+:root[data-studio-theme] #app :is(.hand-toolbar > button,.hand-panel button,.mask-picker-grid button,.paint-swatches button,.control-mode-card button):is(.is-active,[aria-pressed="true"],[aria-expanded="true"])::after {
+  content:'✓'; position:absolute; top:4px; right:4px;
+  display:grid; place-items:center; width:14px; height:14px; border-radius:50%;
+  background:var(--selected-ink); color:var(--selected-fill);
+  font:800 11px/1 sans-serif; pointer-events:none;
+}
+:root[data-studio-theme] #app .mask-picker-grid button[aria-pressed="true"] svg { fill:var(--selected-ink); stroke:var(--selected-ink); }
+:root[data-studio-theme] #app .mask-picker-grid button[aria-pressed="true"] svg ellipse { fill:var(--selected-fill); }
+:root[data-studio-theme] #app button:is(.is-active,[aria-pressed="true"],[aria-expanded="true"]) :is(span,small,strong) { color:inherit !important; }
