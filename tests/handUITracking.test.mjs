@@ -29,6 +29,22 @@ function fixture() {
   return { ui, result, target, styles, clicks: () => clicks };
 }
 
+test('Held tool aim and drawn cursor share one measured point without prediction drift', () => {
+  const { ui, result } = fixture();
+  ui.receive(result, 0, { blocked: true });
+  const moved = structuredClone(result);
+  for (const point of moved.landmarks[0]) { point.x += .03; point.y += .02; }
+  ui.receive(moved, 35, { blocked: true });
+  ui.cursor.dataset.gesture = 'held';
+  ui.drawCursor(50);
+  assert.deepEqual(ui.getPointer(), ui.getPointer(true));
+  assert.match(ui.cursor.style.transform, /translate\(-50%, -50%\)/);
+  ui.suspend(70);
+  assert.equal(ui.getPointer(), null, 'a suspended hand must not provide a fresh tool target');
+  ui.lose();
+  assert.equal(ui.getPointer(true), null);
+});
+
 test('Size slider requires a pinch, captures the drag outside the track, and stops on release',()=>{
   const f=fixture(),{ui,result,target}=f;
   target.id='tool-size';target.min='0';target.max='90';target.step='1';target.value='24';

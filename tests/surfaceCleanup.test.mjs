@@ -31,6 +31,16 @@ test('Cleanup publishes full-resolution batches together while retaining the edi
   f.cleanup.request();f.cleanup.start();assert.equal(f.workers.length,1,'completed worker is reused');
 });
 
+test('A local pull only schedules its repair cells and merges unfinished earlier repairs',t=>{
+  const f=fixture(t);
+  f.cleanup.request(['4,4,4']);f.cleanup.start();
+  const first=f.workers[0];assert.deepEqual(first.messages[0].keys,['4,4,4']);
+  f.cleanup.pause();f.cleanup.request(['5,4,4']);f.cleanup.start();
+  const latest=f.workers.at(-1),keys=latest.messages[0].keys;
+  assert.deepEqual(new Set(keys),new Set(['4,4,4','5,4,4']));
+  assert.equal(first.terminated,true);
+});
+
 test('New input terminates cleanup immediately; late results cannot overwrite the new revision',t=>{
   const f=fixture(t);f.cleanup.request();f.cleanup.start();
   const staleWorker=f.workers[0],stale=staleWorker.messages[0];

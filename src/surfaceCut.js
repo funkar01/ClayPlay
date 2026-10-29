@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { emitStudioCommit } from './studioFeedback.js';
 import { checkpoint } from './sculptHistory.js';
 import { diagnostics } from './diagnostics.js';
 import { applyVertexPaint } from './paintLayer.js';
@@ -43,6 +44,7 @@ export class SurfaceCut {
         }
       }
       this.abort(); this.onComplete(data);
+      if(data.valid)emitStudioCommit('cut',{intensity:Math.min(1,data.bricks.length/20)});
       document.dispatchEvent(new Event('sculpt-history-change'));
     };
     const bricks = [...volume.bricks].map(([key, { mesh }]) => ({ key, positions: mesh.geometry.attributes.position.array.slice() }));

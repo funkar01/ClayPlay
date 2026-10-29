@@ -9,6 +9,11 @@ import { makeWarp,forwardWarp } from '../src/maskWarp.js';
 import { PullPreview } from '../src/pullPreview.js';
 import { syncPaintTexture } from '../src/paintTexture.js';
 import { hasPaint } from '../src/paintLayer.js';
+
+test('Unpainted pulls never evaluate an inverse warp while sampling new paint',()=>{
+  const volume={paint:new Map(),pullSource:{paint:new Map()},get pullWarp(){throw Error('unnecessary paint warp');}};
+  assert.deepEqual(samplePaint(volume,.5,.2,.7),[0,0,0,0]);
+});
 import { acceptsTutorialAction } from '../src/tutorialRecipes.js';
 
 function fixture(t,onChange) {

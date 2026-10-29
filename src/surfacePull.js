@@ -67,7 +67,7 @@ export class SurfacePull {
           this.volume.paint=new Map();
           this.volume.cutSource = null; this.volume.cutRegion = null;
           this.volume.meshQueue?.invalidate();
-          this.onChange();emitStudioCommit('pull');
+          this.onChange();emitStudioCommit('pull', { intensity: Math.min(1, Math.hypot(...data.warp.delta) / 1.5) });
         } else {
           // A pinch without a shape change is not an undoable action.
           this.volume.undoStack?.pop();
@@ -82,7 +82,7 @@ export class SurfacePull {
         refreshPaint(this.volume);
         // The pulled triangles are bucketed by centroid, not clipped to grid cells.
         // Rebuild their complete spatial coverage and swap it as one revision.
-        if (Math.hypot(...data.warp.delta) > 0.0005) this.volume.meshQueue?.remeshSurface?.();
+        if (Math.hypot(...data.warp.delta) > 0.0005) this.volume.meshQueue?.remeshSurface?.(data.repairKeys);
         else this.volume.meshQueue?.resumeRefinement?.();
         this.worker.terminate(); this.worker = null;
         document.dispatchEvent(new Event('sculpt-history-change'));

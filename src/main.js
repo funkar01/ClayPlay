@@ -1,6 +1,7 @@
 import { StudioFeedback } from './studioFeedback.js';
 import { SelfieStudio } from './selfie.js';
 import { brushApplying, deformationApplying } from './brushAvailability.js';
+import { pointerOnPlane } from './toolPointer.js';
 import { ComfortSetup } from './comfortSetup.js';
 import { PalmControl } from './palmControl.js';
 import { PaintPicker } from './paintPicker.js';
@@ -399,6 +400,9 @@ function isBrushApplying() {
     radius: brushRadius(), eye: clay.worldToLocal(camera.position.clone()).toArray(), symmetry: symmetryEnabled,
   });
 }
+function cursorToolPoint(measured = false, planeZ = 0) {
+  return pointerOnPlane(handUI?.getPointer(measured), renderer.domElement.getBoundingClientRect(), camera, planeZ);
+}
 function showApplyingBrush(point) {
   const planeZ = clay.localToWorld(new THREE.Vector3(0, 0, .9)).z;
   clayRaycaster.set(camera.position, new THREE.Vector3(point.x, point.y, 0).sub(camera.position).normalize());
@@ -409,6 +413,14 @@ function showApplyingBrush(point) {
   contactCue.visible = false; pinchCue.visible = false; grabTether.visible = false;
 }
 function updateBrushFeedback(now) {
+  if (brushCue.visible && !tryOn.enabled && !resizeEnabled && !handUI?.isOpen) {
+    const aim = cursorToolPoint(false, brushCue.position.z);
+    if (aim) {
+      brushCue.position.copy(aim);
+      if (contactCue.visible) contactCue.position.copy(aim);
+      if (pinchCue.visible) pinchCue.position.copy(aim);
+    }
+  }
   const applying = !tryOn.enabled && (isBrushApplying() || deformationApplying(clayVolume));
   const showLoading = applying && !resizeEnabled && !handUI?.isOpen && !editingPaused;
   handUI?.cursor.classList.toggle('is-applying', showLoading);
@@ -941,6 +953,7 @@ function renderScene() {
   studioBackdrop.update(clayObjects.active.material.color);
   arView.update();
   const now = performance.now();
+  handUI?.tick(now);
   studioBackdrop.present(clayObjects.active.group,{visible:!arView.live && !tryOn.enabled,painting:activeTool==='paint'});
   diagnostics.poseAgeMs = poseTarget ? now - poseSampleAt : 0;
   diagnostics.pointerAgeMs = handUI?.motion.time != null ? Math.max(0, now - handUI.motion.time) : 0;
@@ -999,7 +1012,7 @@ function renderScene() {
   updateBrushFeedback(now);
   mirroredBrush.visible = ['pinch', 'extrude', 'erase', 'paint'].includes(activeTool) && symmetryEnabled && brushCue.visible;
   if (mirroredBrush.visible) {
-    const point = previousPullPoint?.clone() ?? clay.worldToLocal(brushCue.position.clone());
+    const point = clay.worldToLocal(brushCue.position.clone());
     point.x = -point.x;
     mirroredBrush.position.copy(clay.localToWorld(point)); mirroredBrush.position.z += 0.035;
     mirroredBrush.scale.copy(brushCue.scale);
@@ -1032,7 +1045,6 @@ function renderScene() {
   if(renderMs>50)trackingTrace.record('slow-render',{renderMs,grabbing:Boolean(previousPullPoint),meshPending:Boolean(clayVolume.meshQueue?.pending)});
   selfie?.tick(now,{ready:!document.hidden && tryOn.enabled && tryOn.mask.visible && Boolean(tryOn.target) && arView.live && now-tryOn.receivedAt<300,video:arView.video,canvas:renderer.domElement});
   updateHistoryButtons();
-  handUI?.tick(now);
   if(controlMode==='palm' && stream && !tryOn.enabled && !resizeEnabled) {
     sceneHint.textContent=palmInstruction(sceneHint.textContent);
     stageCaption.textContent=palmInstruction(stageCaption.textContent);
@@ -1488,6 +1500,7 @@ function processSculptPoint(sculptPoint, pinchOverride, pinchRatio = 1, cursor =
   if (studioTutorial?.learningUI) return;
   if (tryOn.enabled || resizeEnabled || handUI?.isOpen || editingPaused || handUICaptured) return;
   if (moveIntent || palmMove.active) return;
+  if (!cursor) sculptPoint = cursorToolPoint(Boolean(pinchOverride)) ?? sculptPoint;
   if (clayVolume.meshFailed) {
     cancelMouseStroke();
     setPrompt('Clay updates paused.', 'The background sculpting worker stopped. Reload the page to restart the studio.', 'warning');

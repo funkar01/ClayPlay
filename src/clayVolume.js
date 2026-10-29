@@ -16,7 +16,6 @@ const TETRAHEDRA = [
   [0, 5, 1, 6], [0, 1, 2, 6], [0, 2, 3, 6],
   [0, 3, 7, 6], [0, 7, 4, 6], [0, 4, 5, 6],
 ];
-const TETRA_EDGES = [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]];
 const CUBE_CORNERS = [
   [0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0],
   [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1],
@@ -213,6 +212,7 @@ export class ClayVolume {
 
     const emitTriangle = (a, b, c, expectedNormal) => {
       const cross = b.position.clone().sub(a.position).cross(c.position.clone().sub(a.position));
+      if(cross.lengthSq()<1e-20)return;
       if (cross.dot(expectedNormal) < 0) [b, c] = [c, b];
       for (const vertex of [a, b, c]) {
         positions.push(vertex.position.x, vertex.position.y, vertex.position.z);
@@ -221,13 +221,15 @@ export class ClayVolume {
     };
 
     const polygonizeTetrahedron = (tetra) => {
-      const crossings = [];
-      for (const [edgeA, edgeB] of TETRA_EDGES) {
-        const cornerA = tetra[edgeA];
-        const cornerB = tetra[edgeB];
+      // The intersection topology follows directly from the inside/outside
+      // case. Angular sorting rebuilt vectors and evaluated atan2 for every
+      // tetrahedron, despite these crossings already forming a known cycle.
+      const inside=[],outside=[];
+      for(const corner of tetra)(cornerValues[corner]<0?inside:outside).push(corner);
+      if(!inside.length || !outside.length)return;
+      const crossing=(cornerA,cornerB)=>{
         const valueA = cornerValues[cornerA];
         const valueB = cornerValues[cornerB];
-        if ((valueA < 0) === (valueB < 0)) continue;
         const idA=cornerIds[cornerA],idB=cornerIds[cornerB];
         const edgeKey=Math.min(idA,idB)*nodeCount+Math.max(idA,idB);
         let vertex=edges.get(edgeKey);
@@ -237,27 +239,15 @@ export class ClayVolume {
           vertex={position,normal:this.gradient(position.x,position.y,position.z)};
           edges.set(edgeKey,vertex);
         }
-        if (crossings.some((item) => item.position.distanceToSquared(vertex.position) < 1e-10)) continue;
-        crossings.push(vertex);
-      }
-      if (crossings.length < 3) return;
-      const center = crossings.reduce((sum, item) => sum.add(item.position), new THREE.Vector3()).multiplyScalar(1 / crossings.length);
-      const averageNormal = crossings.reduce((sum, item) => sum.add(item.normal), new THREE.Vector3()).normalize();
-      if (averageNormal.lengthSq() < 1e-6) averageNormal.copy(center).normalize();
-      const basis = Math.abs(averageNormal.x) < 0.8
-        ? new THREE.Vector3(1, 0, 0).cross(averageNormal).normalize()
-        : new THREE.Vector3(0, 1, 0).cross(averageNormal).normalize();
-      const secondBasis = averageNormal.clone().cross(basis).normalize();
-      crossings.sort((a, b) => {
-        const aOffset = a.position.clone().sub(center);
-        const bOffset = b.position.clone().sub(center);
-        const angleA = Math.atan2(aOffset.dot(secondBasis), aOffset.dot(basis));
-        const angleB = Math.atan2(bOffset.dot(secondBasis), bOffset.dot(basis));
-        return angleA - angleB;
-      });
-      for (let index = 1; index < crossings.length - 1; index += 1) {
-        emitTriangle(crossings[0], crossings[index], crossings[index + 1], averageNormal);
-      }
+        return vertex;
+      };
+      let crossings;
+      if(inside.length===1)crossings=outside.map(c=>crossing(inside[0],c));
+      else if(outside.length===1)crossings=inside.map(c=>crossing(c,outside[0]));
+      else crossings=[crossing(inside[0],outside[0]),crossing(inside[0],outside[1]),crossing(inside[1],outside[1]),crossing(inside[1],outside[0])];
+      const normal=crossings.reduce((sum,item)=>sum.add(item.normal),new THREE.Vector3());
+      emitTriangle(crossings[0],crossings[1],crossings[2],normal);
+      if(crossings.length===4)emitTriangle(crossings[0],crossings[2],crossings[3],normal);
     };
 
     for (let z = startZ; z < endZ; z += meshStep) {

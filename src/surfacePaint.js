@@ -41,7 +41,7 @@ export class SurfacePaint {
     // Preserve the whole committed path for tutorial scoring, including gaps.
     // The final point alone can be outside a correctly painted target.
     const stroke={segments:this.segments,radius:this.radius,symmetry:this.symmetry};this.segments=null;
-    if(this.changes.size){checkpointPaint(this.volume,this.changes);this.onChange(lastPoint,stroke);emitStudioCommit('paint');}
+    if(this.changes.size){checkpointPaint(this.volume,this.changes);this.onChange(lastPoint,stroke);emitStudioCommit('paint',{intensity:Math.min(1,this.changes.size/1800)});}
     this.coverage.clear();this.bases.clear();this.changes.clear();
     this.volume.meshQueue?.resumeRefinement?.();
   }

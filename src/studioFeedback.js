@@ -18,9 +18,9 @@ export function studioMessagePresentation(state) {
   if(state.hint && !state.trying)return {...tracking,label:state.hint};
   return tracking;
 }
-export function emitStudioCommit(tool) {
+export function emitStudioCommit(tool, { intensity = .35 } = {}) {
   if(typeof document==='undefined')return;
-  const event=new Event('studio-edit-committed');event.tool=tool;document.dispatchEvent(event);
+  const event=new Event('studio-edit-committed');event.tool=tool;event.intensity=intensity;document.dispatchEvent(event);
 }
 export class StudioFeedback {
   constructor(stage) {

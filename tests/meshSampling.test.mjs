@@ -4,6 +4,26 @@ import * as THREE from 'three';
 import { ClayVolume } from '../src/clayVolume.js';
 import { taperedStroke } from '../src/extrudeGeometry.js';
 
+test('Direct tetrahedron cases produce a closed outward-facing surface without angular sorting',()=>{
+  const v=ClayVolume.fromState({shape:'full',field:[]});
+  v.baseDistance=(x,y,z)=>Math.hypot(x-.3,y-.3,z-.9)-.18;
+  Object.assign(v,{parent:new THREE.Group(),material:null,bricks:new Map()});
+  v.rebuildBrick(4,4,5);
+  const geometry=v.bricks.get('4,4,5').mesh.geometry,p=geometry.attributes.position.array,edges=new Map();
+  let signedVolume=0;
+  const point=i=>[p[i],p[i+1],p[i+2]].map(v=>Math.round(v*1e6)).join(',');
+  for(let i=0;i<p.length;i+=9) {
+    const a=new THREE.Vector3().fromArray(p,i),b=new THREE.Vector3().fromArray(p,i+3),c=new THREE.Vector3().fromArray(p,i+6);
+    signedVolume+=a.dot(b.clone().cross(c))/6;
+    for(const [j,k]of [[0,3],[3,6],[6,0]]) {
+      const key=[point(i+j),point(i+k)].sort().join('|');edges.set(key,(edges.get(key) ?? 0)+1);
+    }
+  }
+  assert.ok([...edges.values()].every(n=>n===2),'every edge must be shared by exactly two faces');
+  assert.ok(Math.abs(signedVolume/(4/3*Math.PI*.18**3)-1)<.02,'same grid resolution retains shape and outward winding');
+  geometry.dispose();
+});
+
 test('Meshing reuses grid samples and edge normals without changing surface gradients', () => {
   const v=ClayVolume.fromState({shape:'full',field:[]});
   v.extrudeSource=v.snapshot();

@@ -316,6 +316,7 @@ export class HandUI {
   }
   announce(message) { this.feedback.hidden = false; if (this.feedback.textContent !== message) this.feedback.textContent = message; }
   lose() {
+    this.measuredPointer=null;this.displayPointer=null;
     this.sizeDrag=null;this.sizePinch?.reset();this.palmInput?.reset();this.palmPointer=null;
     this.lastAt = null; this.gapAt = null;
     this.motion.reset();
@@ -376,10 +377,15 @@ export class HandUI {
     }
   }
   drawCursor(now) {
-    const points = this.motion.sample(now);
+    const points = this.motion.sample(now, { predict: this.cursor.dataset.gesture !== 'held' });
     if (!points) return;
     const point = this.mapPoint(this.controlMode==='palm' && this.palmPointer ? this.palmPointer : points[8]), stageRect = this.stage.getBoundingClientRect();
-    this.cursor.style.transform = `translate(${point.x - stageRect.left}px, ${point.y - stageRect.top}px)`;
+    this.displayPointer=point;
+    this.cursor.style.transform = `translate(${point.x - stageRect.left}px, ${point.y - stageRect.top}px) translate(-50%, -50%)`;
+  }
+  getPointer(measured = false) {
+    if (this.cursor.hidden || this.gapAt !== null) return null;
+    return (measured ? this.measuredPointer : this.displayPointer) ?? null;
   }
   hit(point, overlay = null) {
     const root = overlay ?? (this.isOpen ? this.panel : this.stage);
@@ -422,6 +428,7 @@ export class HandUI {
     }
     if(palmMode)this.palmPointer=palm.point;
     const point = this.mapPoint(palmMode ? palm.point : measured[8]);
+    this.measuredPointer=point;
     const tutorial = this.stage.querySelector('#selfie-preview:not([hidden]), #mask-shape-picker:not([hidden]), #studio-tutorial:not([hidden])');
     const tutorialBounds = tutorial?.getBoundingClientRect();
     const overTutorial = tutorialBounds && point.x >= tutorialBounds.left && point.x <= tutorialBounds.right

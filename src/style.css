@@ -270,7 +270,7 @@ body.play-area-fullscreen { overflow: hidden; }
 .hand-color-preview { grid-column: 1 / -1; display: grid; place-items: center; height: 52px; border-radius: 8px; color: white; text-shadow: 0 1px 3px #000b; font-size: 12px; }
 .hand-hover { outline: 3px solid #6499b8 !important; outline-offset: 3px; }
 .hand-selected { outline-color: var(--selected-fill) !important; background-color: var(--selected-fill) !important; color: var(--selected-ink) !important; }
-.hand-ui-cursor { position: absolute; z-index: 20; top: -10px; left: -10px; width: 20px; height: 20px; border: 3px solid #548dad; border-radius: 50%; background: #e5f4ff90; box-shadow: 0 0 0 3px #ffffff9c; pointer-events: none; }
+.hand-ui-cursor { position: absolute; z-index: 20; top: 0; left: 0; width: 20px; height: 20px; border: 3px solid #548dad; border-radius: 50%; background: #e5f4ff90; box-shadow: 0 0 0 3px #ffffff9c; pointer-events: none; }
 .hand-ui-cursor::after { content: ''; position: absolute; inset: -9px; border-radius: 50%; background: conic-gradient(#39734e var(--dwell-progress,0deg),#548dad33 0); mask: radial-gradient(farthest-side,transparent calc(100% - 3px),#000 0); opacity: 0; }
 .hand-ui-cursor[data-phase="dwell"]::after, .hand-ui-cursor[data-phase="selected"]::after { opacity: 1; }
 .hand-ui-cursor[data-phase="selected"] { background: #5e9b6d; border-color: #39734e; }
@@ -533,8 +533,8 @@ body.play-area-fullscreen { overflow: hidden; }
 .mission-path path { fill:none; stroke:#fff6ce; stroke-width:3; stroke-dasharray:5 5; stroke-linecap:round; filter:drop-shadow(0 1px 3px #60452e); }
 .mission-travel { position:absolute; left:0; top:0; animation:mission-pull 4.8s infinite; }
 .mission-hand { position:absolute; width:var(--mission-hand-size,100px); height:var(--mission-hand-size,100px); left:calc(var(--mission-hand-size,100px) / -2); top:calc(var(--mission-hand-size,100px) / -2); transform:rotate(calc(0deg - var(--guide-angle,0deg))); }
-/* Tint every gesture with one solid UI accent using its original silhouette. */
-.mission-gesture { position:absolute; inset:0; background:var(--ui-focus,#7050a0); -webkit-mask:var(--gesture-icon) center / contain no-repeat; mask:var(--gesture-icon) center / contain no-repeat; mask-mode:alpha; }
+/* Match the selected button fill with one solid tone for every gesture. */
+.mission-gesture { position:absolute; inset:0; background:var(--selected-fill,#326b49); -webkit-mask:var(--gesture-icon) center / contain no-repeat; mask:var(--gesture-icon) center / contain no-repeat; mask-mode:alpha; }
 .mission-open { animation:mission-open 4.8s infinite; }
 .mission-pinched { animation:mission-pinch 4.8s infinite; }
 .tutorial-overlay[data-held="true"] .mission-ring { border-color:#86e0a3; box-shadow:0 0 20px #86e0a3; }

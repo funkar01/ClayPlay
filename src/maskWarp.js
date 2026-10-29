@@ -55,9 +55,27 @@ export function forwardWarp(x, y, z, warp) {
 }
 
 function inverseStep(x, y, z, warp) {
+  const dy=y-warp.center[1],dz=z-warp.center[2],yz=dy*dy+dz*dz,r2=warp.support*warp.support;
+  if((x-warp.center[0])**2+yz>=r2 && (!warp.symmetry || (x+warp.center[0])**2+yz>=r2))return [x,y,z];
   let sx = x, sy = y, sz = z;
   for (let i = 0; i < 12; i++) {
     if (warp.symmetry) {
+      const cy=warp.center[1],cz=warp.center[2],yz=(sy-cy)**2+(sz-cz)**2;
+      const direct=(sx-warp.center[0])**2+yz<warp.support**2;
+      const mirrored=(sx+warp.center[0])**2+yz<warp.support**2;
+      // Most samples see just one mirrored brush. Its Jacobian is a rank-one
+      // update, so use the same exact scalar solve as an unmirrored pull.
+      if(!(direct && mirrored)) {
+        const mirror=mirrored;
+        const weight=warpWeight(mirror?-sx:sx,sy,sz,warp);
+        const delta=mirror?[-warp.delta[0],warp.delta[1],warp.delta[2]]:warp.delta;
+        const error=[sx+delta[0]*weight-x,sy+delta[1]*weight-y,sz+delta[2]*weight-z];
+        if(Math.hypot(...error)<1e-8)break;
+        const g=weightGradient(mirror?-sx:sx,sy,sz,warp);if(mirror)g[0]=-g[0];
+        const factor=dot(g,error)/(1+dot(g,delta));
+        sx-=error[0]-delta[0]*factor;sy-=error[1]-delta[1]*factor;sz-=error[2]-delta[2]*factor;
+        continue;
+      }
       const moved = forwardStep(sx, sy, sz, warp);
       const error = [moved[0] - x, moved[1] - y, moved[2] - z];
       if (Math.hypot(...error) < 1e-8) break;
@@ -140,15 +158,38 @@ function solve3(m, b) {
 // The worker evaluates position and normal together to avoid traversing a
 // mirrored stroke twice for every vertex.
 export function warpVertex(x, y, z, normal, warp) {
-  let point = [x, y, z], result = [...normal];
+  let nx = normal[0], ny = normal[1], nz = normal[2];
   for (const step of warp.steps ?? [warp]) {
-    const [px, py, pz] = point, [cx, cy, cz] = step.center;
-    const yz = (py - cy) ** 2 + (pz - cz) ** 2, radius2 = step.support ** 2;
-    if ((px - cx) ** 2 + yz >= radius2 && (!step.symmetry || (px + cx) ** 2 + yz >= radius2)) continue;
-    result = normalStep(...point, result, step);
-    point = forwardStep(...point, step);
+    const [cx, cy, cz] = step.center;
+    const sy = y - cy, sz = z - cz, yz = sy * sy + sz * sz, radius2 = step.support ** 2;
+    const a2 = (x - cx) ** 2 + yz;
+    const b2 = step.symmetry ? (x + cx) ** 2 + yz : Infinity;
+    if (a2 >= radius2 && b2 >= radius2) continue;
+    if (a2 < radius2 && b2 < radius2) {
+      // At the symmetry seam both brushes contribute to the full Jacobian.
+      const result = normalStep(x, y, z, [nx, ny, nz], step);
+      const point = forwardStep(x, y, z, step);
+      [nx, ny, nz] = result; [x, y, z] = point;
+      continue;
+    }
+    // Away from the seam the mirror is a single translation. Evaluate its
+    // falloff/gradient once and use the rank-one normal transform, avoiding
+    // repeated weights, temporary arrays and a general matrix solve.
+    const mirror = b2 < radius2;
+    const sx = x - (mirror ? -cx : cx), distance = Math.sqrt(mirror ? b2 : a2);
+    const t = Math.max(0, (distance / step.support - .35) / .65);
+    const base = 1 - t * t * (3 - 2 * t), falloff = step.falloff ?? 1;
+    const weight = base ** falloff;
+    const gradient = distance && t > 0 ? -6 * t * (1 - t) * falloff * base ** (falloff - 1) / (.65 * step.support * distance) : 0;
+    const gx = sx * gradient, gy = sy * gradient, gz = sz * gradient;
+    const dx = step.delta[0] * (mirror ? -1 : 1), dy = step.delta[1], dz = step.delta[2];
+    const scale = (dx * nx + dy * ny + dz * nz) / (1 + gx * dx + gy * dy + gz * dz);
+    nx -= gx * scale; ny -= gy * scale; nz -= gz * scale;
+    const length = Math.hypot(nx, ny, nz) || 1;
+    nx /= length; ny /= length; nz /= length;
+    x += dx * weight; y += dy * weight; z += dz * weight;
   }
-  return { point, normal: result };
+  return { point: [x, y, z], normal: [nx, ny, nz] };
 }
 
 export function warpNormal(x, y, z, normal, warp) {

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { ClayVolume } from './clayVolume.js';
 import { rasterizeMask, separateCut, cutDistance } from './cutGeometry.js';
+import {cacheVolumeNodes} from './cacheVolumeNodes.js';
 
 self.onmessage = ({ data }) => {
   try {
@@ -11,6 +12,7 @@ self.onmessage = ({ data }) => {
     const source = ClayVolume.fromState(data.state);
     const volume = ClayVolume.fromState({ shape: source.shape, eyeShape: source.eyeShape, field: [] });
     Object.assign(volume, { cutSource: source, cutRegion: result.region, bricks: new Map(), parent: new THREE.Group(), material: null });
+    cacheVolumeNodes(volume);
     const bricks = [];
     for (let index = 0; index < data.bricks.length; index++) {
       const brick = data.bricks[index], p = brick.positions;

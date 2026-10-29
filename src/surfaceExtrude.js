@@ -117,7 +117,9 @@ export class SurfaceExtrude {
     if(!this.committing) return;
     clearTimeout(this.timer);
     this.removePreview(this.current?.preview);
-    this.current=null;this.committing=false;emitStudioCommit('extrude');
+    const points=this.current?.stroke.points ?? [];
+    let length=0;for(let i=1;i<points.length;i++)length+=Math.hypot(...points[i].map((v,a)=>v-points[i-1][a]));
+    this.current=null;this.committing=false;emitStudioCommit('extrude',{intensity:Math.min(1,length/2)});
     // Start the next revision after publication of all preceding bricks.
     queueMicrotask(()=>{
       this.drain();

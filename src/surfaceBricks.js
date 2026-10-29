@@ -10,8 +10,12 @@ export function spanningSurfaceRegions(bricks) {
       low[a]=Math.min(low[a],positions[i+a]);high[a]=Math.max(high[a],positions[i+a]);
     }
     if(!low.some((v,a)=>v<min+owner[a]*width-1e-6 || high[a]>min+(owner[a]+1)*width+1e-6))continue;
-    const first=low.map(v=>Math.floor((v-voxel-min)/width));
-    const last=high.map(v=>Math.floor((v+voxel-min)/width)),keys=new Set([key]);
+    // Only cells containing triangle interiors need replacement. A halo here
+    // joins merely touching owners into a whole-mask rebuild after any pull.
+    // The caller already includes the edit/gradient halo in its dirty cells.
+    const first=low.map(v=>Math.floor((v+1e-6-min)/width));
+    const last=high.map(v=>Math.floor((v-1e-6-min)/width)),keys=new Set([key]);
+    for(let a=0;a<3;a++)if(last[a]<first[a])last[a]=first[a];
     for(let z=first[2];z<=last[2];z++)for(let y=first[1];y<=last[1];y++)for(let x=first[0];x<=last[0];x++)keys.add(`${x},${y},${z}`);
     regions.push({key,keys});
   }

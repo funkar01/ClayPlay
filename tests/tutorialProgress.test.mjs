@@ -9,7 +9,7 @@ const actions=[
   [{tool:'erase',target:[.6,0,.5]},'erase',{changed:true}],
 ];
 
-for(const [mission,tool,data] of actions)test(`${tool} completes once, after release, geometry, cleanup, and paint all finish`,()=>{
+for(const [mission,tool,data] of actions)test(`${tool} completes once after release, geometry and paint, without waiting for optional cleanup`,()=>{
   const gate=new TutorialStepGate(),paint={dirty:false,queue:{}},volume={material:{userData:{surfacePaint:paint}},meshQueue:{},surfaceExtrude:{queue:[]}};
   assert.equal(gate.record(mission,tool,data),true);
   assert.equal(gate.record(mission,tool,data),false,'duplicate callbacks cannot queue another lesson');
@@ -17,7 +17,7 @@ for(const [mission,tool,data] of actions)test(`${tool} completes once, after rel
   for(const stage of ['pulling','cutting','erasing']) {
     volume[stage]=true;assert.equal(gate.update({busy:tutorialApplying(volume),held:false}),false);volume[stage]=false;
   }
-  for(const stage of ['pending','refining']) {
+  for(const stage of ['pending']) {
     volume.meshQueue[stage]=true;assert.equal(gate.update({busy:tutorialApplying(volume),held:false}),false);volume.meshQueue[stage]=false;
   }
   volume.surfaceExtrude.committing=true;assert.equal(gate.update({busy:tutorialApplying(volume)}),false);volume.surfaceExtrude.committing=false;
@@ -25,6 +25,8 @@ for(const [mission,tool,data] of actions)test(`${tool} completes once, after rel
   paint.dirty=true;assert.equal(gate.update({busy:tutorialApplying(volume)}),false);paint.dirty=false;
   paint.queue.active={};assert.equal(gate.update({busy:tutorialApplying(volume)}),false);paint.queue.active=null;
   paint.completed={};assert.equal(gate.update({busy:tutorialApplying(volume)}),false);paint.completed=null;
+  volume.meshQueue.refining=true;
+  assert.equal(tutorialApplying(volume),false,'surface cleanup must not block the next lesson');
   assert.equal(gate.update({busy:tutorialApplying(volume)}),false,'the completed surface gets a render turn');
   assert.equal(gate.update({busy:tutorialApplying(volume)}),true);
   assert.equal(gate.update({busy:false}),false,'completion fires once');

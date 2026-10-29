@@ -9,7 +9,7 @@ export function hasPaint(volume) {
   return Boolean(volume.paint?.size || (volume.pullSource && hasPaint(volume.pullSource)) || (volume.cutSource && hasPaint(volume.cutSource)) || (volume.extrudeSource && hasPaint(volume.extrudeSource)));
 }
 function inherited(volume,x,y,z) {
-  if(volume.pullSource)return samplePaint(volume.pullSource,...inverseWarp(x,y,z,volume.pullWarp));
+  if(volume.pullSource)return hasPaint(volume.pullSource)?samplePaint(volume.pullSource,...inverseWarp(x,y,z,volume.pullWarp)):empty;
   if(volume.cutSource)return samplePaint(volume.cutSource,x,y,z);
   if(volume.extrudeSource && hasPaint(volume.extrudeSource) && volume.extrudeSource.sample(x,y,z)<.08)return samplePaint(volume.extrudeSource,x,y,z);
   return empty;

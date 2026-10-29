@@ -1,13 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { makeWarp, forwardWarp, inverseWarp, warpNormal } from '../src/maskWarp.js';
+import { makeWarp, forwardWarp, inverseWarp, warpNormal, warpVertex } from '../src/maskWarp.js';
 import { ClayVolume } from '../src/clayVolume.js';
 import { MASK_SHAPES } from '../src/clayShapes.js';
 import { checkpoint, restoreHistory } from '../src/sculptHistory.js';
 import { PinchGesture } from '../src/pinchGesture.js';
 
 function field(shape) { return ClayVolume.fromState({ shape, cuts: [], field: [] }); }
+
+test('Fast worker deformation matches the reference positions and normals at both mirrored patches and their seam', () => {
+  let seed = 91827;
+  const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+  for (const symmetry of [false, true]) for (const cx of [0, .12, .7, -.7]) {
+    for (const radius of [.04, .336, .7]) for (const softness of [0, .55, 1]) {
+      const warp = makeWarp([cx, .5, .3], [cx < 0 ? -.45 : .45, .2, .08], radius, softness, symmetry);
+      for (let i = 0; i < 50; i++) {
+        const point = [(random() * 2 - 1) * 1.4, random() * 1.4, random() * .9];
+        const normal = new THREE.Vector3(random() - .5, random() - .5, random() - .5).normalize().toArray();
+        const result = warpVertex(...point, normal, warp);
+        const expectedPoint = forwardWarp(...point, warp), expectedNormal = warpNormal(...point, normal, warp);
+        assert.ok(Math.hypot(...result.point.map((v, a) => v - expectedPoint[a])) < 1e-9);
+        assert.ok(Math.hypot(...result.normal.map((v, a) => v - expectedNormal[a])) < 1e-9);
+        assert.ok(Math.abs(Math.hypot(...result.normal) - 1) < 1e-10);
+      }
+    }
+  }
+});
 
 test('Symmetry mirrors either side; disabled symmetry leaves the other side unchanged', () => {
   for (const side of [-1, 1]) for (const percent of [1, 3, 24]) {

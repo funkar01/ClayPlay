@@ -1,11 +1,11 @@
 import { acceptsTutorialAction } from './tutorialRecipes.js';
 
-// Tutorial pacing waits for the entire visible revision, even when free play
-// would already allow another stroke to be queued in the background.
+// Wait for the committed edit, never optional surface cleanup. Cleanup can
+// take seconds on a slower device while the complete mesh is already usable.
 export function tutorialApplying(volume) {
   const paint=volume.material?.userData.surfacePaint;
   return Boolean(volume.pulling || volume.cutting || volume.erasing
-    || volume.meshQueue?.pending || volume.meshQueue?.refining
+    || volume.meshQueue?.pending
     || volume.surfaceExtrude?.committing || volume.surfaceExtrude?.queue?.length
     || paint?.dirty || paint?.completed || paint?.queue?.active || paint?.queue?.pending);
 }

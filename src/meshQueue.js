@@ -92,7 +92,7 @@ export function attachMeshQueue(volume) {
     resumeRefinement() {cleanup.resume();},
     // All authoritative meshes already use the full grid resolution.
     refine() {},
-    remeshSurface() {cleanup.request();},
+    remeshSurface(keys) {cleanup.request(keys);},
     prioritize() {},
     flush() {schedule();},
     invalidate() { cleanup.pause(); entry.generation++; entry.keys.clear(); entry.edits.clear(); entry.staged.clear(); entry.reset = true; },

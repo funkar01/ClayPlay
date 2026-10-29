@@ -1,57 +1,77 @@
-const clamp = value => Math.max(0, Math.min(1, value));
+const clamp = value => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : .35;
+// A short note per successful edit; musical intervals keep the palette playful.
 export const SOUND_PROFILES = {
-  pinch: { type: 'sine', base: 170, range: 260, wobble: 7, depth: 32 },
-  extrude: { type: 'triangle', base: 110, range: 340, wobble: 11, depth: 45 },
-  erase: { type: 'triangle', base: 390, range: -210, wobble: 28, depth: 85 },
-  paint: { type: 'sine', base: 480, range: 240, wobble: 4, depth: 18 },
-  cut: { type: 'triangle', base: 260, range: 200, wobble: 18, depth: 40 },
+  pull: { type: 'sine', midi: 60, duration: .26 },
+  extrude: { type: 'triangle', midi: 67, duration: .30 },
+  paint: { type: 'sine', midi: 76, duration: .19 },
+  erase: { type: 'triangle', midi: 57, duration: .16 },
+  cut: { type: 'triangle', midi: 72, duration: .14 },
+  move: { type: 'sine', midi: 62, duration: .18 },
+  resize: { type: 'sine', midi: 65, duration: .25 },
+  undo: { type: 'sine', midi: 55, duration: .16 },
+  redo: { type: 'sine', midi: 79, duration: .16 },
 };
 
-// One reusable voice, no recordings, audio nodes per frame, or mesh work.
+export function editNote(tool, intensity = .35) {
+  const profile = SOUND_PROFILES[tool === 'pinch' ? 'pull' : tool];
+  if (!profile) return null;
+  const amount = clamp(intensity);
+  const interval = [0, 2, 4, 7][Math.min(3, Math.floor(amount * 4))];
+  return { type: profile.type, frequency: 440 * 2 ** ((profile.midi + interval - 69) / 12),
+    volume: .035 + amount * .035, duration: profile.duration + amount * .04 };
+}
+
+// No per-frame sound or delayed playback queue. Sound only plays after a
+// user gesture unlocks audio; muted, suspended and background edits stay quiet.
 export class SculptSounds {
   constructor({ createContext = () => new (window.AudioContext || window.webkitAudioContext)(), storage = globalThis.localStorage } = {}) {
-    this.createContext = createContext; this.storage = storage; this.enabled = false;
-    try { this.enabled = storage?.getItem('clayplay-sound') === 'on'; } catch {}
+    this.createContext = createContext; this.storage = storage; this.enabled = true; this.notes = new Set();
+    try { this.enabled = storage?.getItem('clayplay-sound') !== 'off'; } catch {}
   }
   async unlock() {
-    if (!this.enabled) return;
+    if (!this.enabled || this.disposed) return;
     try {
-      if (!this.context) {
-        const c = this.context = this.createContext();
-        this.voice = c.createOscillator(); this.gain = c.createGain();
-        this.wobble = c.createOscillator(); this.depth = c.createGain();
-        this.gain.gain.value = 0;
-        this.voice.connect(this.gain); this.gain.connect(c.destination);
-        this.wobble.connect(this.depth); this.depth.connect(this.voice.frequency);
-        this.voice.start(); this.wobble.start();
-      }
+      this.context ??= this.createContext();
       if (this.context.state === 'suspended') await this.context.resume();
-    } catch { /* Sound support must never interrupt sculpting. */ }
+    } catch { /* Audio must never interrupt sculpting. */ }
   }
   toggle() {
     this.enabled = !this.enabled;
     try { this.storage?.setItem('clayplay-sound', this.enabled ? 'on' : 'off'); } catch {}
     this.stop(); if (this.enabled) this.unlock();
   }
-  update(tool, point, amount = 0, now = performance.now()) {
-    if (!this.enabled || !this.context || this.context.state !== 'running' || !point || !SOUND_PROFILES[tool]) { this.stop(); return; }
-    const changed = tool !== this.tool;
-    const dt = Math.max(.008, Math.min(.1, (now - (this.at ?? now)) / 1000));
-    const distance = !changed && this.point ? Math.hypot(...point.map((v,i)=>v-this.point[i])) : 0;
-    const speed = clamp(distance / dt / 2);
-    const intensity = clamp(Math.max(amount / 1.5, speed));
-    const p = SOUND_PROFILES[tool], t = this.context.currentTime;
-    if (changed) this.voice.type = p.type;
-    this.voice.frequency.setTargetAtTime(p.base + p.range * intensity, t, .065);
-    this.wobble.frequency.setTargetAtTime(p.wobble + intensity * 7, t, .08);
-    this.depth.gain.setTargetAtTime(p.depth * (.4 + intensity), t, .08);
-    // Movement drives rubbing sounds; held pulls retain a quiet rubbery wobble.
-    this.gain.gain.setTargetAtTime(Math.min(.075, .065 * (tool === 'pinch' ? .15 + intensity * .85 : speed)), t, .045);
-    this.tool = tool; this.point = point; this.at = now;
+  play(tool, intensity = .35) {
+    const note = editNote(tool, intensity), c = this.context;
+    if (!this.enabled || this.disposed || !note || c?.state !== 'running') return false;
+    let voice, gain;
+    try {
+      if (this.notes.size >= 3) this.silence(this.notes.values().next().value);
+      voice = c.createOscillator(); gain = c.createGain();
+      const active = { voice, gain }; this.notes.add(active);
+      voice.type = note.type; voice.frequency.setValueAtTime(note.frequency, c.currentTime);
+      gain.gain.setValueAtTime(0, c.currentTime);
+      gain.gain.linearRampToValueAtTime(note.volume, c.currentTime + .008);
+      gain.gain.exponentialRampToValueAtTime(.0001, c.currentTime + note.duration);
+      voice.connect(gain); gain.connect(c.destination);
+      voice.onended = () => { this.notes.delete(active); voice.disconnect(); gain.disconnect(); };
+      voice.start(c.currentTime); voice.stop(c.currentTime + note.duration + .015);
+      return true;
+    } catch {
+      try { voice?.disconnect(); gain?.disconnect(); } catch {}
+      for (const active of this.notes) if (active.voice === voice) this.notes.delete(active);
+      return false;
+    }
   }
-  stop() {
-    if (this.context) this.gain?.gain.setTargetAtTime(0, this.context.currentTime, .035);
-    this.tool = null; this.point = null; this.at = null;
+  silence(active) {
+    if (!active) return;
+    this.notes.delete(active);
+    try {
+      const t = this.context.currentTime;
+      active.gain.gain.cancelScheduledValues(t);
+      active.gain.gain.setTargetAtTime(0, t, .005);
+      active.voice.stop(t + .025);
+    } catch {}
   }
-  dispose() { this.stop(); this.context?.close(); this.context = null; }
+  stop() { for (const note of [...this.notes]) this.silence(note); }
+  dispose() { this.stop(); this.disposed = true; this.context?.close(); this.context = null; }
 }

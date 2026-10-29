@@ -1,4 +1,4 @@
-import { surfaceBrickKeys } from './surfaceBricks.js';
+import { surfaceBrickKeys,spanningSurfaceRegions,expandSurfaceRebuildKeys } from './surfaceBricks.js';
 
 // Cosmetic/regularizing work is separate from authoritative edit commits.
 // The complete current mesh remains editable until an entire new revision exists.
@@ -7,13 +7,18 @@ export class SurfaceCleanup {
     Object.assign(this,{volume,install,isBusy,delay,createWorker});this.epoch=0;this.needed=false;
   }
   get pending(){return this.needed;}
-  request(){this.cancel();this.needed=true;this.resume();}
+  request(keys){
+    const previous=this.needed?this.requestedKeys:undefined;
+    this.pause();
+    this.requestedKeys=keys && previous!==null?new Set([...(previous ?? []),...keys]):null;
+    this.needed=true;this.resume();
+  }
   pause() {
     clearTimeout(this.timer);this.timer=null;this.epoch++;
     if(this.running){this.worker?.terminate();this.worker=null;}
     this.running=false;this.keys=null;this.staged=null;
   }
-  cancel(){this.pause();this.needed=false;}
+  cancel(){this.pause();this.needed=false;this.requestedKeys=null;}
   resume() {
     if(!this.needed || this.timer || this.running)return;
     this.timer=setTimeout(()=>{
@@ -26,7 +31,9 @@ export class SurfaceCleanup {
     if(this.isBusy()){this.resume();return;}
     const epoch=this.epoch,volume=this.volume;
     const worker=this.worker ??=this.createWorker();
-    this.keys=[...surfaceBrickKeys(volume.bricks)];this.staged=new Map();this.running=true;
+    const regions=spanningSurfaceRegions([...volume.bricks].map(([key,{mesh}])=>({key,positions:mesh.geometry.attributes.position.array})));
+    this.keys=[...expandSurfaceRebuildKeys(this.requestedKeys ?? surfaceBrickKeys(volume.bricks),regions)];
+    this.staged=new Map();this.running=true;
     worker.onmessage=({data})=>{
       if(this.worker!==worker || this.epoch!==epoch || !this.running)return;
       if(data.generation!==epoch)return;
@@ -36,7 +43,7 @@ export class SurfaceCleanup {
       if(this.keys.length){this.send(epoch,false);return;}
       // Synchronous publication means raycasts never see half of a revision.
       for(const brick of this.staged.values())this.install(brick);
-      this.staged=null;this.running=false;this.needed=false;
+      this.staged=null;this.running=false;this.needed=false;this.requestedKeys=null;
       // Keep the worker warm, but release its serialized field and node cache.
       worker.postMessage({id:1,remove:true});
     };

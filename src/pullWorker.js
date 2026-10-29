@@ -20,6 +20,7 @@ self.onmessage = ({ data }) => {
     }
     const start = performance.now();
     const bricks = [], transfer = [];
+    const repairKeys=new Set();
     const { center: [cx, cy, cz], delta: [dx, dy, dz], support } = data.warp;
     const steps = data.warp.steps ?? [data.warp];
     const squaredLength = dx * dx + dy * dy + dz * dz;
@@ -72,7 +73,15 @@ self.onmessage = ({ data }) => {
         positions[i] = x; positions[i + 1] = y; positions[i + 2] = z;
         normals[i] = nx / length; normals[i + 1] = ny / length; normals[i + 2] = nz / length;
       }
-      if (affected) nextKeys.add(brick.key);
+      if (affected) {
+        nextKeys.add(brick.key);repairKeys.add(brick.key);
+        const low=[Infinity,Infinity,Infinity],high=[-Infinity,-Infinity,-Infinity];
+        for(let i=0;i<positions.length;i+=3)for(let a=0;a<3;a++){
+          low[a]=Math.min(low[a],positions[i+a]);high[a]=Math.max(high[a],positions[i+a]);
+        }
+        const first=low.map(v=>Math.floor((v-.025+2.4)/.6)),last=high.map(v=>Math.floor((v+.025+2.4)/.6));
+        for(let z=first[2];z<=last[2];z++)for(let y=first[1];y<=last[1];y++)for(let x=first[0];x<=last[0];x++)repairKeys.add(`${x},${y},${z}`);
+      }
       if (!data.final && !affected && !previousKeys.has(brick.key)) continue;
       bricks.push({ key: brick.key, positions, normals });
       transfer.push(positions.buffer, normals.buffer);
@@ -98,6 +107,6 @@ self.onmessage = ({ data }) => {
         bricks.push({ key: bucket.key, positions, normals }); transfer.push(positions.buffer, normals.buffer);
       }
     }
-    self.postMessage({ bricks, warp: data.warp, final: data.final, repartition, duration: performance.now() - start }, transfer);
+    self.postMessage({ bricks, warp: data.warp, final: data.final, repartition, repairKeys:[...repairKeys], duration: performance.now() - start }, transfer);
   } catch (error) { self.postMessage({ error: error.message }); }
 };
