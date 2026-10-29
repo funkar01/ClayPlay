@@ -2,13 +2,15 @@ import selectIcon from '../assets/select.png';
 import pinchIcon from '../assets/pinch.png';
 import openPalmIcon from '../assets/open palm.png';
 import closedPalmIcon from '../assets/closed palm.png';
-import { createTutorialRecipe, acceptsTutorialAction, outwardGuideTarget } from './tutorialRecipes.js';
+import { createTutorialRecipe, outwardGuideTarget } from './tutorialRecipes.js';
 import { TutorialEntrance } from './tutorialEntrance.js';
+import { TutorialStepGate } from './tutorialProgress.js';
 
 // Shares the studio render loop; the overlay never captures clay input.
 export class StudioTutorial {
-  constructor({ stage, onStep, isBusy, onFinish, onTryOn, onPrepare, locate, getControlMode = () => 'index' }) {
-    Object.assign(this, { onStep, isBusy, onFinish, onTryOn, onPrepare, locate, getControlMode });
+  constructor({ stage, onStep, isBusy, isApplying = () => false, onFinish, onTryOn, onPrepare, locate, getControlMode = () => 'index' }) {
+    Object.assign(this, { onStep, isBusy, isApplying, onFinish, onTryOn, onPrepare, locate, getControlMode });
+    this.stepGate=new TutorialStepGate();
     this.run = 0;
     try { const run=Number(localStorage.getItem('clayplay-tutorial-run')); if(Number.isSafeInteger(run)&&run>=0)this.run=run; } catch {}
     this.index = 0;
@@ -33,14 +35,15 @@ export class StudioTutorial {
     this.entrance=new TutorialEntrance({card:this.card,stage,onSettled:()=>{if(!this.preparing)this.nextButton.disabled=false;}});
     this.card.addEventListener('pointerdown', event => event.stopPropagation());
     this.nextButton.addEventListener('click', async () => {
-      if(this.preparing || this.entrance.running)return;
+      if(this.preparing || this.entrance.running || this.stepGate.pending)return;
+      if(this.isApplying()){this.showApplying();return;}
       if (this.isBusy()) { this.copy.textContent = 'Release and let the clay settle first.'; return; }
       if (this.phase==='ui' || this.phase==='shape') {
         const phase=this.phase==='ui' ? 'shape' : 'eyes';
         this.preparing=true;this.nextButton.disabled=true;
         try { await this.onPrepare(this.recipe,phase);this.phase=phase;this.show(); }
         catch(error) {this.copy.textContent=error.message || 'Could not prepare this mask; try again.';}
-        finally {this.preparing=false;this.nextButton.disabled=false;}
+        finally {this.preparing=false;this.nextButton.disabled=this.isApplying();}
         return;
       }
       if(this.phase==='eyes'){this.phase='create';this.show();return;}
@@ -48,7 +51,7 @@ export class StudioTutorial {
     });
     this.card.querySelector('#tutorial-skip').addEventListener('click', () => {
       if(this.preparing)return;
-      if (this.isBusy()) { this.copy.textContent = 'Release to continue.'; return; }
+      if (this.isBusy() || this.isApplying()) { this.copy.textContent = 'Let your change finish applying first.'; return; }
       this.finish('skip');
     });
     this.card.querySelector('#tutorial-explore').addEventListener('click', () => this.start());
@@ -56,8 +59,9 @@ export class StudioTutorial {
   get active() { return !this.card.hidden; }
   get learningUI() { return this.active && this.phase!=='create'; }
   start() {
-    if (this.isBusy() || this.preparing) return;
+    if (this.isBusy() || this.isApplying() || this.preparing) return;
     this.entrance.cancel(false);
+    this.stepGate.reset();
     this.recipe=createTutorialRecipe(this.run++);
     try {localStorage.setItem('clayplay-tutorial-run',String(this.run));}catch{}
     this.index=0;this.phase='ui';this.card.hidden=false;this.show();
@@ -76,6 +80,7 @@ export class StudioTutorial {
   }
   show() {
     const mission = this.mission;
+    this.waiting=false;delete this.card.dataset.applying;
     this.started = performance.now();
     this.card.dataset.lesson = mission.id;
     this.card.querySelector('#tutorial-step').textContent = this.phase==='ui' ? '1 · HAND CURSOR' : this.phase==='shape' ? '2 · MASK SHAPE' : this.phase==='eyes' ? '3 · EYE STYLE' : mission.target ? `${this.index+4} · ${mission.tool==='pinch'?'PULL':mission.tool.toUpperCase()}` : 'MADE BY YOU';
@@ -98,6 +103,10 @@ export class StudioTutorial {
   refreshControlGuidance() {
     this.guideMode = this.getControlMode();
     const palm = this.guideMode === 'palm';
+    // Cursor hotspot is the fingertip inside each transparent 512px icon,
+    // rather than the icon's bounding box or the center of the hand.
+    this.overlay.style.setProperty('--gesture-tip-x',palm?'-.4873':'-.3740');
+    this.overlay.style.setProperty('--gesture-tip-y',palm?'-.0410':'-.0762');
     this.overlay.querySelector('.mission-open').style.setProperty('--gesture-icon',`url("${palm ? openPalmIcon : selectIcon}")`);
     this.overlay.querySelector('.mission-pinched').style.setProperty('--gesture-icon',`url("${palm ? closedPalmIcon : pinchIcon}")`);
     this.card.querySelector('#tutorial-copy').textContent = this.phase==='ui' && palm
@@ -111,12 +120,29 @@ export class StudioTutorial {
     this.recordAction('paint',{point:point?.toArray(),...stroke});
   }
   recordAction(tool,data) {
-    if(!this.active || this.phase!=='create' || !acceptsTutorialAction(this.mission,tool,data))return;
-    this.index++;this.show();
+    if(!this.active || this.phase!=='create' || !this.stepGate.record(this.mission,tool,data))return;
+    this.showApplying();
+  }
+  showApplying(held=false) {
+    this.waiting=true;this.card.dataset.applying='true';this.overlay.hidden=true;
+    this.nextButton.disabled=true;
+    this.copy.textContent=held ? (this.getControlMode()==='palm'?'Open your hand to finish this step.':'Release to finish this step.') : 'Applying your change… Please wait.';
   }
   update({ held, contact }) {
     if (!this.active) return;
     if(this.entrance.running){this.overlay.hidden=true;return;}
+    const applying=this.isApplying();
+    if(this.stepGate.pending) {
+      if(this.stepGate.update({busy:this.isBusy() || applying,held})) {
+        this.index++;this.show();
+      } else {this.showApplying(held);return;}
+    }
+    if(applying && !held){this.showApplying();return;}
+    if(this.waiting) {
+      this.waiting=false;delete this.card.dataset.applying;
+      this.refreshControlGuidance();
+    }
+    this.nextButton.disabled=this.preparing || applying;
     if (this.guideMode !== this.getControlMode()) this.refreshControlGuidance();
     const mission = this.mission;
     let point = mission.target && this.locate(mission.target);
@@ -140,5 +166,5 @@ export class StudioTutorial {
     }
 
   }
-  finish(reason = 'complete') { this.entrance.cancel();this.card.hidden = true; this.overlay.hidden = true; this.onFinish?.(reason); }
+  finish(reason = 'complete') { this.entrance.cancel();this.stepGate.reset();this.card.hidden = true; this.overlay.hidden = true; this.onFinish?.(reason); }
 }

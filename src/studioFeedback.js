@@ -8,6 +8,8 @@ export function trackingPresentation({cameraOn=false,tracked=false,held=false,pa
 }
 export function studioMessagePresentation(state) {
   const tracking=trackingPresentation(state);
+  if(state.applying && !state.trying && !/could not|failed|timed out|unavailable/i.test(state.hint ?? ''))
+    return {state:'applying',label:state.waiting?'Applying… · please wait before shaping again':'Applying your changes…',symbol:'Ⅱ'};
   if(tracking.state==='searching' || tracking.state==='paused')return tracking;
   if(state.menuHint)return {state:'neutral',label:state.menuHint,symbol:'↗'};
   if(state.hint && /could not|failed|timed out|unavailable|size is 0/i.test(state.hint))return {state:'paused',label:state.hint,symbol:'!'};
@@ -34,6 +36,7 @@ export class StudioFeedback {
     const hint=this.stage.querySelector('#scene-hint'),menu=this.stage.querySelector('#hand-feedback'),surface=this.stage.querySelector('.surface-status');
     const next=studioMessagePresentation({...state,hint:text(hint),menuHint:(!this.stage.querySelector('#hand-panel')?.hidden || this.stage.querySelector('.hand-ui-cursor:not([hidden])'))?text(menu):'',processing:surface?.dataset.phase==='building'?text(surface):'',commit:performance.now()<(this.commitUntil ?? 0)?this.commitMessage:''});
     if(this.status.dataset.state!==next.state)this.status.dataset.state=next.state;
+    this.icon.classList.toggle('studio-loading-icon',next.state==='applying');
     if(this.label.textContent!==next.label){this.label.textContent=next.label;this.icon.textContent=next.symbol;}
     const gesture=state.held && (!state.cameraOn || state.tracked)?'held':'open';
     if(this.stage.dataset.gesture!==gesture)this.stage.dataset.gesture=gesture;

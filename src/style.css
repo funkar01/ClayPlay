@@ -410,8 +410,18 @@ body.play-area-fullscreen { overflow: hidden; }
 @media(max-width:600px) { .paint-palette { right:10px; bottom:66px; width:min(310px,calc(100% - 120px)); padding:14px; max-height:calc(100% - 180px); } .paint-swatches { grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; } .paint-palette-heading span { display:none; } }
 .surface-status { position: absolute; z-index: 8; top: 140px; left: 50%; transform: translateX(-50%); padding: 7px 12px; border-radius: 20px; background: #fffaf3dd; color: #4b7559; font-size: 10px; pointer-events: none; white-space: nowrap; }
 .surface-status[hidden] { display: none; }
-.brush-status { position: absolute; z-index: 8; transform: translateX(-50%); padding: 5px 9px; border: 1px solid #e5a63b80; border-radius: 6px; background: #fff8e9; color: #765018; font-size: 12px; line-height: 1.4; pointer-events: none; white-space: nowrap; }
+.brush-status { position:absolute; z-index:20; display:grid; place-items:center; transform:translate(-50%,-50%); width:32px; height:32px; border-radius:50%; background:var(--ui-panel, #fffaf5); color:var(--ui-focus, #548dad); pointer-events:none; }
 .brush-status[hidden] { display: none; }
+.studio-loading-icon { position:relative; display:inline-grid; place-items:center; flex:none; width:24px; height:24px; font-size:12px; font-weight:700; line-height:1; }
+.studio-loading-icon::before { content:''; position:absolute; inset:0; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:studio-loading-turn .9s linear infinite; }
+.studio-status-icon.studio-loading-icon { border:0; background:transparent; color:var(--ui-focus); animation:none; }
+.brush-status > .studio-loading-icon { width:32px; height:32px; }
+.hand-cursor-loading { display:none; }
+#app #stage .hand-ui-cursor.is-applying { border-color:transparent; background:transparent; box-shadow:none; }
+#stage .hand-ui-cursor.is-applying::before, #stage .hand-ui-cursor.is-applying::after { display:none; }
+#stage .hand-ui-cursor.is-applying .hand-cursor-loading { display:grid; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:32px; height:32px; border-radius:50%; background:var(--ui-panel, #fffaf5); color:var(--ui-focus, #548dad); }
+@keyframes studio-loading-turn { to { transform:rotate(360deg); } }
+@media(prefers-reduced-motion:reduce) { .studio-loading-icon::before { animation:none; } }
 .surface-status[data-phase="building"] { color: #92704f; }
 @media(max-width:600px) { .surface-status { top: 140px; max-width: calc(100% - 100px); font-size: 9px; } }
 .stage-size-control { position: absolute; z-index: 9; top: 18px; left: 50%; transform: translateX(-50%); width: min(300px,calc(100% - 280px)); min-width: 180px; margin: 0; padding: 12px 18px; border: 1px solid #ffffffb8; border-radius: 18px; background: #fffaf3eb; color: #765844; box-shadow: 0 5px 24px #60452e12; backdrop-filter: blur(12px); }
@@ -564,11 +574,11 @@ body.play-area-fullscreen { overflow: hidden; }
 .tutorial-overlay[data-motion="ui"] .mission-dot { display:none; }
 .tutorial-overlay[data-motion="ui"] .mission-direction { transform:none; }
 .tutorial-overlay[data-motion="ui"] .mission-travel { animation:mission-ui-hover 4s ease-in-out infinite; }
-.tutorial-overlay[data-motion="ui"] .mission-hand { transform:none; left:12px; top:-36px; }
+.tutorial-overlay[data-motion="ui"] .mission-hand { transform:none; left:calc(var(--mission-hand-size,100px) * var(--gesture-tip-x,-.3740)); top:calc(var(--mission-hand-size,100px) * var(--gesture-tip-y,-.0762)); }
 .tutorial-overlay[data-motion="ui"] .mission-open { animation:none; opacity:1; }
 .tutorial-overlay[data-motion="ui"] .mission-pinched { display:none; }
 .studio-tutorial[data-lesson="ui"] #tutorial-next { min-width:160px; min-height:64px; box-shadow:0 0 0 4px #d2e4c8; }
-@keyframes mission-ui-hover { 0%,15% { transform:translate(55px,-40px); opacity:.45; } 40%,85% { transform:translate(0,0); opacity:.9; } 100% { transform:translate(55px,-40px); opacity:.45; } }
+@keyframes mission-ui-hover { 0%,15% { transform:translate(-65px,0); opacity:.45; } 40%,85% { transform:translate(0,0); opacity:.9; } 100% { transform:translate(-65px,0); opacity:.45; } }
 
 /* One readable body size for messages and instructions at every screen width. */
 .scene-hint,
@@ -802,3 +812,48 @@ html[data-studio-theme] .stage-size-control input { accent-color:var(--selected-
 }
 /* One contextual message replaces overlapping legacy hint surfaces. */
 #stage #scene-hint,#stage #hand-feedback,#stage .surface-status { display:none !important; }
+
+/* Icon actions share one scale and keep their names available to assistive tech. */
+#stage .studio-button-label {
+ position:absolute !important; width:1px !important; height:1px !important; padding:0 !important; margin:-1px !important;
+ overflow:hidden !important; clip-path:inset(50%) !important; white-space:nowrap !important; border:0 !important;
+}
+:root[data-studio-theme] #app #stage button.studio-icon-button {
+ align-items:center; justify-content:center; gap:0; min-width:48px; min-height:48px; padding:10px; text-align:center; line-height:0;
+}
+#stage .studio-button-icon {
+ flex:none; width:32px; height:32px; vertical-align:middle; fill:none; stroke:currentColor; stroke-width:1.65; stroke-linecap:round; stroke-linejoin:round;
+}
+#stage .studio-button-icon.studio-clay-icon { width:44px; height:44px; }
+:root[data-studio-theme] #app .hand-toolbar { width:86px; gap:8px; padding:9px; }
+:root[data-studio-theme] #app .hand-toolbar > button.studio-icon-button { min-height:62px; padding:8px; }
+:root[data-studio-theme] #app #dock-pin.studio-icon-button { min-height:48px; margin-top:4px; }
+#stage #dock-pin .studio-button-icon { width:27px; height:27px; }
+:root[data-studio-theme] #app #studio-tools-tab.studio-icon-button { width:64px; min-height:72px; }
+:root[data-studio-theme] #app .studio-history-dock button.studio-icon-button { width:48px; padding:8px; }
+#stage .studio-history-dock .studio-button-icon { width:28px; height:28px; }
+:root[data-studio-theme] #app .stage-selfie.studio-icon-button { width:60px; height:60px; }
+:root[data-studio-theme] #app .hand-panel-grid.hand-options { grid-template-columns:repeat(3,minmax(0,1fr)); }
+:root[data-studio-theme] #app .hand-options button.studio-icon-button { min-height:70px; }
+:root[data-studio-theme] #app .hand-panel header > button.studio-icon-button { flex:none; width:48px; }
+:root[data-studio-theme] #app .hand-panel header > strong { flex:1; text-align:center; }
+:root[data-studio-theme] #app .hand-color.studio-icon-button::before { margin:0; width:36px; height:30px; }
+:root[data-studio-theme] #app .studio-theme-card.studio-icon-button { display:flex; flex-direction:column; min-height:74px; }
+:root[data-studio-theme] #app .studio-theme-palette { width:100%; margin:0; }
+:root[data-studio-theme] #app .paint-swatches button.studio-icon-button { min-height:56px; }
+:root[data-studio-theme] #app .paint-adjust button.studio-icon-button { min-width:44px; min-height:44px; }
+#stage .paint-adjust .studio-button-icon { width:24px; height:24px; }
+.studio-button-tooltip {
+ position:fixed; z-index:1000; pointer-events:none; max-width:min(280px,calc(100vw - 16px)); width:max-content;
+ padding:9px 13px; border:1px solid var(--line); border-radius:10px; background:var(--ui-panel); color:var(--ink);
+ font:500 13px/1.45 'DM Sans',sans-serif; box-shadow:0 6px 24px #0004;
+}
+.studio-button-tooltip[hidden] { display:none; }
+@media(max-width:760px) {
+ :root[data-studio-theme] #app .hand-toolbar { width:76px; padding:7px; gap:7px; }
+ :root[data-studio-theme] #app .hand-toolbar > button.studio-icon-button { min-height:56px; padding:6px; }
+ :root[data-studio-theme] #app .stage-selfie.studio-icon-button { width:48px; height:48px; }
+ #stage .studio-button-icon { width:30px; height:30px; }
+ #stage .studio-button-icon.studio-clay-icon { width:42px; height:42px; }
+ :root[data-studio-theme] #app .hand-panel-grid.hand-options { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}

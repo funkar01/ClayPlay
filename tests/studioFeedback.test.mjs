@@ -11,6 +11,17 @@ test('Tracking feedback distinguishes cursor, hand loss, grip and paused modes',
  assert.equal(trackingPresentation({trying:true}).label,'Try-on mode');
 });
 
+test('Applying stays visible without a tracked hand and clears to ready when work finishes', async () => {
+ const {studioMessagePresentation}=await import('../src/studioFeedback.js');
+ const state={applying:true,waiting:true,cameraOn:true,tracked:false,commit:'Shape kept',menuHint:'Point to choose'};
+ assert.equal(studioMessagePresentation(state).state,'applying');
+ assert.match(studioMessagePresentation(state).label,/please wait/);
+ assert.equal(studioMessagePresentation({...state,waiting:false}).label,'Applying your changes…');
+ assert.equal(studioMessagePresentation({...state,trying:true}).state,'neutral');
+ assert.equal(studioMessagePresentation({applying:true,hint:'Erase could not finish'}).state,'paused');
+ assert.equal(studioMessagePresentation({applying:false}).state,'ready');
+});
+
 test('The unified message prioritizes tracking loss, current controls and processing over routine hints',async()=>{
  const {studioMessagePresentation}=await import('../src/studioFeedback.js');
  assert.equal(studioMessagePresentation({cameraOn:true,tracked:true,hint:'Move your palm to aim · close gently to apply'}).label,'Move your palm to aim · close gently to apply');

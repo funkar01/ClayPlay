@@ -1,4 +1,5 @@
 import { DockVisibility } from './dockVisibility.js';
+import { StudioIcons } from './studioIcons.js';
 import { STUDIO_THEMES, savedStudioTheme, applyStudioTheme } from './studioThemes.js';
 import { PalmControl } from './palmControl.js';
 import { trackingTrace } from './trackingTrace.js';
@@ -97,6 +98,7 @@ export class HandUI {
     this.panel.setAttribute('aria-label', 'Studio options'); stage.append(this.panel);
     this.done = button('Back to creating', 'try-done'); this.done.id = 'hand-try-done'; this.done.className = 'hand-try-done'; this.done.hidden = true; stage.append(this.done);
     this.cursor = document.createElement('div'); this.cursor.className = 'hand-ui-cursor'; this.cursor.hidden = true; this.cursor.setAttribute('aria-hidden', 'true'); stage.append(this.cursor);
+    const loading = document.createElement('span'); loading.className = 'studio-loading-icon hand-cursor-loading'; loading.textContent = 'Ⅱ'; this.cursor.append(loading);
     this.feedback = document.createElement('div'); this.feedback.id = 'hand-feedback'; this.feedback.className = 'hand-feedback'; this.feedback.hidden = true; this.feedback.setAttribute('role', 'status'); stage.append(this.feedback);
     stage.classList.add('hand-ui-ready');
     stage.addEventListener('click', event => {
@@ -105,6 +107,7 @@ export class HandUI {
     });
     window.addEventListener('resize', () => { this.signature = null; });
     this.sync();this.updateDock(performance.now());
+    this.icons = new StudioIcons(stage);
   }
   get isOpen() { return !this.panel.hidden; }
   open(page = 'more') {
@@ -358,10 +361,11 @@ export class HandUI {
     this.stage.classList.toggle('tools-collapsed',!expanded);
     this.dock.inert=!expanded;this.dock.setAttribute('aria-hidden',String(!expanded));
     this.toolsTab.setAttribute('aria-expanded',String(expanded));this.toolsTab.hidden=expanded;
-    this.pinTools.setAttribute('aria-pressed',String(this.dockVisibility.pinned));
+    if(this.pinTools.getAttribute('aria-pressed')!==String(this.dockVisibility.pinned))this.pinTools.setAttribute('aria-pressed',String(this.dockVisibility.pinned));
     const pinLabel=this.dockVisibility.pinned?'Unpin tools':'Pin tools';
     if(this.pinTools.textContent!==pinLabel)this.pinTools.textContent=pinLabel;
-    this.pinTools.setAttribute('aria-label',this.dockVisibility.pinned?'Unpin tools to enable auto-hide':'Pin tools to keep them visible');
+    const pinDescription=this.dockVisibility.pinned?'Unpin tools to enable auto-hide':'Pin tools to keep them visible';
+    if(this.pinTools.getAttribute('aria-label')!==pinDescription)this.pinTools.setAttribute('aria-label',pinDescription);
     const active=this.dock.querySelector('[data-tool].is-active');
     if(active && this.toolsTab.dataset.tool!==active.dataset.tool) {
       this.toolsTab.dataset.tool=active.dataset.tool;

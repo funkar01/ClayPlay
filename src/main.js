@@ -1,6 +1,6 @@
 import { StudioFeedback } from './studioFeedback.js';
 import { SelfieStudio } from './selfie.js';
-import { brushApplying } from './brushAvailability.js';
+import { brushApplying, deformationApplying } from './brushAvailability.js';
 import { ComfortSetup } from './comfortSetup.js';
 import { PalmControl } from './palmControl.js';
 import { PaintPicker } from './paintPicker.js';
@@ -32,6 +32,7 @@ import { PalmMove, PalmGesture, closedPalm } from './palmMove.js';
 import { HandUI, HAND_UI_SAMPLE_AGE_MS } from './handUI.js';
 import { StudioTutorial } from './studioTutorial.js';
 import { MaskShapePicker } from './maskShapePicker.js';
+import { tutorialApplying } from './tutorialProgress.js';
 import { StudioBackdrop } from './studioBackdrop.js';
 import { MASK_SHAPES } from './clayShapes.js';
 import { inject } from '@vercel/analytics';
@@ -244,11 +245,6 @@ const comfortSetup = new ComfortSetup({
   },
   onReady: (cursor = false) => { if (cursor) stopCamera(); sceneHint.hidden = false; studioTutorial.start(); },
 });
-studioMessageOK.addEventListener('click', () => {
-  dismissStudioMessage();
-  sceneHint.hidden = true;
-  comfortSetup.open(() => Boolean(stream && landmarker));
-});
 video.addEventListener('resize', () => {
   if (arView.live) { cancelMouseStroke(); poseTarget = null; poseDisplayed = null; smoothedPoints = null; }
 });
@@ -394,9 +390,10 @@ mirroredBrush.material.opacity = 0.55;
 mirroredBrush.visible = false; scene.add(mirroredBrush);
 const brushStatus = document.createElement('span');
 brushStatus.className = 'brush-status'; brushStatus.hidden = true;
-brushStatus.textContent = 'Applying…'; brushStatus.setAttribute('role', 'status');
+brushStatus.innerHTML = '<span class="studio-loading-icon" aria-hidden="true">Ⅱ</span>';
+brushStatus.setAttribute('aria-label', 'Applying your changes');
+brushStatus.setAttribute('role', 'status');
 document.querySelector('#stage').append(brushStatus);
-const reduceBrushMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 function isBrushApplying() {
   return brushApplying(clayVolume, activeTool, {
     radius: brushRadius(), eye: clay.worldToLocal(camera.position.clone()).toArray(), symmetry: symmetryEnabled,
@@ -412,19 +409,23 @@ function showApplyingBrush(point) {
   contactCue.visible = false; pinchCue.visible = false; grabTether.visible = false;
 }
 function updateBrushFeedback(now) {
-  const applying = !tryOn.enabled && isBrushApplying();
-  brushCue.material.color.set(applying ? '#e5a63b' : '#286743');
-  const pulse = applying && !reduceBrushMotion.matches ? .72 + .28 * (.5 + .5 * Math.sin(now * .005)) : 1;
-  brushCue.material.opacity = pulse;
-  mirroredBrush.material.opacity = .55 * pulse;
-  brushStatus.hidden = !applying || !brushCue.visible || tryOn.enabled || resizeEnabled || Boolean(handUI?.isOpen) || editingPaused;
+  const applying = !tryOn.enabled && (isBrushApplying() || deformationApplying(clayVolume));
+  const showLoading = applying && !resizeEnabled && !handUI?.isOpen && !editingPaused;
+  handUI?.cursor.classList.toggle('is-applying', showLoading);
+  brushCue.material.color.set('#286743');
+  brushCue.material.opacity = showLoading ? 0 : 1;
+  mirroredBrush.material.opacity = showLoading ? 0 : .55;
+  if (showLoading) { contactCue.visible = false; pinchCue.visible = false; grabTether.visible = false; }
+  // Hand input uses the cursor's exact position. Mouse input uses the brush
+  // center as a fallback, without the old floating Applying label.
+  brushStatus.hidden = !showLoading || !brushCue.visible || !handUI?.cursor.hidden;
   if (!brushStatus.hidden) {
     const point = brushCue.position.clone().project(camera);
     const canvas = renderer.domElement.getBoundingClientRect(), stage = document.querySelector('#stage').getBoundingClientRect();
     const x = canvas.left - stage.left + (point.x + 1) * canvas.width / 2;
-    const y = canvas.top - stage.top + (1 - point.y) * canvas.height / 2 + 22;
-    brushStatus.style.left = `${THREE.MathUtils.clamp(x, 48, stage.width - 48)}px`;
-    brushStatus.style.top = `${THREE.MathUtils.clamp(y, 16, stage.height - 32)}px`;
+    const y = canvas.top - stage.top + (1 - point.y) * canvas.height / 2;
+    brushStatus.style.left = `${x}px`;
+    brushStatus.style.top = `${y}px`;
   }
 }
 const symmetryGuide = new THREE.Line(
@@ -1047,7 +1048,8 @@ function renderScene() {
   const surfaceText=building ? (canContinue ? 'Keep creating · saving strokes in the background' : 'Keeping your change · choose your next tool or brush size') : 'Ready to create · surface cleanup in background';
   if(surfaceStatus.textContent!==surfaceText)surfaceStatus.textContent=surfaceText;
   surfaceStatus.dataset.phase=building ? 'building' : 'refining';
-  studioFeedback.update({cameraOn:Boolean(stream),tracked:now-lastHandAt<600,held:pinchActive||mousePinching,paused:editingPaused,trying:tryOn.enabled,palm:controlMode==='palm',tool:activeTool});
+  studioFeedback.update({cameraOn:Boolean(stream),tracked:now-lastHandAt<600,held:pinchActive||mousePinching,paused:editingPaused,trying:tryOn.enabled,palm:controlMode==='palm',tool:activeTool,
+    applying:deformationApplying(clayVolume) || isBrushApplying(),waiting:isBrushApplying()});
   animationFrame = requestAnimationFrame(renderScene);
 }
 renderScene();
@@ -2262,6 +2264,7 @@ studioTutorial = new StudioTutorial({
   isBusy: () => Boolean(previousPullPoint || cutStroke || twoHandScale.active || palmMove.active
     || clayVolume.surfacePaint?.active || clayVolume.surfaceExtrude?.active || clayVolume.surfaceErase?.active
     || clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending),
+  isApplying: () => tutorialApplying(clayVolume),
   onStep: (tool, mission) => {
     if (handUI.isOpen) handUI.close();
     if (tryOn.enabled) endTryOn();
@@ -2319,6 +2322,8 @@ document.addEventListener('sculpt-save-pending',()=>{
 // Opt-in local inspection for replaying landmark traces and comparing field
 // and mesh state. Camera data is never retained or transmitted by this hook.
 window.clayPlayTrackingReport=()=>JSON.stringify({diagnostics,...trackingTrace.report()},null,2);
+sceneHint.hidden = true;
+comfortSetup.open(() => Boolean(stream && landmarker));
 if (new URLSearchParams(location.search).has('diagnostics')) {
   window.clayPlayDebug = { objects: clayObjects, camera, tryOn,
     feedHands: (hands, now, { sampleAt = now, handedness } = {}) => processHandResult({ landmarks: hands, handedness }, now, sampleAt),

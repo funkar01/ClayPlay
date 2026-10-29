@@ -39,11 +39,12 @@ export class ComfortSetup {
       }
       this.phase = 'palm';
       this.card.querySelector('.comfort-step').textContent = 'CHECK YOUR HAND';
-      this.title.textContent = 'Show one open palm';
+      this.title.textContent = 'Show open palm';
       this.copy.textContent = 'Face your palm toward the camera, with your wrist in view. Hold it comfortably still.';
       this.status.textContent = '';
       this.status.hidden = true;
       this.button.hidden = true;
+      this.card.querySelector('.comfort-skip').hidden = true;
       this.title.focus({ preventScroll: true });
     });
   }
