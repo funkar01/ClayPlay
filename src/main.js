@@ -1,4 +1,4 @@
-import { StudioFeedback } from './studioFeedback.js';
+import { StudioFeedback, emitStudioCommit } from './studioFeedback.js';
 import { SelfieStudio } from './selfie.js';
 import { brushApplying, deformationApplying } from './brushAvailability.js';
 import { pointerOnPlane } from './toolPointer.js';
@@ -42,9 +42,15 @@ import { inject } from '@vercel/analytics';
 if (import.meta.env.PROD) inject({ mode: 'production' });
 
 const sculptSounds = new SculptSounds();
-document.addEventListener('pointerdown', () => sculptSounds.unlock());
-document.addEventListener('keydown', () => sculptSounds.unlock());
-document.addEventListener('visibilitychange', () => { if (document.hidden) sculptSounds.stop(); });
+document.addEventListener('studio-edit-committed', event => {
+  if (!document.hidden) sculptSounds.play(event.tool, event.intensity);
+});
+// Setup cards stop bubbling to protect the canvas. Activate audio during
+// capture so that the first real click still reaches the browser audio gate.
+document.addEventListener('pointerdown', () => sculptSounds.unlock(), { capture: true });
+document.addEventListener('keydown', () => sculptSounds.unlock(), { capture: true });
+document.addEventListener('visibilitychange', () => { if (document.hidden) sculptSounds.stop(); else if (sculptSounds.context) sculptSounds.unlock(); });
+window.addEventListener('focus', () => { if (sculptSounds.context) sculptSounds.unlock(); });
 window.addEventListener('blur', () => sculptSounds.stop());
 const video = document.querySelector('#camera-video');
 const previewCanvas = document.querySelector('#preview-overlay');
@@ -127,9 +133,9 @@ const twoHandScale = new TwoHandScale();
 const palmMove = new PalmMove();
 const palmGesture = new PalmGesture();
 const movePlane = new THREE.Plane(new THREE.Vector3(0, 0, 1));
-let moveIntent = false, moveTarget = null, moveSaved = false, moveReceivedAt = 0, movePhase = null;
+let moveIntent = false, moveTarget = null, moveSaved = false, moveReceivedAt = 0, movePhase = null, moveOrigin = [0, 0];
 const positionResetButton = document.querySelector('#position-reset');
-let resizeEnabled = false, resizeSaved = false;
+let resizeEnabled = false, resizeSaved = false, resizeOrigin = 1;
 let resizeAutoPaused = false;
 let singleHandNeedsOpen = false;
 let resizeTargetScale = null;
@@ -469,6 +475,7 @@ moveCue.renderOrder = 7; moveCue.visible = false; scene.add(moveCue);
 document.querySelector('#restart-reach').addEventListener('click', () => { cancelMouseStroke(); reachCalibration.reset(); });
 
 function finishMoveStroke(blockUntilOpen = false) {
+  commitMoveSound();
   const block = blockUntilOpen && (palmMove.active || palmMove.candidateAt !== null || palmMove.needsOpen || palmGesture.blocked);
   palmGesture.reset(block || palmGesture.blocked);
   palmMove.reset(block); moveIntent = false; moveTarget = null; moveSaved = false; movePhase = null;
@@ -511,7 +518,7 @@ function showPalmMove(landmarks, now, aspect, screenSpace = false) {
   moveTarget = result.phase === 'holding' ? result.offset : null;
   moveCue.visible = Boolean(cursor && (result.phase === 'ready' || result.phase === 'holding'));
   if (moveCue.visible) { moveCue.position.copy(cursor); moveCue.position.z += .035; }
-  if (result.finished) moveSaved = false;
+  if (result.finished) commitMoveSound();
   // A fist cannot simultaneously reshape a patch or finish a cut outline.
   if (previousPullPoint) pullClayAlongPath(null, false);
   clayVolume.surfaceErase?.finish();
@@ -559,7 +566,21 @@ function updateResizeControl() {
   document.querySelector('#check-hand').children[1].textContent = resizeEnabled ? 'Show both hands' : 'Show one hand';
 }
 
+function commitMoveSound() {
+  if (!moveSaved) return;
+  moveSaved = false;
+  const offset = clayVolume.userOffset ?? [0, 0];
+  const distance = Math.hypot(...offset.map((v, i) => v - moveOrigin[i]));
+  if (distance > .0001) emitStudioCommit('move', { intensity: Math.min(1, distance / 2) });
+}
+function commitResizeSound() {
+  if (!resizeSaved) return;
+  resizeSaved = false;
+  const distance = Math.abs(Math.log((clayVolume.userScale ?? 1) / resizeOrigin));
+  if (distance > .0001) emitStudioCommit('resize', { intensity: Math.min(1, distance) });
+}
 function finishScaleStroke() {
+  commitResizeSound();
   twoHandScale.reset(); resizeSaved = false; resizePhase = null;
   resizeTargetScale = null;
   resizeCues.visible = false;
@@ -689,7 +710,7 @@ function showResizeHands(hands, now) {
   const canStart = oppositeSides && !savingEdit && !clayMenu?.isOpen;
   const result = twoHandScale.update(hands, now, clayVolume.userScale ?? 1, aspect, canStart);
   resizeTargetScale = result.phase === 'holding' ? result.scale : null;
-  if (result.finished) resizeSaved = false;
+  if (result.finished) commitResizeSound();
   resizeCues.visible = points.length === 2 && points.every(Boolean);
   if (resizeCues.visible) {
     points.forEach((p, i) => resizeRings[i].position.copy(p));
@@ -928,27 +949,9 @@ function resizeScene() {
 }
 new ResizeObserver(resizeScene).observe(sceneHost);
 
-function updateSculptSound() {
-  const held = mousePinching || (pinchGesture.held && performance.now() - lastHandAt < 250);
-  if (!held || document.hidden || handUICaptured || editingPaused || tryOn.enabled) { sculptSounds.stop(); return; }
-  let point, amount = 0;
-  if (activeTool === 'pinch' && previousPullPoint) {
-    point = previousPullPoint.toArray(); amount = grabAnchor ? previousPullPoint.distanceTo(grabAnchor) : 0;
-  } else if (activeTool === 'extrude' && clayVolume.surfaceExtrude?.active) {
-    const points = clayVolume.surfaceExtrude.points;
-    point = points.at(-1)?.toArray(); amount = point ? points.at(-1).distanceTo(points[0]) : 0;
-  } else if (activeTool === 'erase' && clayVolume.surfaceErase?.active && !clayVolume.surfaceErase.released) {
-    point = clayVolume.surfaceErase.lastPoint;
-  } else if (activeTool === 'paint' && clayVolume.surfacePaint?.active) {
-    point = clayVolume.surfacePaint.last?.toArray();
-  } else if (activeTool === 'cut' && cutStroke) point = cutStroke.points.at(-1);
-  sculptSounds.update(activeTool, point, amount);
-}
-
 function renderScene() {
   studioTutorial?.update({ held: pinchActive || mousePinching, contact: Boolean(previousPullPoint || clayVolume.surfacePaint?.active || contactCue.visible),
     tracked: performance.now() - lastHandAt < 600, mouse: cursorInputEnabled(), busy: clayVolume.pulling || clayVolume.meshQueue?.pending, tool: activeTool });
-  updateSculptSound();
   for(const item of clayObjects.items)item.volume.surfacePaint?.tick();
   studioBackdrop.update(clayObjects.active.material.color);
   arView.update();
@@ -967,7 +970,7 @@ function renderScene() {
     const current = clayVolume.userOffset ?? [0, 0], blend = 1 - Math.exp(-dt / .02);
     const offset = current.map((v, i) => THREE.MathUtils.lerp(v, moveTarget[i], blend));
     if (Math.hypot(offset[0] - current[0], offset[1] - current[1]) > .0001) {
-      if (!moveSaved) { checkpointPosition(clayVolume); moveSaved = true; }
+      if (!moveSaved) { checkpointPosition(clayVolume); moveOrigin = [...current]; moveSaved = true; }
       applyMaskPosition(clayVolume, offset); clayObjects.updateMarker();
     }
   }
@@ -979,7 +982,7 @@ function renderScene() {
     const currentScale = clayVolume.userScale ?? 1;
     const scale = THREE.MathUtils.lerp(currentScale, resizeTargetScale, 1 - Math.exp(-dt / 0.035));
     if (Math.abs(scale - currentScale) > 0.0001) {
-      if (!resizeSaved) { checkpointScale(clayVolume); resizeSaved = true; markClayEdited(); }
+      if (!resizeSaved) { checkpointScale(clayVolume); resizeOrigin = currentScale; resizeSaved = true; markClayEdited(); }
       applyMaskScale(clayVolume, scale); clayObjects.updateMarker();
     }
   }
@@ -1182,6 +1185,7 @@ function useHistory(redo = false) {
   cancelMouseStroke();
   const positionOnly = (redo ? clayVolume.redoStack : clayVolume.undoStack)?.at(-1)?.positionOnly;
   if (!restoreHistory(clayVolume, redo)) return;
+  emitStudioCommit(redo ? 'redo' : 'undo');
   clayObjects.updateMarker();
   if (!positionOnly) markClayEdited();
   sceneHint.textContent = redo ? 'Change restored · keep creating' : 'Change undone · try another idea';

@@ -37,6 +37,7 @@ const paths = {
   cursor: 'm5 3 14 10-7 1-3 7z',
   upper: 'M5 5h14v4H5zM7 15h.01M12 15h.01M17 15h.01',
   lower: 'M5 15h14v4H5zM7 7h.01M12 7h.01M17 7h.01',
+  size: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z',
 };
 
 function iconKey(button, label) {
@@ -47,6 +48,7 @@ function iconKey(button, label) {
   if (button.id === 'sculpt-redo') return 'redo';
   if (button.id === 'tutorial-next' && /^next\b/i.test(label)) return 'next';
   if (action === 'dock-pin') return button.getAttribute('aria-pressed') === 'true' ? 'unpin' : 'pin';
+  if (action === 'size-open') return 'size';
   if (action === 'page') return ({ more: /cancel/i.test(label) ? 'close' : 'back', themes: 'palette', controls: 'hand', masks: 'mask', eyes: 'eyes', colors: 'palette', custom: 'palette' })[value];
   if (action === 'sound') return /off/i.test(label) ? 'muted' : 'sound';
   if (action === 'control-mode') return value === 'palm' ? 'hand' : 'pinch';

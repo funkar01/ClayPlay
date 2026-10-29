@@ -44,7 +44,7 @@ export class StudioFeedback {
   }
   commit(tool) {
     const now=performance.now();if(this.lastCommit && now-this.lastCommit<800)return;this.lastCommit=now;
-    this.commitMessage=tool==='paint'?'Paint applied':tool==='erase'?'Erasure kept':'Shape kept';
+    this.commitMessage=({paint:'Paint applied',erase:'Erasure kept',move:'Position kept',resize:'Size kept',undo:'Change undone',redo:'Change restored'})[tool] ?? 'Shape kept';
     this.commitUntil=now+1400;
     if(!matchMedia('(prefers-reduced-motion: reduce)').matches)this.status.animate([{opacity:.75},{opacity:1}],{duration:180});
   }

@@ -39,13 +39,24 @@ export class HandUI {
     this.motion = new HandMotion({ staleMs: HAND_UI_SAMPLE_AGE_MS });
     this.theme=savedStudioTheme();applyStudioTheme(this.theme);
     this.page = 'more'; this.maskPage = 0;
-    const sizeControl=document.querySelector('.size-control');
+    const sizeControl=this.sizeControl=document.querySelector('.size-control');
     sizeControl.classList.add('stage-size-control');
+    sizeControl.id='studio-size-panel';
     sizeControl.setAttribute('aria-label','Deformation tool size');
     sizeControl.querySelector('label').textContent='TOOL SIZE';
     sizeControl.querySelector('#size-context').hidden=true;
-    sizeControl.addEventListener('pointerdown',event=>event.stopPropagation());
+    sizeControl.addEventListener('pointerdown',event=>{
+      event.stopPropagation();this.keyboardDock=false;
+      this.mouseSizing=event.target.id==='tool-size' && !event.target.disabled;
+      this.updateSizeControl(performance.now());
+    });
     stage.append(sizeControl);
+    this.sizeVisibility=new DockVisibility({pinned:false,expanded:false,now:performance.now()});
+    this.sizeTab=button('Show tool size','size-open');this.sizeTab.id='studio-size-tab';
+    this.sizeTab.setAttribute('aria-controls',sizeControl.id);stage.append(this.sizeTab);
+    this.sizeTab.addEventListener('focus',()=>{
+      if(this.keyboardDock){this.sizeVisibility.reveal(performance.now());this.updateSizeControl(performance.now());sizeControl.querySelector('input').focus({preventScroll:true});}
+    });
     this.custom = [20, 55, 60]; this.lastAt = null; this.gapAt = null;
     this.dock = document.createElement('nav'); this.dock.id = 'hand-toolbar';
     this.dock.className = 'hand-toolbar'; this.dock.setAttribute('aria-label', 'Mask studio tools');
@@ -84,10 +95,12 @@ export class HandUI {
     brand.innerHTML='<svg viewBox="0 0 48 56" aria-hidden="true"><defs><linearGradient id="studio-brand-gradient" x2="1" y2="1"><stop stop-color="#794cff"/><stop offset=".55" stop-color="#ea19ee"/><stop offset="1" stop-color="#ffa15a"/></linearGradient></defs><path fill="url(#studio-brand-gradient)" d="M4 5Q24 13 44 5L41 36Q36 50 24 53Q12 50 7 36Z"/><path fill="#170b35" d="m10 20 12 4-3 6-8-3Zm28 0-12 4 3 6 8-3ZM18 39q6 4 12 0-6 9-12 0"/></svg><div><strong>Mask<span>Studio</span></strong><small>Create · Shape · Express</small></div>';
     const art=document.createElement('div');art.className='studio-corner-art';art.setAttribute('aria-hidden','true');art.innerHTML='<i></i><i></i><i></i><i></i>';stage.append(art,brand);
     this.mouseNearDock=false;this.keyboardDock=false;
-    stage.addEventListener('pointermove',event=>{if(event.pointerType==='touch')return;this.mouseNearDock=this.nearDock({x:event.clientX,y:event.clientY});this.updateDock(performance.now());});
-    stage.addEventListener('pointerleave',()=>{this.mouseNearDock=false;});
+    stage.addEventListener('pointermove',event=>{if(event.pointerType==='touch')return;const point={x:event.clientX,y:event.clientY};this.mouseNearDock=this.nearDock(point);this.mouseNearSize=this.nearSizeControl(point);this.updateDock(performance.now());});
+    stage.addEventListener('pointerleave',()=>{this.mouseNearDock=false;this.mouseNearSize=false;});
     stage.addEventListener('pointerdown',event=>{this.keyboardDock=false;this.mouseEditing=!event.target.closest('button,summary,input,select,a');});
     window.addEventListener('pointerup',()=>{this.mouseEditing=false;});window.addEventListener('pointercancel',()=>{this.mouseEditing=false;});
+    const finishSizeDrag=()=>{this.mouseSizing=false;this.updateSizeControl(performance.now());};
+    window.addEventListener('pointerup',finishSizeDrag);window.addEventListener('pointercancel',finishSizeDrag);
     document.addEventListener('keydown',event=>{if(event.key==='Tab')this.keyboardDock=true;});
     stage.addEventListener('click',event=>{if(event.detail>0 && performance.now()<(this.dockRevealUntil ?? 0) && this.dock.contains(event.target)){event.preventDefault();event.stopImmediatePropagation();}},true);
     this.toolsTab.addEventListener('focus',()=>{if(this.keyboardDock){this.dockVisibility.reveal(performance.now());this.updateDock(performance.now());this.dock.querySelector('button:not(:disabled)')?.focus({preventScroll:true});}});
@@ -121,6 +134,7 @@ export class HandUI {
   }
   act(action, value) {
     const state = this.getState();
+    if(action==='size-open') {this.sizeVisibility.reveal(performance.now());this.updateSizeControl(performance.now());return;}
     if(action==='dock-open') {this.dockVisibility.reveal(performance.now());this.updateDock(performance.now());return;}
     if(action==='dock-pin') {
       this.dockVisibility.pinned=!this.dockVisibility.pinned;this.dockVisibility.reveal(performance.now());
@@ -345,12 +359,32 @@ export class HandUI {
     const stage=this.stage.getBoundingClientRect(),bounds=this.dock.getBoundingClientRect();
     return point.x>=stage.left && point.x<=stage.left+145 && point.y>=bounds.top-35 && point.y<=bounds.bottom+35;
   }
+  nearSizeControl(point) {
+    const stage=this.stage.getBoundingClientRect(),panel=this.sizeControl;
+    const middle=stage.top+stage.height/2;
+    const width=this.sizeVisibility.expanded ? panel.offsetWidth+44 : 110;
+    const height=Math.max(90,panel.offsetHeight/2+35);
+    return point.x>=Math.max(stage.left,stage.right-width) && point.x<=stage.right && Math.abs(point.y-middle)<=height;
+  }
+  updateSizeControl(now,inputBlocked=false) {
+    if(!this.sizeVisibility)return;
+    const focused=this.keyboardDock && this.sizeControl.contains(this.stage.ownerDocument.activeElement);
+    const handNear=this.handSizeNear && now-this.handSizeAt<250;
+    const dragging=this.sizeDrag?.target?.id==='tool-size';
+    const hold=focused || dragging || this.mouseSizing;
+    const expanded=this.sizeVisibility.update({now,near:this.mouseNearSize||handNear,hold,blocked:inputBlocked||this.mouseEditing||this.getState().busy});
+    this.stage.classList.toggle('size-collapsed',!expanded);
+    this.sizeControl.inert=!expanded;this.sizeControl.setAttribute('aria-hidden',String(!expanded));
+    this.sizeTab.hidden=expanded;this.sizeTab.setAttribute('aria-expanded',String(expanded));
+  }
   recordDockHand(point,now,allowed) {
     if(!this.dockVisibility)return;
     this.handDockNear=allowed && this.nearDock(point);this.handDockAt=now;
+    if(this.sizeVisibility){this.handSizeNear=allowed && this.nearSizeControl(point);this.handSizeAt=now;}
     this.updateDock(now,!allowed);
   }
   updateDock(now,inputBlocked=false) {
+    this.updateSizeControl(now,inputBlocked);
     if(!this.dockVisibility)return;
     const state=this.getState();
     const handNear=this.handDockNear && now-this.handDockAt<250;

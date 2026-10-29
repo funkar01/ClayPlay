@@ -18,6 +18,7 @@ export class SurfaceErase {
         eye.some((n, i) => Math.abs(n - this.eye[i]) > .0001)) return false;
       clearTimeout(this.releaseDeadline);
       this.strokeId++;
+      this.commitSounds();
       this.released = false;
       this.lastPoint = null;
       if (v.erasePreview) v.erasePreview.last = null;
@@ -28,6 +29,7 @@ export class SurfaceErase {
     this.radius = radius; this.pending = []; this.lastPoint = null; this.anySaved = false;
     this.eye = [...eye]; this.planeZ = planeZ; this.symmetry = symmetry;
     this.strokeId = 0; this.savedStroke = -1; this.sentStroke = -1;
+    this.soundStrokes = new Map();
     this.active = true; this.busy = false; this.released = false;
     this.changedKeys=new Set();
     v.erasing = true; v.cutting = true;
@@ -56,7 +58,9 @@ export class SurfaceErase {
           v.parent.add(mesh); v.bricks.set(brick.key, { mesh });
         }
         this.onChange({ changed: true });
+        this.soundStrokes.set(this.inFlightStroke, (this.soundStrokes.get(this.inFlightStroke) ?? 0) + data.edits.length);
       }
+      this.commitSounds();
       this.pump();
     };
     this.worker.onerror = event => {if(this.worker === worker && this.active) this.fail(event.message);};
@@ -102,10 +106,18 @@ export class SurfaceErase {
     if (!this.active || this.released) return;
     // Freeze sampling immediately. Only positions captured while held finish;
     // an opening index finger can never extend the stroke.
-    this.released = true; this.pump();
+    this.released = true; this.commitSounds(); this.pump();
     if(this.active) this.releaseDeadline = setTimeout(() => {
       if(this.active && this.released) this.fail('Erase queue timed out; completed parts were kept.');
     }, 15000);
+  }
+  commitSounds() {
+    for(const [stroke, edits] of this.soundStrokes ?? []) {
+      if(stroke === this.strokeId && !this.released)continue;
+      if((this.busy && stroke === this.inFlightStroke) || this.pending.some(sample=>sample.stroke===stroke))continue;
+      emitStudioCommit('erase',{intensity:Math.min(1,edits/1000)});
+      this.soundStrokes.delete(stroke);
+    }
   }
   complete() {
     const changed = this.anySaved;

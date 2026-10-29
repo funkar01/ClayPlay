@@ -61,7 +61,8 @@ test('A zero brush, an empty stroke, or distant empty space leaves the field unc
 
 function fixture(t) {
   const oldWorker = globalThis.Worker, oldDocument = globalThis.document;
-  globalThis.document = { dispatchEvent() {} };
+  const commits=[];
+  globalThis.document = { dispatchEvent(event) { if(event.type==='studio-edit-committed')commits.push(event); } };
   globalThis.Worker = class {
     messages = [];
     postMessage(data) { this.messages.push(data); }
@@ -77,8 +78,22 @@ function fixture(t) {
   assert.equal(erase.begin(.2,eye,planeZ,false),true);
   const worker = erase.worker;
   t.after(()=>{erase.abort(); v.material.dispose(); geometry.dispose(); globalThis.Worker=oldWorker; globalThis.document=oldDocument;});
-  return {v,erase,worker,events};
+  return {v,erase,worker,events,commits};
 }
+
+test('Erase completion notes occur once per applied stroke, never per worker batch or empty stroke',t=>{
+  const {erase,worker,commits}=fixture(t);
+  erase.update([0,-.6]);erase.update([.1,-.6]);
+  worker.reply({edits:[[1,.2]],bricks:[],duration:1});
+  assert.equal(commits.length,0,'held work is not a completed stroke');
+  erase.finish();
+  worker.reply({edits:[[2,.2]],bricks:[],duration:1});
+  assert.equal(commits.length,1);assert.equal(commits[0].tool,'erase');
+  assert.ok(commits[0].intensity>0);erase.finish();assert.equal(commits.length,1);
+  erase.begin(.2,eye,planeZ,false);erase.update([10,10]);erase.finish();
+  erase.worker.reply({edits:[],bricks:[],duration:1});
+  assert.equal(commits.length,1,'no change is silent');
+});
 
 test('Release freezes erase input, finishes only held samples, and records one Undo entry', t => {
   const {v,erase,worker} = fixture(t);

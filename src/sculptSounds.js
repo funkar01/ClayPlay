@@ -29,16 +29,17 @@ export class SculptSounds {
     try { this.enabled = storage?.getItem('clayplay-sound') !== 'off'; } catch {}
   }
   async unlock() {
-    if (!this.enabled || this.disposed) return;
+    if (this.disposed) return;
     try {
       this.context ??= this.createContext();
       if (this.context.state === 'suspended') await this.context.resume();
     } catch { /* Audio must never interrupt sculpting. */ }
   }
-  toggle() {
+  async toggle() {
     this.enabled = !this.enabled;
     try { this.storage?.setItem('clayplay-sound', this.enabled ? 'on' : 'off'); } catch {}
-    this.stop(); if (this.enabled) this.unlock();
+    this.stop();
+    if (this.enabled) { await this.unlock(); if (this.enabled) this.play('paint', .5); }
   }
   play(tool, intensity = .35) {
     const note = editNote(tool, intensity), c = this.context;

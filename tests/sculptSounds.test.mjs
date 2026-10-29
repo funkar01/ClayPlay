@@ -1,35 +1,59 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SculptSounds, SOUND_PROFILES } from '../src/sculptSounds.js';
+import { SculptSounds, SOUND_PROFILES, editNote } from '../src/sculptSounds.js';
 
-function setup() {
-  const param = () => ({ value: 0, setTargetAtTime(value) { this.value = value; } });
-  let voices = 0;
-  const context = { state:'running', currentTime:0, destination:{},
-    createOscillator() { voices++; return {frequency:param(),connect(){},start(){}}; },
-    createGain() { return {gain:param(),connect(){}}; }, close(){} };
-  const sound = new SculptSounds({createContext:()=>context,storage:{getItem(){return 'on';},setItem(){}}});
-  return {sound,voices:()=>voices};
+function setup(saved = null) {
+  const automation=[];
+  const param=()=>Object.fromEntries(['setValueAtTime','linearRampToValueAtTime','exponentialRampToValueAtTime','setTargetAtTime','cancelScheduledValues'].map(name=>[name,(...args)=>automation.push([name,...args])]));
+  const voices=[],gains=[],writes=[];
+  const context={state:'running',currentTime:10,destination:{},
+    createOscillator(){const v={frequency:param(),connect(){},disconnect(){},start(t){this.started=t;},stop(t){this.stopped=t;}};voices.push(v);return v;},
+    createGain(){const g={gain:param(),connect(){},disconnect(){}};gains.push(g);return g;},
+    async resume(){this.state='running';},close(){this.state='closed';}};
+  const sound=new SculptSounds({createContext:()=>context,storage:{getItem:()=>saved,setItem:(...args)=>writes.push(args)}});
+  return {sound,context,voices,gains,automation,writes};
 }
-test('Sounds respond to pull distance, stay bounded, and reuse one voice',async()=>{
-  const {sound,voices}=setup(); await sound.unlock();
-  sound.update('pinch',[0,0,0],.1,0); const quiet=sound.gain.gain.value, low=sound.voice.frequency.value;
-  sound.update('pinch',[1,0,0],1,100);
-  assert.ok(sound.gain.gain.value>quiet); assert.ok(sound.voice.frequency.value>low);
-  for(let i=0;i<100;i++)sound.update('extrude',[i,0,0],100,i*16);
-  assert.ok(sound.gain.gain.value<=.075); assert.equal(voices(),2);
-  sound.stop(); assert.equal(sound.gain.gain.value,0);
+
+test('Every tool has a distinct single-note identity; larger edits stay musical and bounded',()=>{
+  assert.equal(new Set(Object.values(SOUND_PROFILES).map(p=>p.midi)).size,Object.keys(SOUND_PROFILES).length);
+  for(const tool of Object.keys(SOUND_PROFILES)) {
+    const small=editNote(tool,.05),large=editNote(tool,1);
+    assert.ok(large.frequency>small.frequency);assert.ok(large.volume>small.volume);
+    assert.ok(large.volume<=.07);assert.ok(large.duration<.4);
+    assert.deepEqual(editNote(tool,100),large);assert.deepEqual(editNote(tool,-10),editNote(tool,0));
+    assert.ok(Number.isFinite(editNote(tool,NaN).frequency));
+  }
+  assert.deepEqual(editNote('pinch'),editNote('pull'));assert.equal(editNote('unknown'),null);
 });
-test('Mute and lost contact silence immediately; resting paint fades to zero',async()=>{
-  const {sound}=setup(); await sound.unlock();
-  sound.update('paint',[0,0,0],0,0);sound.update('paint',[.1,0,0],0,16);
-  assert.ok(sound.gain.gain.value>0);
-  sound.update('paint',[.1,0,0],0,32);assert.equal(sound.gain.gain.value,0);
-  sound.update('paint',null);assert.equal(sound.point,null);
-  sound.toggle();sound.update('pinch',[1,0,0],1);assert.equal(sound.gain.gain.value,0);
-  assert.equal(new Set(Object.values(SOUND_PROFILES).map(p=>p.base)).size,5);
+
+test('One completion makes one oscillator with a soft attack and automatic end',async()=>{
+  const {sound,voices,automation}=setup();await sound.unlock();
+  assert.equal(voices.length,0,'unlock does not play a note');
+  assert.equal(sound.play('pull',.6),true);assert.equal(voices.length,1);
+  assert.equal(voices[0].started,10);assert.ok(voices[0].stopped>10 && voices[0].stopped<10.4);
+  assert.equal(automation.filter(([kind])=>kind==='linearRampToValueAtTime').length,1);
+  assert.equal(automation.filter(([kind])=>kind==='exponentialRampToValueAtTime').length,1);
+  voices[0].onended();assert.equal(sound.notes.size,0);
 });
-test('Unavailable audio does not break sculpting',async()=>{
-  const sound=new SculptSounds({createContext(){throw Error('unsupported');},storage:null});
-  await sound.unlock();assert.doesNotThrow(()=>sound.update('pinch',[0,0,0],1));
+
+test('Mute preference persists, stops active notes and never queues stale completions',async()=>{
+  const f=setup();assert.equal(f.sound.enabled,true);await f.sound.unlock();
+  f.sound.play('paint');f.sound.toggle();assert.equal(f.sound.notes.size,0);
+  assert.deepEqual(f.writes.at(-1),['clayplay-sound','off']);
+  assert.equal(f.sound.play('pull'),false);assert.equal(f.voices.length,1);
+  const muted=setup('off');await muted.sound.unlock();assert.equal(muted.sound.context.state,'running');
+  assert.equal(muted.sound.play('pull'),false);assert.equal(muted.voices.length,0,'preparing audio never overrides mute');
+  await muted.sound.toggle();assert.equal(muted.voices.length,1,'enabling sound by hand gives an audible confirmation');
+  const fresh=setup();assert.equal(fresh.sound.play('erase'),false);await fresh.sound.unlock();
+  fresh.context.state='suspended';assert.equal(fresh.sound.play('erase'),false);
+  await fresh.sound.unlock();assert.equal(fresh.voices.length,0,'resume does not replay missed notes');
+});
+
+test('Fast queued edits stay bounded and audio failures never interrupt editing',async()=>{
+  const {sound,voices}=setup();await sound.unlock();
+  for(let i=0;i<12;i++)assert.equal(sound.play('extrude',.5),true);
+  assert.equal(sound.notes.size,3);assert.equal(voices.length,12);
+  sound.dispose();assert.equal(sound.notes.size,0);assert.equal(sound.play('pull'),false);
+  const unavailable=new SculptSounds({createContext(){throw Error('unsupported');},storage:null});
+  await unavailable.unlock();assert.equal(unavailable.play('pull'),false);
 });

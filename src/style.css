@@ -813,6 +813,33 @@ html[data-studio-theme] .stage-size-control input { accent-color:var(--selected-
 /* One contextual message replaces overlapping legacy hint surfaces. */
 #stage #scene-hint,#stage #hand-feedback,#stage .surface-status { display:none !important; }
 
+/* The size tray mirrors the left tools, with a quiet handle at the right edge. */
+#stage { --right-control-inset:28px; --right-control-size:60px; }
+:root[data-studio-theme] #app .stage-size-control {
+ top:50%; left:auto; right:var(--right-control-inset); bottom:auto; width:min(300px,calc(100% - 125px)); min-width:0;
+ transform:translateY(-50%); z-index:12; transition:transform .22s ease,opacity .18s ease;
+}
+:root[data-studio-theme] #app .size-collapsed .stage-size-control {
+ transform:translate(calc(100% + 32px),-50%); opacity:0; pointer-events:none;
+}
+:root[data-studio-theme] #app #studio-size-tab {
+ position:absolute; z-index:11; right:12px; top:50%; transform:translateY(-50%); width:56px; min-height:64px;
+ border:1px solid var(--line); border-radius:16px; background:var(--ui-panel); color:var(--ink); box-shadow:0 4px 20px #0003;
+}
+:root[data-studio-theme] #app #stage :is(.stage-selfie,#studio-size-tab,.hand-try-done) {
+ right:var(--right-control-inset); width:var(--right-control-size); height:var(--right-control-size);
+ min-height:var(--right-control-size); padding:10px; border-radius:16px;
+}
+:root[data-studio-theme] #app #stage .hand-try-done {
+ top:calc(50% + 64px); bottom:auto; max-width:none; transform:none;
+}
+@media(max-width:760px) {
+ #stage { --right-control-inset:12px; --right-control-size:48px; }
+ :root[data-studio-theme] #app .stage-size-control { right:12px; width:min(280px,calc(100% - 112px)); padding:12px 16px; }
+ :root[data-studio-theme] #app #studio-size-tab { width:48px; min-height:56px; }
+}
+@media(prefers-reduced-motion:reduce) { :root[data-studio-theme] #app .stage-size-control { transition:none; } }
+
 /* Icon actions share one scale and keep their names available to assistive tech. */
 #stage .studio-button-label {
  position:absolute !important; width:1px !important; height:1px !important; padding:0 !important; margin:-1px !important;
