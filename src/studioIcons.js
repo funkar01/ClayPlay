@@ -12,6 +12,7 @@ const paths = {
   redo: 'm15 4 5 5-5 5M20 9H10a5.5 5.5 0 0 0 0 11h3',
   close: 'm6 6 12 12M18 6 6 18',
   back: 'm10 5-7 7 7 7M3 12h18',
+  next: 'M4 12h16m-7-7 7 7-7 7',
   check: 'm5 12 4 4L19 6',
   palette: 'M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 1-4c-1-1 0-3 2-3h2c5 0 3-11-6-11ZM7 9h.01M11 6h.01M16 8h.01M6 14h.01',
   hand: 'M7 12V7a1.5 1.5 0 0 1 3 0v4-7a1.5 1.5 0 0 1 3 0v7-6a1.5 1.5 0 0 1 3 0v7-4a1.5 1.5 0 0 1 3 0v6c0 5-2 7-6 7-3 0-5-2-7-5l-3-4q1-2 3 0l2 2',
@@ -44,6 +45,7 @@ function iconKey(button, label) {
   if (tool) return ({ pinch: 'pull', extrude: 'extrude', paint: 'paint', erase: 'erase' })[tool] || 'mask';
   if (button.id === 'sculpt-undo') return 'undo';
   if (button.id === 'sculpt-redo') return 'redo';
+  if (button.id === 'tutorial-next' && /^next\b/i.test(label)) return 'next';
   if (action === 'dock-pin') return button.getAttribute('aria-pressed') === 'true' ? 'unpin' : 'pin';
   if (action === 'page') return ({ more: /cancel/i.test(label) ? 'close' : 'back', themes: 'palette', controls: 'hand', masks: 'mask', eyes: 'eyes', colors: 'palette', custom: 'palette' })[value];
   if (action === 'sound') return /off/i.test(label) ? 'muted' : 'sound';

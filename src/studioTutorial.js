@@ -70,7 +70,7 @@ export class StudioTutorial {
     this.card.querySelector('#tutorial-title').focus({preventScroll:true});
   }
   get mission() {
-    if(this.phase==='ui')return {id:'ui',title:'Your hand is the cursor.',copy:'Point at “Let’s create” and hold until it is selected.'};
+    if(this.phase==='ui')return {id:'ui',title:'Your hand is the cursor.',copy:'Point at the Next button below and hold until it is selected.'};
     if(this.phase==='shape') {
       const label=this.recipe.shapeLabel.toLowerCase();
       return {id:'shape',title:`Starting with the ${label}${label.endsWith('mask')?'':' mask'}.`,copy:'Find more shapes in More → Masks.'};
@@ -88,7 +88,7 @@ export class StudioTutorial {
     this.card.querySelector('#tutorial-copy').textContent = mission.copy;
     this.card.querySelector('#tutorial-explore').hidden = mission.id!=='done';
     this.nextButton.hidden = Boolean(mission.target);
-    this.nextButton.textContent = this.phase==='ui' ? 'Let’s create' : this.phase==='shape' || this.phase==='eyes' ? 'Next' : 'Try it on!';
+    this.nextButton.textContent = ['ui','shape','eyes'].includes(this.phase) ? 'Next' : 'Try it on!';
     this.overlay.dataset.motion = mission.motion ?? mission.id;
     this.onStep(mission.tool, mission);
     this.refreshControlGuidance();
@@ -110,7 +110,7 @@ export class StudioTutorial {
     this.overlay.querySelector('.mission-open').style.setProperty('--gesture-icon',`url("${palm ? openPalmIcon : selectIcon}")`);
     this.overlay.querySelector('.mission-pinched').style.setProperty('--gesture-icon',`url("${palm ? closedPalmIcon : pinchIcon}")`);
     this.card.querySelector('#tutorial-copy').textContent = this.phase==='ui' && palm
-      ? 'Move your open palm over “Let’s create” and hold until it is selected.'
+      ? 'Move your open palm over the Next button below and hold until it is selected.'
       : this.mission.copy && this.instruction(this.mission.copy);
   }
   recordPull(warp) {
