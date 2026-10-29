@@ -522,8 +522,9 @@ body.play-area-fullscreen { overflow: hidden; }
 .mission-path { position:absolute; width:140px; height:140px; left:-70px; top:-110px; overflow:visible; }
 .mission-path path { fill:none; stroke:#fff6ce; stroke-width:3; stroke-dasharray:5 5; stroke-linecap:round; filter:drop-shadow(0 1px 3px #60452e); }
 .mission-travel { position:absolute; left:0; top:0; animation:mission-pull 4.8s infinite; }
-.mission-hand { position:absolute; width:var(--mission-hand-size,100px); height:var(--mission-hand-size,100px); left:calc(var(--mission-hand-size,100px) / -2); top:calc(var(--mission-hand-size,100px) / -2); transform:rotate(calc(0deg - var(--guide-angle,0deg))); filter:drop-shadow(0 3px 6px #60452e50); opacity:.85; }
-.mission-hand img { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+.mission-hand { position:absolute; width:var(--mission-hand-size,100px); height:var(--mission-hand-size,100px); left:calc(var(--mission-hand-size,100px) / -2); top:calc(var(--mission-hand-size,100px) / -2); transform:rotate(calc(0deg - var(--guide-angle,0deg))); }
+/* Tint every gesture with one solid UI accent using its original silhouette. */
+.mission-gesture { position:absolute; inset:0; background:var(--ui-focus,#7050a0); -webkit-mask:var(--gesture-icon) center / contain no-repeat; mask:var(--gesture-icon) center / contain no-repeat; mask-mode:alpha; }
 .mission-open { animation:mission-open 4.8s infinite; }
 .mission-pinched { animation:mission-pinch 4.8s infinite; }
 .tutorial-overlay[data-held="true"] .mission-ring { border-color:#86e0a3; box-shadow:0 0 20px #86e0a3; }
@@ -729,3 +730,75 @@ html[data-studio-theme] .stage-size-control input { accent-color:var(--selected-
 :root[data-studio-theme] #app .mask-picker-grid button[aria-pressed="true"] svg { fill:var(--selected-ink); stroke:var(--selected-ink); }
 :root[data-studio-theme] #app .mask-picker-grid button[aria-pressed="true"] svg ellipse { fill:var(--selected-fill); }
 :root[data-studio-theme] #app button:is(.is-active,[aria-pressed="true"],[aria-expanded="true"]) :is(span,small,strong) { color:inherit !important; }
+
+/* Creative studio shell: restrained neon edges, generous working space. */
+.studio-brand { position:absolute; top:27px; left:32px; z-index:6; display:flex; align-items:center; gap:13px; color:var(--ink); pointer-events:none; }
+.studio-brand svg { width:48px; height:56px; filter:drop-shadow(0 0 16px #9c32ff35); }
+.studio-brand strong { display:block; font:800 clamp(23px,2.6vw,36px)/1.1 'Manrope',sans-serif; letter-spacing:-1px; }
+.studio-brand strong span { color:var(--ui-focus); }
+.studio-brand small { display:block; margin-top:6px; font-size:13px; color:var(--muted); }
+.studio-corner-art { position:absolute; inset:0; overflow:hidden; pointer-events:none; z-index:3; }
+/* Sample the supplied artwork at each original corner; no synthetic stripes. */
+.studio-corner-art i { position:absolute; width:clamp(180px,29vw,520px); height:clamp(220px,38vh,420px); opacity:.38; filter:blur(2.5px) saturate(.8); background-image:url('../assets/studio-brushstroke-reference.png'); background-repeat:no-repeat; background-size:max(100vw,900px) auto; mix-blend-mode:screen; mask-image:linear-gradient(to var(--stroke-x),#000 0%,#000 42%,transparent 100%),linear-gradient(to var(--stroke-y),#000 0%,#000 42%,transparent 100%),linear-gradient(var(--stroke-angle),#000 0%,#000 20%,transparent 65%); mask-composite:intersect; }
+.studio-corner-art i:nth-child(1) { left:0; top:0; background-position:left top; --stroke-x:right; --stroke-y:bottom; --stroke-angle:135deg; }
+.studio-corner-art i:nth-child(2) { right:0; top:0; background-position:right top; --stroke-x:left; --stroke-y:bottom; --stroke-angle:225deg; }
+.studio-corner-art i:nth-child(3) { right:0; bottom:0; background-position:right bottom; --stroke-x:left; --stroke-y:top; --stroke-angle:315deg; }
+.studio-corner-art i:nth-child(4) { left:0; bottom:0; background-position:left bottom; --stroke-x:right; --stroke-y:top; --stroke-angle:45deg; }
+.stage.is-ar .studio-corner-art,.stage.is-trying .studio-corner-art { opacity:.15; }
+:root[data-studio-theme] #app :is(.hand-toolbar,.hand-panel,.stage-size-control,.stage-selfie,.studio-history-dock,#studio-tools-tab,.paint-palette,.comfort-setup,.studio-tutorial) { background:color-mix(in srgb,var(--ui-panel) 94%,transparent); border:1px solid color-mix(in srgb,var(--selected-fill) 65%,var(--line)); border-radius:20px; backdrop-filter:blur(16px); box-shadow:0 8px 32px #0003,0 0 20px color-mix(in srgb,var(--selected-fill) 12%,transparent); }
+:root[data-studio-theme] #app .hand-toolbar { left:20px; right:auto; top:50%; bottom:auto; transform:translateY(-50%); width:96px; display:flex; flex-direction:column; flex-wrap:nowrap; max-height:calc(100dvh - 190px); overflow-y:auto; gap:8px; padding:9px; transition:transform .22s ease,opacity .18s ease; }
+:root[data-studio-theme] #app .hand-toolbar > button { flex:none; width:100%; min-width:0; min-height:60px; border-radius:14px; background:color-mix(in srgb,var(--ui-soft) 85%,var(--ui-panel)); }
+:root[data-studio-theme] #app .hand-toolbar > button.is-active { background:linear-gradient(130deg,var(--selected-fill),color-mix(in srgb,var(--selected-fill) 65%,var(--ui-focus))); color:var(--selected-ink); box-shadow:0 0 0 2px var(--selected-fill),0 0 15px color-mix(in srgb,var(--selected-fill) 35%,transparent); }
+:root[data-studio-theme] #app .tools-collapsed .hand-toolbar { transform:translate(-130px,-50%); opacity:0; pointer-events:none; }
+:root[data-studio-theme] #app #dock-pin { min-height:44px; font-size:11px; padding:8px 3px; }
+:root[data-studio-theme] #app #studio-tools-tab { position:absolute; z-index:8; left:12px; top:50%; transform:translateY(-50%); display:grid; justify-items:center; gap:5px; width:76px; min-height:96px; padding:12px 6px; }
+#studio-tools-tab svg { width:26px; height:26px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+#studio-tools-tab small { font-size:11px; color:var(--muted); }
+.studio-history-dock { position:absolute; z-index:8; left:20px; bottom:22px; display:flex; gap:8px; padding:8px; }
+:root[data-studio-theme] #app .studio-history-dock button { display:flex; align-items:center; justify-content:center; gap:6px; min-height:44px; padding:9px 12px; font-size:12px; }
+.studio-history-dock svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+:root[data-studio-theme] #app .hand-panel { left:132px; right:auto; top:50%; bottom:auto; width:min(382px,calc(100% - 165px)); max-height:calc(100dvh - 180px); transform:translateY(-50%); }
+:root[data-studio-theme] #app .stage-size-control { top:24px; padding:14px 20px; }
+:root[data-studio-theme] #app .stage-selfie { top:27px; right:28px; }
+:root[data-studio-theme] #app .is-trying .studio-history-dock { display:none; }
+@media(max-width:760px) {
+ .studio-brand { left:18px; top:18px; gap:8px; }.studio-brand svg { width:30px; height:36px; }.studio-brand strong { font-size:22px; }.studio-brand small { font-size:10px; }
+ :root[data-studio-theme] #app .stage-size-control { top:90px; left:calc(50% + 35px); width:min(230px,calc(100% - 135px)); min-width:0; padding:8px 12px; }
+ :root[data-studio-theme] #app .stage-selfie { top:18px; right:12px; padding:10px; min-height:44px; }
+ :root[data-studio-theme] #app .hand-toolbar { left:12px; width:82px; padding:7px; gap:7px; max-height:calc(100dvh - 245px); }
+ :root[data-studio-theme] #app .hand-toolbar > button { min-height:54px; }.hand-toolbar svg { width:22px; height:22px; }
+ :root[data-studio-theme] #app .hand-panel { left:102px; width:calc(100% - 114px); max-height:calc(100dvh - 235px); padding:10px; }
+ .studio-history-dock { left:12px; bottom:14px; }.studio-history-dock .tool-label { font-size:11px; }
+ :root[data-studio-theme] #app .paint-palette { right:12px; bottom:90px; width:calc(100% - 116px); max-height:calc(100dvh - 280px); }
+ .studio-corner-art i { width:170px; height:190px; background-size:900px auto; }
+}
+@media(max-height:600px) and (min-width:761px) { .studio-brand { top:15px; }.studio-brand small { display:none; } }
+@media(prefers-reduced-motion:reduce) { :root[data-studio-theme] #app .hand-toolbar { transition:none; } }
+.sculpt-history:empty { display:none; }
+
+/* Atmosphere stays at the edges; painting gets a quieter surround. */
+.stage[data-studio-tool="paint"] .studio-corner-art { opacity:.55; }
+.studio-tracking-status,.studio-commit-toast { position:absolute; z-index:7; left:50%; bottom:92px; transform:translateX(-50%); display:flex; align-items:center; gap:10px; max-width:calc(100% - 40px); padding:10px 18px; border:1px solid var(--line); border-radius:999px; background:color-mix(in srgb,var(--ui-panel) 94%,transparent); color:var(--ink); font-size:14px; line-height:1.45; pointer-events:none; backdrop-filter:blur(12px); box-shadow:0 4px 18px #0002; }
+.studio-status-icon { display:grid; place-items:center; flex:none; width:25px; height:25px; border:1px solid currentColor; border-radius:50%; color:var(--ui-focus); font-size:13px; }
+.studio-tracking-status[data-state="held"] .studio-status-icon { background:var(--selected-fill); color:var(--selected-ink); animation:studio-grip-confirm .22s ease-out; }
+.studio-tracking-status[data-state="searching"] .studio-status-icon,.studio-tracking-status[data-state="paused"] .studio-status-icon { color:var(--coral); }
+.studio-commit-toast { bottom:148px; padding:7px 14px; font-size:13px; }
+.studio-commit-toast[hidden] { display:none; }
+#stage:has(#studio-message:not([hidden])) .studio-tracking-status,#stage:has(#selfie-preview:not([hidden])) .studio-tracking-status { display:none; }
+.hand-ui-cursor::before { content:''; position:absolute; inset:-6px; border:1px solid var(--ui-focus); border-radius:50%; opacity:.25; transform:scale(1); transition:transform .12s ease,opacity .12s ease; }
+.hand-ui-cursor[data-gesture="held"]::before { transform:scale(1.45); opacity:.75; border-width:2px; }
+.hand-ui-cursor[data-gesture="paused"]::before { border-style:dashed; border-color:var(--coral); opacity:.6; }
+.stage[data-gesture="held"] .stage-scene > canvas { cursor:grabbing; }
+:root[data-studio-theme] #app button:not(:disabled):hover { box-shadow:0 0 14px color-mix(in srgb,var(--ui-focus) 22%,transparent); }
+:root[data-studio-theme] #app :is(.hand-panel,.comfort-setup,.selfie-card,.paint-palette):not([hidden]) { animation:studio-panel-appear .16s ease-out; }
+@keyframes studio-panel-appear { from { opacity:0; } to { opacity:1; } }
+@keyframes studio-grip-confirm { from { scale:.85; } to { scale:1; } }
+@media(max-width:760px) { .studio-tracking-status { bottom:92px; font-size:12px; padding:8px 12px; width:max-content; max-width:calc(100% - 32px); }.studio-commit-toast { bottom:145px; } }
+@media(prefers-reduced-motion:reduce) { .hand-ui-cursor::before { transition:none; } .studio-status-icon,:root[data-studio-theme] #app :is(.hand-panel,.comfort-setup,.selfie-card,.paint-palette) { animation:none !important; } }
+@media(max-width:760px) {
+ .studio-tracking-status { top:177px; bottom:auto; left:calc(50% + 35px); width:max-content; max-width:calc(100% - 140px); }
+ .studio-commit-toast { bottom:18px; right:12px; left:auto; transform:none; max-width:calc(100% - 220px); padding:8px 10px; font-size:12px; }
+ :root[data-studio-theme] #app .paint-palette { bottom:112px; max-height:calc(100dvh - 355px); }
+}
+/* One contextual message replaces overlapping legacy hint surfaces. */
+#stage #scene-hint,#stage #hand-feedback,#stage .surface-status { display:none !important; }

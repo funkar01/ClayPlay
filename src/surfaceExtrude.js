@@ -1,3 +1,4 @@
+import { emitStudioCommit } from './studioFeedback.js';
 import * as THREE from 'three';
 import { taperedStroke } from './extrudeGeometry.js';
 import { checkpoint } from './sculptHistory.js';
@@ -116,7 +117,7 @@ export class SurfaceExtrude {
     if(!this.committing) return;
     clearTimeout(this.timer);
     this.removePreview(this.current?.preview);
-    this.current=null;this.committing=false;
+    this.current=null;this.committing=false;emitStudioCommit('extrude');
     // Start the next revision after publication of all preceding bricks.
     queueMicrotask(()=>{
       this.drain();

@@ -1,3 +1,4 @@
+import { DockVisibility } from './dockVisibility.js';
 import { STUDIO_THEMES, savedStudioTheme, applyStudioTheme } from './studioThemes.js';
 import { PalmControl } from './palmControl.js';
 import { trackingTrace } from './trackingTrace.js';
@@ -67,11 +68,28 @@ export class HandUI {
       'hand-more':'M5 12h.01M12 12h.01M19 12h.01'
     };
     for (const target of this.dock.children) {
-      const label = document.createElement('span'); label.className = 'tool-label'; label.textContent = target.textContent;
+      const label = document.createElement('span'); label.className = 'tool-label'; label.textContent = target.textContent.replace(/^[↶↷]\s*/, '');
       target.replaceChildren(label);
       const icon = document.createElementNS('http://www.w3.org/2000/svg','svg'); icon.setAttribute('viewBox','0 0 24 24'); icon.setAttribute('aria-hidden','true');
       const path = document.createElementNS(icon.namespaceURI,'path'); path.setAttribute('d',icons[target.id]); icon.append(path); target.prepend(icon);
     }
+    this.historyDock=document.createElement('nav');this.historyDock.className='studio-history-dock';this.historyDock.setAttribute('aria-label','Undo and redo');
+    for(const id of ['sculpt-undo','sculpt-redo'])this.historyDock.append(document.getElementById(id));stage.append(this.historyDock);
+    this.pinTools=button('Pinned','dock-pin');this.pinTools.id='dock-pin';this.dock.append(this.pinTools);
+    let pinned=true;try{pinned=localStorage.getItem('clayplay-tools-pinned')!=='false';}catch{}
+    this.dockVisibility=new DockVisibility({pinned,now:performance.now()});
+    this.toolsTab=button('Tools','dock-open');this.toolsTab.id='studio-tools-tab';this.toolsTab.setAttribute('aria-controls','hand-toolbar');stage.append(this.toolsTab);
+    const brand=document.createElement('div');brand.className='studio-brand';brand.setAttribute('aria-label','Mask Studio — Create, shape, express');
+    brand.innerHTML='<svg viewBox="0 0 48 56" aria-hidden="true"><defs><linearGradient id="studio-brand-gradient" x2="1" y2="1"><stop stop-color="#794cff"/><stop offset=".55" stop-color="#ea19ee"/><stop offset="1" stop-color="#ffa15a"/></linearGradient></defs><path fill="url(#studio-brand-gradient)" d="M4 5Q24 13 44 5L41 36Q36 50 24 53Q12 50 7 36Z"/><path fill="#170b35" d="m10 20 12 4-3 6-8-3Zm28 0-12 4 3 6 8-3ZM18 39q6 4 12 0-6 9-12 0"/></svg><div><strong>Mask<span>Studio</span></strong><small>Create · Shape · Express</small></div>';
+    const art=document.createElement('div');art.className='studio-corner-art';art.setAttribute('aria-hidden','true');art.innerHTML='<i></i><i></i><i></i><i></i>';stage.append(art,brand);
+    this.mouseNearDock=false;this.keyboardDock=false;
+    stage.addEventListener('pointermove',event=>{if(event.pointerType==='touch')return;this.mouseNearDock=this.nearDock({x:event.clientX,y:event.clientY});this.updateDock(performance.now());});
+    stage.addEventListener('pointerleave',()=>{this.mouseNearDock=false;});
+    stage.addEventListener('pointerdown',event=>{this.keyboardDock=false;this.mouseEditing=!event.target.closest('button,summary,input,select,a');});
+    window.addEventListener('pointerup',()=>{this.mouseEditing=false;});window.addEventListener('pointercancel',()=>{this.mouseEditing=false;});
+    document.addEventListener('keydown',event=>{if(event.key==='Tab')this.keyboardDock=true;});
+    stage.addEventListener('click',event=>{if(event.detail>0 && performance.now()<(this.dockRevealUntil ?? 0) && this.dock.contains(event.target)){event.preventDefault();event.stopImmediatePropagation();}},true);
+    this.toolsTab.addEventListener('focus',()=>{if(this.keyboardDock){this.dockVisibility.reveal(performance.now());this.updateDock(performance.now());this.dock.querySelector('button:not(:disabled)')?.focus({preventScroll:true});}});
     this.selfieButton.classList.add('stage-selfie');
     this.selfieButton.addEventListener('pointerdown',event=>event.stopPropagation());
     stage.append(this.selfieButton);
@@ -86,10 +104,11 @@ export class HandUI {
       if (target && !target.disabled) this.act(target.dataset.handAction, target.dataset.value);
     });
     window.addEventListener('resize', () => { this.signature = null; });
-    this.sync();
+    this.sync();this.updateDock(performance.now());
   }
   get isOpen() { return !this.panel.hidden; }
   open(page = 'more') {
+    this.dockVisibility?.reveal(performance.now());
     this.page = page; this.panel.hidden = false; this.more.setAttribute('aria-expanded', 'true');
     this.onPause(); this.selection.cancel(); this.signature = null; this.sync();
   }
@@ -99,6 +118,12 @@ export class HandUI {
   }
   act(action, value) {
     const state = this.getState();
+    if(action==='dock-open') {this.dockVisibility.reveal(performance.now());this.updateDock(performance.now());return;}
+    if(action==='dock-pin') {
+      this.dockVisibility.pinned=!this.dockVisibility.pinned;this.dockVisibility.reveal(performance.now());
+      try{localStorage.setItem('clayplay-tools-pinned',String(this.dockVisibility.pinned));}catch{}
+      this.updateDock(performance.now());return;
+    }
     if(action === 'theme') {
       const scrollTop=this.body?.scrollTop ?? 0;
       if(applyStudioTheme(value)) {
@@ -297,6 +322,7 @@ export class HandUI {
   }
   reset() { this.lose(); this.selection.reset(); this.identity.reset(); }
   suspend(now) {
+    this.cursor.dataset.gesture='paused';
     this.sizeDrag=null;this.sizePinch?.reset();this.palmInput?.lose();
     if (this.lastAt === null || now - this.lastAt > cursorGraceMs) { this.lose(); return; }
     this.gapAt ??= now;
@@ -306,9 +332,44 @@ export class HandUI {
   }
   tick(now) {
     this.sync();
+    this.updateDock(now);
     if (this.lastAt !== null && (now - this.lastAt > 300
       || (this.motion.time !== null && now - this.motion.time >= HAND_UI_SAMPLE_AGE_MS))) this.suspend(now);
     if (!this.cursor.hidden && this.gapAt === null) this.drawCursor(now);
+  }
+  nearDock(point) {
+    const stage=this.stage.getBoundingClientRect(),bounds=this.dock.getBoundingClientRect();
+    return point.x>=stage.left && point.x<=stage.left+145 && point.y>=bounds.top-35 && point.y<=bounds.bottom+35;
+  }
+  recordDockHand(point,now,allowed) {
+    if(!this.dockVisibility)return;
+    this.handDockNear=allowed && this.nearDock(point);this.handDockAt=now;
+    this.updateDock(now,!allowed);
+  }
+  updateDock(now,inputBlocked=false) {
+    if(!this.dockVisibility)return;
+    const state=this.getState();
+    const handNear=this.handDockNear && now-this.handDockAt<250;
+    const focused=this.keyboardDock && (this.dock.contains(document.activeElement)||this.toolsTab===document.activeElement);
+    const hold=this.isOpen || focused || Boolean(this.sizeDrag) || Boolean(this.highlight && this.dock.contains(this.highlight) && this.selection.hover);
+    const wasExpanded=this.dockVisibility.expanded;
+    const expanded=this.dockVisibility.update({now,near:this.mouseNearDock||handNear,hold,blocked:inputBlocked||this.mouseEditing||state.busy});
+    if(expanded && !wasExpanded)this.dockRevealUntil=now+350;
+    this.stage.classList.toggle('tools-collapsed',!expanded);
+    this.dock.inert=!expanded;this.dock.setAttribute('aria-hidden',String(!expanded));
+    this.toolsTab.setAttribute('aria-expanded',String(expanded));this.toolsTab.hidden=expanded;
+    this.pinTools.setAttribute('aria-pressed',String(this.dockVisibility.pinned));
+    const pinLabel=this.dockVisibility.pinned?'Unpin tools':'Pin tools';
+    if(this.pinTools.textContent!==pinLabel)this.pinTools.textContent=pinLabel;
+    this.pinTools.setAttribute('aria-label',this.dockVisibility.pinned?'Unpin tools to enable auto-hide':'Pin tools to keep them visible');
+    const active=this.dock.querySelector('[data-tool].is-active');
+    if(active && this.toolsTab.dataset.tool!==active.dataset.tool) {
+      this.toolsTab.dataset.tool=active.dataset.tool;
+      this.toolsTab.replaceChildren(active.querySelector('svg').cloneNode(true));
+      const label=document.createElement('span');label.textContent=active.querySelector('.tool-label').textContent;this.toolsTab.append(label);
+      const hint=document.createElement('small');hint.textContent='Tools ›';this.toolsTab.append(hint);
+      this.toolsTab.setAttribute('aria-label',`Show tools · ${label.textContent} selected`);
+    }
   }
   drawCursor(now) {
     const points = this.motion.sample(now);
@@ -367,6 +428,9 @@ export class HandUI {
     const open = palmMode ? palm.open : !fist && distance(4, 8) / Math.max(.025, distance(5, 17), distance(0, 9) * .7) >= .55;
     this.sizePinch ??=new PinchGesture();
     const held=palmMode ? palm.held : this.sizePinch.update(hand.points,sampleAt,aspect);
+    this.cursor.dataset.gesture=held?'held':open?'open':'waiting';
+    this.recordDockHand(point,now,open && !held && !blocked);
+    target=this.hit(point,overTutorial ? tutorial : null);
     const wasDragging=Boolean(this.sizeDrag);
     if(blocked || (!palmMode && fist) || !held || (this.sizeDrag && (this.sizeDrag.target.disabled || !this.visible(this.sizeDrag.target)))) this.sizeDrag=null;
     const pinchPoint=palmMode ? point : this.mapPoint({x:(measured[4].x+measured[8].x)/2,y:(measured[4].y+measured[8].y)/2,z:(measured[4].z+measured[8].z)/2});

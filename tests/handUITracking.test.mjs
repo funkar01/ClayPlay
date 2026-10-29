@@ -152,3 +152,11 @@ for (const mode of ['index', 'palm']) {
     assert.equal(f.clicks(), 1, 'holding an open hand completes the selection once');
   });
 }
+
+test('Dock reveal is offered only by open input, never a pinch or active sculpting frame',()=>{
+ const {ui,result}=fixture();const allowed=[];ui.recordDockHand=(_point,_now,open)=>allowed.push(open);
+ ui.receive(result,0);assert.equal(allowed.at(-1),true);
+ const grip=structuredClone(result);grip.landmarks[0][4].x=.59;
+ ui.receive(grip,100);assert.equal(allowed.at(-1),false);
+ ui.receive(result,200,{blocked:true});assert.equal(allowed.at(-1),false);
+});

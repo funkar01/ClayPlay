@@ -1,3 +1,4 @@
+import { StudioFeedback } from './studioFeedback.js';
 import { SelfieStudio } from './selfie.js';
 import { brushApplying } from './brushAvailability.js';
 import { ComfortSetup } from './comfortSetup.js';
@@ -185,6 +186,7 @@ let lastPinchHint = false;
 const sceneHost = document.querySelector('#three-scene');
 const scene = new THREE.Scene();
 const studioBackdrop=new StudioBackdrop({scene,stage:document.querySelector('#stage')});
+const studioFeedback=new StudioFeedback(document.querySelector('#stage'));
 const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
 camera.position.set(0, 0, 8.6);
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -938,6 +940,7 @@ function renderScene() {
   studioBackdrop.update(clayObjects.active.material.color);
   arView.update();
   const now = performance.now();
+  studioBackdrop.present(clayObjects.active.group,{visible:!arView.live && !tryOn.enabled,painting:activeTool==='paint'});
   diagnostics.poseAgeMs = poseTarget ? now - poseSampleAt : 0;
   diagnostics.pointerAgeMs = handUI?.motion.time != null ? Math.max(0, now - handUI.motion.time) : 0;
   const dt = Math.min(0.05, (now - previousRenderAt) / 1000);
@@ -1044,6 +1047,7 @@ function renderScene() {
   const surfaceText=building ? (canContinue ? 'Keep creating · saving strokes in the background' : 'Keeping your change · choose your next tool or brush size') : 'Ready to create · surface cleanup in background';
   if(surfaceStatus.textContent!==surfaceText)surfaceStatus.textContent=surfaceText;
   surfaceStatus.dataset.phase=building ? 'building' : 'refining';
+  studioFeedback.update({cameraOn:Boolean(stream),tracked:now-lastHandAt<600,held:pinchActive||mousePinching,paused:editingPaused,trying:tryOn.enabled,palm:controlMode==='palm',tool:activeTool});
   animationFrame = requestAnimationFrame(renderScene);
 }
 renderScene();

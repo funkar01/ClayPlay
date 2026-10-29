@@ -1,3 +1,4 @@
+import { emitStudioCommit } from './studioFeedback.js';
 import * as THREE from 'three';
 import { makeWarp, forwardWarp } from './maskWarp.js';
 import { diagnostics } from './diagnostics.js';
@@ -66,7 +67,7 @@ export class SurfacePull {
           this.volume.paint=new Map();
           this.volume.cutSource = null; this.volume.cutRegion = null;
           this.volume.meshQueue?.invalidate();
-          this.onChange();
+          this.onChange();emitStudioCommit('pull');
         } else {
           // A pinch without a shape change is not an undoable action.
           this.volume.undoStack?.pop();

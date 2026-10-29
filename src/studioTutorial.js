@@ -3,6 +3,7 @@ import pinchIcon from '../assets/pinch.png';
 import openPalmIcon from '../assets/open palm.png';
 import closedPalmIcon from '../assets/closed palm.png';
 import { createTutorialRecipe, acceptsTutorialAction, outwardGuideTarget } from './tutorialRecipes.js';
+import { TutorialEntrance } from './tutorialEntrance.js';
 
 // Shares the studio render loop; the overlay never captures clay input.
 export class StudioTutorial {
@@ -15,7 +16,7 @@ export class StudioTutorial {
     this.card.id = 'studio-tutorial'; this.card.className = 'studio-tutorial'; this.card.hidden = true;
     this.card.setAttribute('aria-labelledby', 'tutorial-title');
     this.card.innerHTML = `<div class="tutorial-heading"><span id="tutorial-step"></span><button id="tutorial-skip" type="button">Skip tutorial</button></div>
-      <div class="tutorial-lesson" aria-live="polite" aria-atomic="true"><h2 id="tutorial-title"></h2><p id="tutorial-copy"></p></div>
+      <div class="tutorial-lesson" aria-live="polite" aria-atomic="true"><h2 id="tutorial-title" tabindex="-1"></h2><p id="tutorial-copy"></p></div>
       <div class="tutorial-actions"><button id="tutorial-next" type="button">Try it on!</button></div>
       <button id="tutorial-explore" type="button" hidden>Try another recipe</button>`;
     this.overlay = document.createElement('div');
@@ -24,14 +25,15 @@ export class StudioTutorial {
     this.overlay.innerHTML = `<div class="mission-target"><span class="mission-ring"></span><span class="mission-dot"></span>
       <div class="mission-direction">
       <svg class="mission-path" viewBox="0 0 140 140"><path d="M70 110 L70 25 M59 38 L70 25 L81 38"/></svg>
-      <div class="mission-travel"><div class="mission-hand"><img class="mission-open" src="${selectIcon}" alt=""><img class="mission-pinched" src="${pinchIcon}" alt=""></div></div>
+      <div class="mission-travel"><div class="mission-hand"><span class="mission-gesture mission-open" style="--gesture-icon:url('${selectIcon}')"></span><span class="mission-gesture mission-pinched" style="--gesture-icon:url('${pinchIcon}')"></span></div></div>
       </div></div>`;
     stage.append(this.overlay, this.card);
     this.nextButton = this.card.querySelector('#tutorial-next');
     this.copy = this.card.querySelector('#tutorial-copy');
+    this.entrance=new TutorialEntrance({card:this.card,stage,onSettled:()=>{if(!this.preparing)this.nextButton.disabled=false;}});
     this.card.addEventListener('pointerdown', event => event.stopPropagation());
     this.nextButton.addEventListener('click', async () => {
-      if(this.preparing)return;
+      if(this.preparing || this.entrance.running)return;
       if (this.isBusy()) { this.copy.textContent = 'Release and let the clay settle first.'; return; }
       if (this.phase==='ui' || this.phase==='shape') {
         const phase=this.phase==='ui' ? 'shape' : 'eyes';
@@ -55,9 +57,13 @@ export class StudioTutorial {
   get learningUI() { return this.active && this.phase!=='create'; }
   start() {
     if (this.isBusy() || this.preparing) return;
+    this.entrance.cancel(false);
     this.recipe=createTutorialRecipe(this.run++);
     try {localStorage.setItem('clayplay-tutorial-run',String(this.run));}catch{}
     this.index=0;this.phase='ui';this.card.hidden=false;this.show();
+    this.overlay.hidden=true;this.nextButton.disabled=true;
+    this.entrance.start();
+    this.card.querySelector('#tutorial-title').focus({preventScroll:true});
   }
   get mission() {
     if(this.phase==='ui')return {id:'ui',title:'Your hand is the cursor.',copy:'Point at “Let’s create” and hold until it is selected.'};
@@ -92,8 +98,8 @@ export class StudioTutorial {
   refreshControlGuidance() {
     this.guideMode = this.getControlMode();
     const palm = this.guideMode === 'palm';
-    this.overlay.querySelector('.mission-open').src = palm ? openPalmIcon : selectIcon;
-    this.overlay.querySelector('.mission-pinched').src = palm ? closedPalmIcon : pinchIcon;
+    this.overlay.querySelector('.mission-open').style.setProperty('--gesture-icon',`url("${palm ? openPalmIcon : selectIcon}")`);
+    this.overlay.querySelector('.mission-pinched').style.setProperty('--gesture-icon',`url("${palm ? closedPalmIcon : pinchIcon}")`);
     this.card.querySelector('#tutorial-copy').textContent = this.phase==='ui' && palm
       ? 'Move your open palm over “Let’s create” and hold until it is selected.'
       : this.mission.copy && this.instruction(this.mission.copy);
@@ -110,6 +116,7 @@ export class StudioTutorial {
   }
   update({ held, contact }) {
     if (!this.active) return;
+    if(this.entrance.running){this.overlay.hidden=true;return;}
     if (this.guideMode !== this.getControlMode()) this.refreshControlGuidance();
     const mission = this.mission;
     let point = mission.target && this.locate(mission.target);
@@ -133,5 +140,5 @@ export class StudioTutorial {
     }
 
   }
-  finish(reason = 'complete') { this.card.hidden = true; this.overlay.hidden = true; this.onFinish?.(reason); }
+  finish(reason = 'complete') { this.entrance.cancel();this.card.hidden = true; this.overlay.hidden = true; this.onFinish?.(reason); }
 }

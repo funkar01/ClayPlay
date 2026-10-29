@@ -1,3 +1,4 @@
+import { emitStudioCommit } from './studioFeedback.js';
 import * as THREE from 'three';
 import { checkpoint } from './sculptHistory.js';
 import { diagnostics } from './diagnostics.js';

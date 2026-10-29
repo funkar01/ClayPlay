@@ -12,8 +12,8 @@ export const STUDIO_THEMES = [
     tokens:['#fff6e8','#f7e8d5','#fffcf4','#ffffff','#e9d2ae','#24212c','#604f4c','#85613b','#c23f24','#ffffff','#244fd1','#ce4d30'], dark:false },
   { id:'cobalt', name:'Cobalt Canvas', description:'Gallery white, electric cobalt & cool ink', colors:['#ffffff','#2454d3','#161e32','#b8ccff'], backdropDark:'#101f43',
     tokens:['#f1f4fa','#e1e9f7','#ffffff','#f7faff','#cbd8f1','#161e32','#465570','#5b6e95','#2454d3','#ffffff','#8c3c9b','#b65047'], dark:false },
-  { id:'aurora', name:'Prism Studio', description:'Airy violet, ocean cyan & berry accents', colors:['#fdfbff','#5940c8','#086f7c','#df91bf'], backdropDark:'#1e244b',
-    tokens:['#f4f0ff','#e8e7fc','#fdfbff','#ffffff','#d2c9ee','#242344','#53496f','#705b96','#5940c8','#ffffff','#086f7c','#ab427e'], dark:false },
+  { id:'aurora', name:'Prism Studio', description:'Deep indigo, electric violet & neon pink', colors:['#100b26','#35244f','#7332ce','#f05fe7'], backdropDark:'#100b26', backdropLight:'#f0e8ff',
+    tokens:['#0a0717','#100b26','#211636','#3b2555','#35244f','#faf5ff','#d4c1e7','#8b66ae','#7332ce','#ffffff','#f05fe7','#ffb17a'], dark:true },
   { id:'graphite', name:'Graphite Signal', description:'Soft charcoal, periwinkle & luminous mint', colors:['#17191f','#52617c','#a9baff','#8fe0d0'], backdropDark:'#17191f', backdropLight:'#f0f2f7',
     tokens:['#101114','#17191f','#292e39','#506079','#52617c','#f4f5f8','#d6ddeb','#b1c3e4','#a9baff','#161c2d','#8fe0d0','#efb68f'], dark:true },
 ];

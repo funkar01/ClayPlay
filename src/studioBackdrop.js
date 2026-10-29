@@ -22,6 +22,26 @@ export class StudioBackdrop {
     this.background=new THREE.Color(backdrops[0].colour);
     this.lastColour=new THREE.Color();
     scene.background=this.background;
+    const doc=stage.ownerDocument;
+    if(doc) {
+      this.glowCanvas=doc.createElement('canvas');this.glowCanvas.width=512;this.glowCanvas.height=384;
+      const texture=new THREE.CanvasTexture(this.glowCanvas);texture.colorSpace=THREE.SRGBColorSpace;
+      this.glow=new THREE.Mesh(new THREE.PlaneGeometry(18,13.5),new THREE.MeshBasicMaterial({map:texture,transparent:true,depthWrite:false,toneMapped:false}));
+      this.glow.name='StudioAmbientGlow';this.glow.position.z=-3.5;this.glow.renderOrder=-10;this.glow.raycast=()=>{};scene.add(this.glow);
+      this.platform=new THREE.Group();this.platform.name='StudioPresentationStage';
+      const points=Array.from({length:96},(_,i)=>{const a=i/96*Math.PI*2;return new THREE.Vector3(Math.cos(a)*1.65,Math.sin(a)*.16,0);});
+      this.rim=new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(points),new THREE.LineBasicMaterial({transparent:true,opacity:.14,depthWrite:false,toneMapped:false}));
+      this.floor=new THREE.Mesh(new THREE.CircleGeometry(1,64),new THREE.MeshBasicMaterial({transparent:true,opacity:.025,depthWrite:false,toneMapped:false,side:THREE.DoubleSide}));
+      this.floor.scale.set(1.65,.16,1);this.platform.add(this.floor,this.rim);this.platform.raycast=()=>{};scene.add(this.platform);
+    }
+  }
+  present(mask,{visible=true,painting=false}={}) {
+    if(!this.glow)return;
+    this.glow.visible=visible;this.platform.visible=visible;
+    this.glow.material.opacity=painting ? .35 : 1;
+    this.rim.material.opacity=painting ? .06 : .14;this.floor.material.opacity=painting ? .01 : .025;
+    this.platform.position.copy(mask.position);this.platform.position.y-=1.58*mask.scale.y;this.platform.position.z-=.15;
+    this.platform.scale.set(mask.scale.x,mask.scale.y,1);
   }
   update(maskColour) {
     const themeId=this.stage.ownerDocument?.documentElement?.dataset.studioTheme ?? DEFAULT_STUDIO_THEME;
@@ -34,6 +54,15 @@ export class StudioBackdrop {
     // Preserve this Color's identity: camera mode stores it while the live
     // video is visible and restores it when returning to the playground.
     this.background.set(backdrop.colour);
+    if(this.glow) {
+      const ctx=this.glowCanvas.getContext('2d');ctx.clearRect(0,0,512,384);
+      for(const [x,y,radius,color,alpha] of [[205,190,190,theme.tokens[8],.24],[330,225,165,theme.tokens[10],.13]]) {
+        const rgb=new THREE.Color(color);const gradient=ctx.createRadialGradient(x,y,0,x,y,radius);
+        const srgb=rgb.clone().convertLinearToSRGB();const channels=[srgb.r,srgb.g,srgb.b].map(v=>Math.round(v*255)).join(',');
+        gradient.addColorStop(0,`rgba(${channels},${alpha})`);gradient.addColorStop(1,`rgba(${channels},0)`);ctx.fillStyle=gradient;ctx.fillRect(0,0,512,384);
+      }
+      this.glow.material.map.needsUpdate=true;this.rim.material.color.set(theme.tokens[8]);this.floor.material.color.set(theme.tokens[8]);
+    }
     this.tone=backdrop.tone;
     this.stage.dataset.studioBackdrop=backdrop.tone;
     this.stage.style.setProperty('--studio-background',backdrop.colour);
