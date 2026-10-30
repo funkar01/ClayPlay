@@ -46,12 +46,31 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE || 'C:/Users/bhanu/.cache
     });
   }
   const root='#mask-collection',action=name=>`${root} [data-collection="${name}"]`;
-  const status=page=>page.locator(`${root} .collection-status`);
+  const status=page=>page.locator(`${root}:not([hidden]) .collection-status, #mask-unveiling:not([hidden]) [role="status"]`);
   const ready=page=>page.waitForFunction(()=>window.clayPlayDebug&&!window.clayPlayDebug.getState().pending,{}, {timeout:60000});
   async function enterStudio(page){
-    await ready(page);await page.locator('.comfort-skip').click();await page.locator('#tutorial-skip').click();await page.locator('#mask-picker-continue').click();await ready(page);
+    await ready(page);
+    if(await page.locator('#mask-unveiling').isVisible())await page.locator('[data-reveal="close"]').click();
+    await page.locator('.comfort-skip').click();await page.locator('#tutorial-skip').click();await page.locator('#mask-picker-continue').click();await ready(page);
   }
-  async function saved(page){await page.waitForFunction(()=>document.querySelector('#mask-collection .collection-status')?.textContent.startsWith('Saved to your collection')&&!document.querySelector('#hand-save-mask')?.disabled,{}, {timeout:60000});}
+  async function saved(page){
+    await page.waitForFunction(()=>{
+      const name=document.querySelector('#collection-mask-name');
+      return (name?.getClientRects().length&&!name.disabled) || document.querySelector('#mask-collection .collection-status')?.textContent.startsWith('Saved to your collection');
+    },{}, {timeout:60000});
+    if(await page.locator('#collection-mask-name').isVisible())await chooseName(page);
+    await page.waitForFunction(()=>document.querySelector('#mask-collection .collection-status')?.textContent.startsWith('Saved to your collection')&&!document.querySelector('#hand-save-mask')?.disabled,{}, {timeout:60000});
+    if(await page.locator('#mask-unveiling').isVisible()){
+      await page.locator('#mask-unveiling [role="status"]').filter({hasText:'Saved to your collection'}).waitFor();
+      await page.screenshot({path:'artifacts/mask-unveiling.png'});
+      await page.locator('[data-reveal="collection"]').click();
+    }
+  }
+  async function chooseName(page,name){
+    await page.locator('#collection-mask-name').waitFor({state:'visible'});
+    if(name!==undefined){await page.locator('#collection-mask-name').fill(name);await page.locator(action('save-name')).click();}
+    else await page.locator(action('keep-name')).click();
+  }
   async function fingerSave(page){
     const box=await page.locator('#hand-save-mask').boundingBox();
     await page.evaluate(async({x,y})=>{
@@ -87,19 +106,28 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE || 'C:/Users/bhanu/.cache
     await status(page).filter({hasText:'Check your email'}).waitFor();assert.equal(rows.size,0);
     await page.reload();await ready(page);await enterStudio(page);await page.locator('#hand-save-mask').click();await page.locator(action('login')+':visible').first().click();
     await page.locator('#collection-email').fill('mask@example.test');await page.locator('#collection-password').fill('wrong-password');await page.locator(action('submit')).click();await status(page).filter({hasText:'Invalid email or password'}).waitFor();assert.equal(rows.size,0);
-    await page.locator('#collection-password').fill('test-password-123');await page.locator(action('submit')).click();await saved(page);assert.equal(rows.size,1);
+    await page.locator('#collection-password').fill('test-password-123');await page.locator(action('submit')).click();
+    await page.locator('#collection-mask-name').waitFor({state:'visible'});assert.equal(rows.size,0,'Login waits for the naming choice before uploading');
+    assert.ok(await page.locator('#collection-mask-name').inputValue());
+    await page.setViewportSize({width:390,height:844});await page.addStyleTag({content:'body > pre {display:none!important}'});
+    const namingCard=await page.locator('.mask-collection-card').boundingBox();assert.ok(namingCard.x>=0&&namingCard.x+namingCard.width<=390);
+    await page.screenshot({path:'artifacts/mask-naming-mobile.png'});await page.setViewportSize({width:1440,height:1000});
+    await chooseName(page,'   ');await status(page).filter({hasText:'1 and 120'}).waitFor();assert.equal(rows.size,0);
+    await chooseName(page,'  Moonlight Fox  ');await saved(page);assert.equal(rows.size,1);
     const id=[...rows.keys()][0];await page.locator(`[data-saved-mask="${id}"]`).click();await page.locator(root).waitFor({state:'hidden'});assert.deepEqual(await fingerprint(page),before,'Login saves the original pre-registration editable mask');
+    assert.equal(rows.get(id).name,'Moonlight Fox');assert.equal(await page.evaluate(()=>window.clayPlayDebug.objects.active.label),'Moonlight Fox');
     await page.locator('#hand-save-mask').click();await saved(page);assert.equal(rows.size,1);assert.equal(rows.get(id).revision,2);
-    await page.locator(action('close')).click();failSave=true;await page.locator('#hand-save-mask').click();await status(page).filter({hasText:'Connection unavailable'}).waitFor();assert.equal(rows.get(id).revision,2);
+    await page.locator(action('close')).click();failSave=true;await page.locator('#hand-save-mask').click();await chooseName(page);await status(page).filter({hasText:'Connection unavailable'}).waitFor();assert.equal(rows.get(id).revision,2);
     await page.reload();await ready(page);
     await enterStudio(page);await page.locator('#hand-save-mask').click();await status(page).filter({hasText:'Connection unavailable'}).waitFor();
+    if(await page.locator('#mask-unveiling').isVisible())await page.locator('[data-reveal="collection"]').click();
     failSave=false;await page.locator(action('retry')).click();await saved(page);assert.equal(rows.size,1);assert.equal(rows.get(id).revision,3);
     const secondContext=await browser.newContext();await mock(secondContext);const second=await secondContext.newPage();await second.goto('http://127.0.0.1:5182/?diagnostics');await enterStudio(second);
     await second.locator('#hand-more').click();await second.locator('[data-hand-action="collection"]').click();await second.locator('#collection-email').fill('mask@example.test');await second.locator('#collection-password').fill('test-password-123');await second.locator(action('submit')).click();
     await second.locator(`[data-saved-mask="${id}"]`).click();await second.locator(root).waitFor({state:'hidden'});assert.deepEqual(await fingerprint(second),before,'Another device restores the exact editable mask');
     // Both devices now edit revision 3. Saving from one makes the other stale.
     await page.locator(`[data-saved-mask="${id}"]`).click();await page.locator(root).waitFor({state:'hidden'});await page.locator('#hand-save-mask').click();await saved(page);
-    await second.locator('#hand-save-mask').click();await status(second).filter({hasText:'another device'}).waitFor();await second.locator(action('copy')).click();await saved(second);assert.equal(rows.size,2);
+    await second.locator('#hand-save-mask').click();await chooseName(second);await status(second).filter({hasText:'another device'}).waitFor();await second.locator('[data-reveal="collection"]').click();await second.locator(action('copy')).click();await saved(second);assert.equal(rows.size,2);
     await second.locator(action('signout')).click();await second.locator('#collection-email').waitFor({state:'visible'});assert.equal(await second.locator('[data-saved-mask]').count(),0);
     confirmation=false;await second.locator(action('close')).click();await second.locator('#hand-save-mask').click();
     await second.waitForFunction(()=>document.querySelector('#mask-collection .collection-status')?.textContent.includes('Create an account'));
@@ -107,6 +135,6 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE || 'C:/Users/bhanu/.cache
     assert.equal(rows.size,3);assert.equal(await second.locator('[data-saved-mask]').count(),1,'New accounts see only their own saved mask');
     await page.setViewportSize({width:390,height:844});const modal=await page.locator('.mask-collection-card').boundingBox();assert.ok(modal.x>=0&&modal.x+modal.width<=390);await page.screenshot({path:'artifacts/mask-collection-mobile.png'});
     await page.locator(action('close')).click();const mobileSelfie=await page.locator('#hand-selfie').boundingBox(),mobileSave=await page.locator('#hand-save-mask').boundingBox();assert.ok(mobileSave.y>=mobileSelfie.y+mobileSelfie.height+8);
-    await secondContext.close();assert.deepEqual(errors,[]);console.log('Mask collections passed: Save placement and finger selection, real sculpt snapshot, confirmation/reload, invalid/correct password, automatic save after login, direct update, offline retry, second device, conflict copy, sign-out, and mobile layout. Supabase was simulated.');
+    await secondContext.close();assert.deepEqual(errors,[]);console.log('Mask collections passed: post-login naming choice, whitespace validation, renamed cloud and editable records, keep-current-name updates, Save finger selection, real sculpt snapshot, confirmation/reload, password login, offline retry, second device, conflict copy, sign-out, unveiling, and mobile layout. Supabase was simulated.');
   }finally{await browser?.close();await server.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

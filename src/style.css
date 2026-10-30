@@ -920,3 +920,15 @@ html[data-studio-theme] .stage-size-control input { accent-color:var(--selected-
  .stage-save.stage-selfie { top:calc(18px + var(--right-control-size,48px) + 10px) !important; }
  #mask-collection { padding:12px; } .mask-collection-card { padding:20px; }
 }
+#mask-unveiling[hidden] { display: none; }
+#stage:has(#mask-unveiling:not([hidden])) > :not(#mask-unveiling):not(#three-scene),
+#stage:has(#mask-unveiling:not([hidden])) #three-scene > :not(canvas) { visibility: hidden; }
+#mask-unveiling { position: absolute; inset: 0; z-index: 100; display: flex; flex-direction: column; justify-content: space-between; align-items: center; text-align: center; color: #fff1dc; padding: clamp(20px, 4vw, 44px); pointer-events: auto; }
+#mask-unveiling header, #mask-unveiling footer { max-width: 100%; }
+#mask-unveiling header > p:first-child { font-size: 11px; letter-spacing: .24em; color: #e9be90; }
+#mask-unveiling h2 { margin: 8px 0; font-size: clamp(24px, 4vw, 40px); overflow-wrap: anywhere; }
+#mask-unveiling p { margin: 8px 0; }
+#mask-unveiling footer > p { max-width: 540px; font-size: 14px; }
+#mask-unveiling footer > div { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 16px; }
+#mask-unveiling button { border: 1px solid #b6a0bd; border-radius: 24px; padding: 12px 22px; background: #fff0db; color: #30253b; cursor: pointer; font: inherit; }
+#mask-unveiling button:focus-visible { outline: 3px solid #e9be90; outline-offset: 4px; }

@@ -5,6 +5,14 @@ import {palmHand} from './helpers/palmHand.mjs';
 
 function ready(c) {c.update(palmHand(),0);return c.update(palmHand(),100);}
 
+test('Fresh results at 270 ms intervals can arm and start a deliberate extrusion grip',()=>{
+  const c=new PalmControl();
+  for(const t of [0,270,540])c.update(palmHand(),t);
+  assert.equal(c.update(palmHand(true),810).held,false);
+  assert.equal(c.update(palmHand(true),1080).held,true,'valid slower inference must not reset arming on every result');
+  assert.equal(c.update(palmHand(),1350).held,false);
+});
+
 test('Palm control requires an open hand before a deliberate closure; opening releases on that frame',()=>{
   const c=new PalmControl();
   for(const t of [0,100,200])assert.equal(c.update(palmHand(true),t).held,false);

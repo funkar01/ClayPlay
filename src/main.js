@@ -2,6 +2,7 @@ import { StudioFeedback, emitStudioCommit } from './studioFeedback.js';
 import { SelfieStudio } from './selfie.js';
 import { MaskCollection,connectMaskCollection } from './maskCollection.js';
 import { MaskCollectionUI } from './maskCollectionUI.js';
+import { MaskUnveiling } from './maskUnveiling.js';
 import { captureSavedMask,validateSavedMask } from './savedMask.js';
 import { brushApplying, deformationApplying } from './brushAvailability.js';
 import { pointerOnPlane } from './toolPointer.js';
@@ -95,7 +96,7 @@ let paintColor=CLAY_COLORS[4][1];
 const paintPicker=new PaintPicker(document.querySelector('#stage'),paintColor,color=>setPaintColor(color,true));
 const paintPalette=paintPicker.element;
 function setPaintColor(color,fromPicker=false) {
-  cancelMouseStroke();paintColor=color;
+  cancelMouseStroke({preserveUIPalm:Boolean(handUI?.sizeDrag)});paintColor=color;
   if(!fromPicker)paintPicker.setColor(color);
 }
 const surfaceStatus=document.createElement('div');
@@ -159,7 +160,7 @@ let arStartedCamera = false;
 let arAction = 0;
 let faceTracker, faceAbort, faceFrame;
 let selfie;
-let maskCollection,maskCollectionUI,collectionPreparing=false,collectionPauseState=false;
+let maskCollection,maskCollectionUI,maskUnveiling,collectionPreparing=false,collectionPauseState=false;
 let faceEpoch = 0, lastFaceVideoTime = -1, nextFaceTrackingAt = 0;
 let tryPreviousAR = false, tryStartedCamera = false;
 let tryHandWasDone = false;
@@ -410,6 +411,10 @@ function isBrushApplying() {
     radius: brushRadius(), eye: clay.worldToLocal(camera.position.clone()).toArray(), symmetry: symmetryEnabled,
   });
 }
+function setExtrudeState(state) {
+  if(diagnostics.extrude!==state)trackingTrace.record('extrude-state',{state,palmPhase:palmControlState?.phase,held:pinchGesture.held});
+  diagnostics.extrude=state;
+}
 function cursorToolPoint(measured = false, planeZ = 0) {
   return pointerOnPlane(handUI?.getPointer(measured), renderer.domElement.getBoundingClientRect(), camera, planeZ);
 }
@@ -655,7 +660,7 @@ function processHandResult(result, now, sampleAt = now) {
   if (ui?.changed) smoothedPoints = null;
   if (((ui?.owns || ui?.missing) && !resizeIntent) || lostEditHand || handUI?.isOpen || editingPaused || (handUICaptured && ui?.needsOpen && !resizeIntent)) {
     if(!handUICaptured && controlMode==='palm' && editingMask)trackingTrace.incident('ui-input-capture',{owns:ui?.owns,missing:ui?.missing,changed:ui?.changed,needsOpen:ui?.needsOpen,menuOpen:handUI?.isOpen,editingPaused,grabbing:Boolean(previousPullPoint),uiPalm:handUI?.palmInput?.diagnostic});
-    if (!handUICaptured) cancelMouseStroke();
+    if (!handUICaptured) cancelMouseStroke({preserveUIPalm:true});
     setResizeMode(false);
     poseTarget = null; poseDisplayed = null; smoothedPoints = null;
     handModel.visible = false; brushCue.visible = false; mirroredBrush.visible = false;
@@ -1027,7 +1032,9 @@ function renderScene() {
   }
   if (arView.live) handModel.visible = false;
   const renderStarted=performance.now();
-  if (tryOn.enabled) {
+  if (maskUnveiling?.visible) {
+    maskUnveiling.render(renderer,now);
+  } else if (tryOn.enabled) {
     tryOn.setItem(clayObjects.active);
     const wearing = tryOn.update(now, dt);
     const ready = Boolean(faceTracker);
@@ -1138,7 +1145,7 @@ function palmInstruction(text) {
   return text.replace(/keep your fingers pinched/gi,'keep your hand closed').replace(/pinching/gi,'holding your hand closed').replace(/pinched/gi,'closed').replace(/pinch/gi,'close your hand').replace(/your index(?: finger)?/gi,'your palm').replace(/open your fingers/gi,'open your hand');
 }
 
-function cursorInputEnabled() { return !maskCollectionUI?.visible && !comfortSetup.active && !stream && !cameraOpening && !tryOn.enabled; }
+function cursorInputEnabled() { return !maskUnveiling?.visible && !maskCollectionUI?.visible && !comfortSetup.active && !stream && !cameraOpening && !tryOn.enabled; }
 
 function showToolInstructions() {
   const details = toolDetails();
@@ -1207,8 +1214,8 @@ document.addEventListener('keydown', event => {
 });
 sizeInput.addEventListener('input', () => {
   activeSize = THREE.MathUtils.clamp(Number(sizeInput.value), 0, 90);
-  // Begin a fresh stroke when the brush footprint changes.
-  cancelMouseStroke();
+  // End any sculpting stroke without releasing the hand holding this slider.
+  cancelMouseStroke({preserveUIPalm:Boolean(handUI?.sizeDrag)});
   updateSizeControl();
 });
 updateSizeControl();
@@ -1330,9 +1337,14 @@ function updateThreeSkeleton(landmarks, now, pinchOverride = null, worldLandmark
   }
   const aspect = video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 1;
   if(controlMode==='palm') {
-    palmControlState=palmControl.update(landmarks,sampleAt,aspect);
-    trackingTrace.record('sculpt-palm',{...palmControl.diagnostic,phase:palmControlState.phase,valid:palmControlState.valid,held:palmControlState.held});
-    if(palmControl.diagnostic.reason && (palmControl.diagnostic.heldBefore || previousPullPoint))trackingTrace.incident(palmControl.diagnostic.reason,{...palmControl.diagnostic,grabbing:Boolean(previousPullPoint)});
+    // The displayed cursor and sculpting must agree on arming and closure.
+    // Reuse this measurement's UI decision rather than running a second,
+    // independently reset gesture recognizer for the same hand.
+    const sharedPalm=handUI?.getPalmState(sampleAt);
+    palmControlState=sharedPalm ?? palmControl.update(landmarks,sampleAt,aspect);
+    const palmDiagnostic=(sharedPalm?handUI.palmInput:palmControl).diagnostic;
+    trackingTrace.record('sculpt-palm',{...palmDiagnostic,phase:palmControlState.phase,valid:palmControlState.valid,held:palmControlState.held});
+    if(palmDiagnostic?.reason && (palmDiagnostic.heldBefore || previousPullPoint))trackingTrace.incident(palmDiagnostic.reason,{...palmDiagnostic,grabbing:Boolean(previousPullPoint)});
     if(!palmControlState.valid) {
       poseTarget=null;clayVolume.surfacePaint?.breakPath();
       if(palmControlState.phase==='lost')cancelMouseStroke();
@@ -1520,7 +1532,7 @@ function processSculptPoint(sculptPoint, pinchOverride, pinchRatio = 1, cursor =
     contactLabel.textContent = 'Close the menu to sculpt';
     return;
   }
-  if (isBrushApplying()) { showApplyingBrush(sculptPoint); return; }
+  if (isBrushApplying()) { if(activeTool==='extrude')setExtrudeState('applying');showApplyingBrush(sculptPoint); return; }
   if (volumeBusy()) return;
   if (activeSize === 0 && (activeTool === 'pinch' || activeTool === 'erase' || activeTool === 'extrude' || activeTool === 'paint')) {
     brushCue.visible = false; contactCue.visible = false; pinchCue.visible = false;
@@ -1565,11 +1577,19 @@ function processSculptPoint(sculptPoint, pinchOverride, pinchRatio = 1, cursor =
     }
     if (!pinchActive) {
       clayVolume.surfaceExtrude?.finish(); previousPullPoint=null; grabCursorOrigin=null; grabAnchor=null;
+      const needsOpen=controlMode==='palm' && palmControlState?.phase==='open-first';
+      setExtrudeState(needsOpen?'show-open-palm':hover?'ready':'no-surface');
+      sceneHint.textContent=needsOpen?'Face your open palm toward the camera to get ready':hover
+        ? (controlMode==='palm'?'Ready to extrude · close gently, then move':'Ready to extrude · pinch, then move')
+        : 'Aim the pointer at solid mask to start extruding';
       return;
     }
     if (!clayVolume.surfaceExtrude?.active) {
       const hit=getClaySurfaceHit(sculptPoint);
-      if (!hit || (clayVolume.meshQueue?.pending && !clayVolume.surfaceExtrude?.canBegin)) return;
+      if (!hit) {
+        setExtrudeState('no-surface');sceneHint.textContent='Start on solid mask · move the pointer out of the eye opening or empty space';return;
+      }
+      if (clayVolume.meshQueue?.pending && !clayVolume.surfaceExtrude?.canBegin) {setExtrudeState('applying');return;}
       const volume=clayVolume;
       volume.surfaceExtrude ??= new SurfaceExtrude(volume,()=>{
         if(volume===clayVolume)markClayEdited();
@@ -1577,10 +1597,12 @@ function processSculptPoint(sculptPoint, pinchOverride, pinchRatio = 1, cursor =
         queueMicrotask(()=>{if(volume===clayVolume)studioTutorial?.recordAction('extrude',{points});});
       });
       if (!volume.surfaceExtrude.begin(hit.point,brushRadius(),symmetryEnabled)) {
+        setExtrudeState('applying');
         sceneHint.textContent='Your strokes are catching up · release before starting the next one';
         return;
       }
       grabAnchor=hit.point.clone(); previousPullPoint=hit.point.clone();
+      setExtrudeState('drawing');
       pullPlane.constant=-clay.localToWorld(hit.point.clone()).z;
       grabCursorOrigin=null;
     }
@@ -2102,8 +2124,9 @@ sceneHost.addEventListener('pointerup', (event) => {
   if (sceneHost.hasPointerCapture(event.pointerId)) sceneHost.releasePointerCapture(event.pointerId);
 });
 
-function cancelMouseStroke() {
+function cancelMouseStroke({preserveUIPalm=false} = {}) {
   palmControl.reset();palmControlState=null;
+  if(!preserveUIPalm)handUI?.resetPalmState();
   sculptSounds.stop();
   clayVolume.surfacePaint?.finish();
   clayVolume.surfaceExtrude?.finish();
@@ -2312,10 +2335,16 @@ selfie=new SelfieStudio({stage:document.querySelector('#stage'),prepare:()=>star
 
 maskCollection=new MaskCollection({
   connect:()=>connectMaskCollection(import.meta.env.VITE_SUPABASE_URL,import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY),
+  onSaveStarted:pending=>{
+    if(maskUnveiling.seen.has(pending.requestId))return;
+    const item=clayObjects.items.find(item=>item.saveToken===pending.sourceToken);
+    if(maskCollectionUI.visible)maskCollectionUI.close();
+    maskUnveiling.open(item,pending);maskUnveiling.update(maskCollection);
+  },
   onSaved:(pending,saved)=>{
     const item=clayObjects.items.find(item=>item.saveToken===pending.sourceToken);
-    if(item){item.collectionId=saved.id;item.collectionRevision=saved.revision;item.collectionOwner=pending.ownerId;}
-    maskCollectionUI.open();handUI.announce('Mask saved to your collection');
+    if(item){item.collectionId=saved.id;item.collectionRevision=saved.revision;item.collectionOwner=pending.ownerId;item.label=pending.record.label;clayMenu?.refresh();}
+    handUI.announce('Mask saved to your collection');
   },
 });
 maskCollectionUI=new MaskCollectionUI({stage:document.querySelector('#stage'),model:maskCollection,
@@ -2332,6 +2361,14 @@ maskCollectionUI=new MaskCollectionUI({stage:document.querySelector('#stage'),mo
     clayObjects.layout(camera);selectClayObject(item.id);setPrompt('Your mask is ready.', 'Keep creating, then choose Save mask to update your collection.', 'success');
   },
 });
+let unveilingPauseState=false;
+maskUnveiling=new MaskUnveiling({stage:document.querySelector('#stage'),
+  onOpen:()=>{if(handUI.isOpen)handUI.close();unveilingPauseState=editingPaused;pauseForHandUI();editingPaused=true;},
+  onClose:()=>{pauseForHandUI();editingPaused=unveilingPauseState;handUI.reset();handUICaptured=false;handUI.sync();},
+  onCollection:()=>openMaskCollection(),onSound:()=>sculptSounds.playReveal(),
+});
+const renderCollection=maskCollection.onChange;
+maskCollection.onChange=()=>{renderCollection();if(maskCollection.mode==='name'&&maskCollection.canResume()&&!maskCollectionUI.visible)maskCollectionUI.open();maskUnveiling.update(maskCollection);};
 maskCollection.initialize().catch(error=>maskCollection.fail(error));
 
 async function openMaskCollection(){

@@ -145,7 +145,7 @@ export class ClayVolume {
       // exactly the same path as the creator's own brush strokes.
       this.paintCell=.05;
       const colors=starter.palette.map(hex=>[...new THREE.Color(hex).toArray(),1]);
-      for(let iy=-31;iy<=39;iy++)for(let ix=-26;ix<=26;ix++) {
+      for(let iy=-32;iy<=42;iy++)for(let ix=-28;ix<=28;ix++) {
         const x=ix*this.paintCell,y=iy*this.paintCell;
         for(let iz=-18;iz<=23;iz++) {
           const z=iz*this.paintCell;

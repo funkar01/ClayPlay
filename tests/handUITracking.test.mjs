@@ -29,6 +29,32 @@ function fixture() {
   return { ui, result, target, styles, clicks: () => clicks };
 }
 
+test('Palm cursor exposes one timestamped gesture decision for sculpting and clears it on reset',()=>{
+  const {ui}=fixture();ui.controlMode='palm';ui.hit=()=>null;
+  const sample=closed=>({landmarks:[palmHand(closed)],handedness:[[{categoryName:'Left'}]]});
+  ui.receive(sample(false),0);ui.receive(sample(false),270);
+  assert.equal(ui.getPalmState(270).phase,'ready');
+  ui.receive(sample(true),540);ui.receive(sample(true),810);
+  assert.equal(ui.getPalmState(810).held,true);
+  assert.equal(ui.cursor.dataset.gesture,'held');
+  assert.equal(ui.getPalmState(540),null,'a new decision cannot reuse an older timestamp');
+  ui.resetPalmState();assert.equal(ui.getPalmState(810),null);
+  ui.receive(sample(true),1080);assert.equal(ui.getPalmState(1080).held,false,'tool changes require a new open hand');
+});
+
+test('Inference delay does not disarm the palm between regularly arriving fresh results',()=>{
+  const {ui}=fixture();ui.controlMode='palm';ui.hit=()=>null;
+  const sample=closed=>({landmarks:[palmHand(closed)],handedness:[[{categoryName:'Left'}]]});
+  ui.receive(sample(false),300,{sampleAt:50});
+  ui.tick(560); // Last source is 510ms old, but the arrival gap is only 260ms.
+  ui.receive(sample(false),570,{sampleAt:320});
+  assert.equal(ui.getPalmState(320).phase,'ready');
+  ui.receive(sample(true),840,{sampleAt:590});ui.tick(1100);
+  ui.receive(sample(true),1110,{sampleAt:860});
+  assert.equal(ui.getPalmState(860).held,true);
+  ui.tick(1411);assert.equal(ui.palmInput.held,false,'a real arrival gap must still stop the gesture');
+});
+
 test('Held tool aim and drawn cursor share one measured point without prediction drift', () => {
   const { ui, result } = fixture();
   ui.receive(result, 0, { blocked: true });

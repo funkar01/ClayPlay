@@ -1,4 +1,5 @@
 import { HandMotion } from './handMotion.js';
+import { HAND_RESULT_GAP_MS } from './handTrackingTiming.js';
 
 const clamp=v=>Math.max(0,Math.min(1,v));
 // Use the wrist and finger bases, never the bounding box or fingertip cluster.
@@ -31,7 +32,7 @@ export class PalmControl {
   lose(){this.reset();return {valid:false,held:false,open:false,phase:'lost',point:null};}
   update(points,now,aspect=1) {
     this.diagnostic={gapMs:this.time===null?null:now-this.time,heldBefore:this.held,armedBefore:this.armed};
-    if(this.time!==null && now-this.time>250){this.diagnostic.reason='palm-frame-gap';this.reset();}
+    if(this.time!==null && now-this.time>=HAND_RESULT_GAP_MS){this.diagnostic.reason='palm-frame-gap';this.reset();}
     const posture=palmPosture(points,aspect,reason=>{this.diagnostic.reason=reason;});
     if(!posture)return this.lose();
     Object.assign(this.diagnostic,{open:posture.open,opening:posture.opening,closed:posture.closed});

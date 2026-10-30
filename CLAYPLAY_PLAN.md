@@ -515,3 +515,12 @@ Try the rigged hand in mouse mode, then set up the camera and bring your tracked
 - For an existing Git-connected Vercel project, commit/push the intended changes to its configured Production Branch. Redeploying an old deployment does not include unpushed local work.
 - For a new import, choose funkar01/ClayPlay, Vite preset, repository root, npm run build, and dist output.
 - Alternative: run npx vercel from the local project folder, link the existing project for a preview, then npx vercel --prod for production. No deployment, commit, or push was performed in this turn.
+
+### 2026-10-30 — Design discussion: downloadable masks
+
+- User proposed exporting sculpted masks for games/simulators and 3D printing. Current source includes mask selection and saved-mask restoration, so this is a natural extension of the existing mask experience.
+- Recommended product direction: give users ownership of their creation through a simple Take your mask flow, with separate Use in 3D (GLB) and Prepare for printing (initially STL, later 3MF) choices. Preserve an editable ClayPlay save separately.
+- GLB export should include the finished selected mask and supported materials, exclude the camera/hand/guides, wait for pending geometry jobs, merge/weld suitable mesh boundaries, and offer a lighter mesh option. A static exported mask still needs fitting/attachment and possibly collision setup in its destination; facial animation is a separate rigging task.
+- Printing requires explicit dimensions, continuous solid shell walls around intentional eye openings, thickness and fragile-feature checks, and slicer review. Webcam calibration is not an accurate face scan; wearable fit should not be promised. STL omits color and units, so clearly document millimeter sizing. Start with a small display mask as the physical proof, then investigate wearable fitting and strap mounts.
+- Suggested rollout: reliable GLB export and import in one destination; printable miniature with geometry checks and a real print; later optimized game exports and wearable-mask preparation. Export is feasible with Three.js exporters, but game/print readiness requires preparation beyond downloading the current scene.
+- This turn provides product/technical analysis only; no export feature implemented. References: https://threejs.org/docs/pages/GLTFExporter.html ; https://threejs.org/docs/pages/STLExporter.html ; https://formlabs.com/support/Preparing-valid-model-PreForm/

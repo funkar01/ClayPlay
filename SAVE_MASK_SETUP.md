@@ -1,6 +1,6 @@
 # Save masks with email and password
 
-The studio now has **Save mask**, directly below **Selfie**. Guests see registration with an option to sign in. The current editable mask waits on the device while they register, confirm their email, or sign in. After login it saves to the private account collection automatically. Existing sessions save directly.
+The studio now has **Save mask**, directly below **Selfie**. Guests see registration with an option to sign in. The current editable mask waits on the device while they register, confirm their email, or sign in. After login, users can rename the mask or keep its current name before saving. Users who are already signed in get the same naming choice.
 
 ## Connect your Supabase project
 
@@ -18,7 +18,7 @@ The studio now has **Save mask**, directly below **Selfie**. Guests see registra
 
 ## Using the collection
 
-Click **Save mask**, register or sign in, then wait for **Saved to your collection**. Choose **More → My collection** to open it later. A saved mask retains editable sculpt fields, exact geometry, paint, surface finish, size and position. Opening it adds a studio mask and keeps current studio masks intact; the studio can hold eight open masks at a time. Click Save again to update the opened mask. Undo history is not saved. Selfies and camera frames are never included.
+Click **Save mask**, register or sign in, then choose a name and **Save mask**, or choose **Keep current name**. Wait for **Saved to your collection**. Choose **More → My collection** to open it later. A saved mask retains editable sculpt fields, exact geometry, paint, surface finish, size and position. Opening it adds a studio mask and keeps current studio masks intact; the studio can hold eight open masks at a time. Click Save again to update the opened mask. Undo history is not saved. Selfies and camera frames are never included.
 
 Saving is explicit; edits made after a save need another click on Save. A waiting save is a snapshot from when Save was clicked. It survives refresh in IndexedDB, bound to the intended email/account, and retries from **Save waiting mask** after network errors. There is one waiting save per browser origin; finish or explicitly discard it before saving another mask. Clearing browser site data removes an unsent waiting copy. Passwords are passed directly to Supabase Auth and are never put in the waiting-save database.
 

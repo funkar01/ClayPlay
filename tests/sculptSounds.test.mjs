@@ -57,3 +57,15 @@ test('Fast queued edits stay bounded and audio failures never interrupt editing'
   const unavailable=new SculptSounds({createContext(){throw Error('unsupported');},storage:null});
   await unavailable.unlock();assert.equal(unavailable.play('pull'),false);
 });
+
+test('Reveal chime lasts 2.4 seconds, respects mute and can be canceled on exit',async()=>{
+  const f=setup();await f.sound.unlock();const stop=f.sound.playReveal();
+  assert.equal(f.voices.length,5);
+  assert.equal(Math.max(...f.voices.map(v=>v.stopped)),12.4);
+  assert.ok(f.voices.every(v=>v.started>=10 && v.stopped<=12.4));
+  stop();assert.equal(f.sound.notes.size,0);
+  assert.ok(f.voices.every(v=>v.stopped===10.025));
+  const muted=setup('off');await muted.sound.unlock();muted.sound.playReveal()();assert.equal(muted.voices.length,0);
+  const locked=setup();locked.sound.playReveal()();assert.equal(locked.voices.length,0);
+  f.sound.playReveal();await f.sound.toggle();assert.equal(f.sound.notes.size,0);
+});

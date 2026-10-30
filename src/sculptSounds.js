@@ -21,7 +21,7 @@ export function editNote(tool, intensity = .35) {
     volume: .035 + amount * .035, duration: profile.duration + amount * .04 };
 }
 
-// No per-frame sound or delayed playback queue. Sound only plays after a
+// Audio is scheduled on the audio clock, never per frame. Sound only plays after a
 // user gesture unlocks audio; muted, suspended and background edits stay quiet.
 export class SculptSounds {
   constructor({ createContext = () => new (window.AudioContext || window.webkitAudioContext)(), storage = globalThis.localStorage } = {}) {
@@ -62,6 +62,27 @@ export class SculptSounds {
       for (const active of this.notes) if (active.voice === voice) this.notes.delete(active);
       return false;
     }
+  }
+  playReveal() {
+    const c=this.context,voices=[];
+    if(!this.enabled || this.disposed || c?.state!=='running')return ()=>{};
+    // A rising major-pentatonic sparkle, resolving into a warm 2.4-second tail.
+    const phrase=[[0,60,.9],[.28,64,.9],[.56,67,.95],[.84,72,1.56],[1.08,76,1.32]];
+    try {
+      for(const [offset,midi,duration] of phrase){
+        const active={voice:c.createOscillator(),gain:c.createGain()};
+        voices.push(active);this.notes.add(active);
+        const t=c.currentTime+offset;
+        active.voice.type='sine';active.voice.frequency.setValueAtTime(440*2**((midi-69)/12),t);
+        active.gain.gain.setValueAtTime(0,t);
+        active.gain.gain.linearRampToValueAtTime(.035,t+.025);
+        active.gain.gain.exponentialRampToValueAtTime(.0001,t+duration);
+        active.voice.connect(active.gain);active.gain.connect(c.destination);
+        active.voice.onended=()=>{this.notes.delete(active);active.voice.disconnect();active.gain.disconnect();};
+        active.voice.start(t);active.voice.stop(t+duration);
+      }
+    } catch { for(const active of voices)this.silence(active); }
+    return ()=>{for(const active of voices)if(this.notes.has(active))this.silence(active);};
   }
   silence(active) {
     if (!active) return;

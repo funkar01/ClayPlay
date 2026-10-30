@@ -4,8 +4,8 @@ import { validateSavedMask } from './savedMask.js';
 
 const emailKey=value=>(value ?? '').trim().toLowerCase();
 export class MaskCollection {
-  constructor({connect,pending=new PendingMask(),codec=maskCodec,onChange=()=>{},onSaved=()=>{}}) {
-    Object.assign(this,{connect,storage:pending,codec,onChange,onSaved});
+  constructor({connect,pending=new PendingMask(),codec=maskCodec,onChange=()=>{},onSaved=()=>{},onSaveStarted=()=>{}}) {
+    Object.assign(this,{connect,storage:pending,codec,onChange,onSaved,onSaveStarted});
     this.mode='register';this.rows=[];this.page=0;this.message='Save your mask to a collection you can open on any device.';
   }
   emit(){this.onChange(this);}
@@ -40,7 +40,7 @@ export class MaskCollection {
     if(!validateSavedMask(record))throw new Error('This mask could not be prepared for saving. Your stage mask is unchanged.');
     const own=this.user && owner===this.user.id;
     const pending={record,id:own?id:crypto.randomUUID(),revision:own?revision:0,sourceToken,
-      requestId:crypto.randomUUID(),ownerId:this.user?.id ?? null,email:this.user?.email ?? null,createdAt:Date.now()};
+      requestId:crypto.randomUUID(),ownerId:this.user?.id ?? null,email:this.user?.email ?? null,createdAt:Date.now(),nameConfirmed:false};
     await this.storage.set(pending,{create:true});this.pending=pending;this.conflict=false;
     this.mode=this.user?'collection':'register';
     this.message=this.user?'Saving your mask…':'Create an account to save this mask. Already registered? Choose Sign in.';this.emit();
@@ -68,8 +68,10 @@ export class MaskCollection {
   async resume(){
     if(this.busy || !this.pending || !this.user)return false;
     if(!this.canResume()){this.message='This waiting mask belongs to another account. Sign into that account to finish saving it.';this.emit();return false;}
+    if(!this.pending.nameConfirmed){this.mode='name';this.message='Give your mask a name, or keep its current name.';this.emit();return false;}
     this.busy=true;this.message='Saving your mask…';this.emit();
     try{
+      this.onSaveStarted(this.pending);
       const pending={...this.pending,ownerId:this.user.id};await this.storage.set(pending);this.pending=pending;
       const payload=await this.codec('pack',pending.record);
       const{data:sessionData,error:sessionError}=await this.client.auth.getSession();
@@ -85,8 +87,20 @@ export class MaskCollection {
     }catch(error){this.fail(error);return false;}
     finally{this.busy=false;this.emit();}
   }
+  async confirmName(value){
+    if(this.busy || !this.pending || !this.canResume())return false;
+    const label=typeof value==='string'?value.trim():'';
+    if(!label || label.length>120)throw new Error('Enter a mask name between 1 and 120 characters.');
+    const previousRequestId=this.pending.requestId;
+    const pending={...this.pending,record:{...this.pending.record,label},nameConfirmed:true,
+      requestId:label===this.pending.record.label?previousRequestId:crypto.randomUUID()};
+    this.busy=true;this.emit();let stored=false;
+    try{await this.storage.set(pending,{previousRequestId});this.pending=pending;this.mode='collection';stored=true;}
+    catch(error){this.fail(error);}finally{this.busy=false;this.emit();}
+    if(stored)return this.resume();return false;
+  }
   async refresh({keepMessage=false}={}){
-    if(!this.user)return;const owner=this.user.id;
+    if(!this.user||this.mode==='name')return;const owner=this.user.id;
     const{data,error}=await this.client.from('saved_masks').select('id,name,shape,color,revision,updated_at').eq('owner_id',owner)
       .order('updated_at',{ascending:false}).range(this.page*12,this.page*12+11).abortSignal(AbortSignal.timeout(15000));
     if(this.user?.id!==owner)return;

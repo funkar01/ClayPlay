@@ -2,6 +2,7 @@ import { DockVisibility } from './dockVisibility.js';
 import { StudioIcons } from './studioIcons.js';
 import { STUDIO_THEMES, savedStudioTheme, applyStudioTheme } from './studioThemes.js';
 import { PalmControl } from './palmControl.js';
+import { HAND_RESULT_GAP_MS } from './handTrackingTiming.js';
 import { trackingTrace } from './trackingTrace.js';
 import { HandSelection, ControlHand } from './handSelection.js';
 import { palmCenter } from './twoHandScale.js';
@@ -326,6 +327,7 @@ export class HandUI {
   }
   announce(message) { this.feedback.hidden = false; if (this.feedback.textContent !== message) this.feedback.textContent = message; }
   lose() {
+    this.palmState=null;this.palmSampleAt=null;
     this.measuredPointer=null;this.displayPointer=null;
     this.sizeDrag=null;this.sizePinch?.reset();this.palmInput?.reset();this.palmPointer=null;
     this.lastAt = null; this.gapAt = null;
@@ -337,7 +339,7 @@ export class HandUI {
   reset() { this.lose(); this.selection.reset(); this.identity.reset(); }
   suspend(now) {
     this.cursor.dataset.gesture='paused';
-    this.sizeDrag=null;this.sizePinch?.reset();this.palmInput?.lose();
+    this.sizeDrag=null;this.sizePinch?.reset();this.resetPalmState();
     if (this.lastAt === null || now - this.lastAt > cursorGraceMs) { this.lose(); return; }
     this.gapAt ??= now;
     this.selection.pause(now);
@@ -347,8 +349,10 @@ export class HandUI {
   tick(now) {
     this.sync();
     this.updateDock(now);
-    if (this.lastAt !== null && (now - this.lastAt > 300
-      || (this.motion.time !== null && now - this.motion.time >= HAND_UI_SAMPLE_AGE_MS))) this.suspend(now);
+    // Source age is checked when a result arrives. Inference delay must not
+    // disarm a healthy stream between results; only an actual arrival gap may
+    // suspend it. Dwell/gesture actions still run only on accepted receive().
+    if (this.lastAt !== null && now - this.lastAt >= HAND_RESULT_GAP_MS) this.suspend(now);
     if (!this.cursor.hidden && this.gapAt === null) this.drawCursor(now);
   }
   nearDock(point) {
@@ -417,6 +421,12 @@ export class HandUI {
     if (this.cursor.hidden || this.gapAt !== null) return null;
     return (measured ? this.measuredPointer : this.displayPointer) ?? null;
   }
+  getPalmState(sampleAt) {
+    return this.palmSampleAt===sampleAt ? this.palmState : null;
+  }
+  resetPalmState() {
+    this.palmInput?.reset();this.palmState=null;this.palmSampleAt=null;
+  }
   hit(point, overlay = null) {
     const root = overlay ?? (this.isOpen ? this.panel : this.stage);
     if (this.highlight?.isConnected && root.contains(this.highlight) && !this.highlight.disabled && this.visible(this.highlight)) {
@@ -451,6 +461,7 @@ export class HandUI {
     const palmMode=this.controlMode==='palm';
     this.palmInput ??=new PalmControl();
     const palm=palmMode ? this.palmInput.update(hand.points,sampleAt,aspect) : null;
+    this.palmState=palm;this.palmSampleAt=sampleAt;
     if(palmMode)trackingTrace.record('ui-palm',{...this.palmInput.diagnostic,phase:palm.phase,valid:palm.valid,held:palm.held});
     if(palmMode && (!palm.valid || !palm.point)) {
       this.selection.pause(now);this.sizeDrag=null;

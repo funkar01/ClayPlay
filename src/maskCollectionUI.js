@@ -12,19 +12,24 @@ export class MaskCollectionUI {
       <button type="submit" data-collection="submit" class="collection-primary">Create account & save</button></form>
       <div class="collection-auth-actions"><button type="button" data-collection="login">Already registered? Sign in</button><button type="button" data-collection="register">Create an account</button></div>
       <div class="collection-confirm" hidden><p>You can close this window while you check your email. Your waiting mask is kept on this device.</p><button type="button" data-collection="login">I’ve confirmed — sign in</button></div>
+      <form class="collection-name collection-auth" hidden><label for="collection-mask-name">Mask name</label><input id="collection-mask-name" name="maskName" type="text" required maxlength="120" autocomplete="off">
+      <button type="submit" data-collection="save-name" class="collection-primary">Save mask</button><button type="button" data-collection="keep-name">Keep current name</button></form>
       <div class="collection-account" hidden><p class="collection-email"></p><div class="collection-actions"><button type="button" data-collection="refresh">Refresh collection</button><button type="button" data-collection="signout">Sign out</button></div><div class="collection-masks"></div><div class="collection-pages"><button type="button" data-collection="previous">Previous</button><button type="button" data-collection="next">Next</button></div></div>
       <div class="collection-pending" hidden><button type="button" data-collection="retry" class="collection-primary">Save waiting mask</button><button type="button" data-collection="copy">Save as a new copy</button><button type="button" data-collection="discard">Discard waiting save</button></div>
       <p class="collection-privacy">Your masks are private to your account. Saving keeps the shape and paint so you can create again later.</p></div>`;
     stage.append(root);this.form=root.querySelector('form');this.email=root.querySelector('#collection-email');this.password=root.querySelector('#collection-password');
+    this.nameForm=root.querySelector('.collection-name');this.maskName=root.querySelector('#collection-mask-name');
     root.addEventListener('pointerdown',event=>event.stopPropagation());
     root.addEventListener('click',event=>{
       const action=event.target.closest('[data-collection]')?.dataset.collection;if(!action || event.target.closest('button')?.disabled)return;
-      if(action==='submit')return;
+      if(action==='submit'||action==='save-name')return;
       if(action==='close'){this.close();return;}
       this.act(action).catch(error=>model.fail(error));
     });
     this.form.addEventListener('submit',event=>{event.preventDefault();if(!this.form.reportValidity() || model.busy)return;
       const password=this.password.value;this.password.value='';model.authenticate(model.mode,this.email.value,password).catch(error=>model.fail(error));});
+    this.nameForm.addEventListener('submit',event=>{event.preventDefault();if(!this.nameForm.reportValidity() || model.busy)return;
+      model.confirmName(this.maskName.value).catch(error=>model.fail(error));});
     root.addEventListener('keydown',event=>{
       if(event.key==='Escape'){event.preventDefault();this.close();return;}
       if(event.key!=='Tab')return;
@@ -38,7 +43,8 @@ export class MaskCollectionUI {
   get visible(){return !this.element.hidden;}
   open(){
     if(!this.visible){this.previousFocus=document.activeElement;this.onOpen();this.element.hidden=false;}
-    this.render();this.element.querySelector('[data-collection="close"]').focus({preventScroll:true});
+    this.render();const focus=this.model.mode==='name'?this.maskName:this.element.querySelector('[data-collection="close"]');focus.focus({preventScroll:true});
+    if(focus===this.maskName)this.maskName.select();
   }
   close(){this.element.hidden=true;this.password.value='';this.onClose();this.previousFocus?.focus?.({preventScroll:true});}
   async act(action){
@@ -52,6 +58,7 @@ export class MaskCollectionUI {
     }
     this.confirmDiscard=false;
     if(action==='retry')return m.resume();
+    if(action==='keep-name')return m.confirmName(m.pending.record.label);
     if(action==='copy')return m.saveCopy();
     if(action==='signout')return m.signOut();
     if(action==='previous'||action==='next')m.page+=action==='next'?1:-1;
@@ -64,18 +71,23 @@ export class MaskCollectionUI {
   }
   render(){
     const m=this.model,root=this.element,auth=!m.user&&['register','login'].includes(m.mode),busy=Boolean(m.busy||this.loading);
-    root.querySelector('h2').textContent=m.user?'My collection':m.mode==='confirm'?'Check your email':'Save your mask';
+    const naming=Boolean(m.user&&m.pending&&m.mode==='name');
+    root.querySelector('h2').textContent=naming?'Name your mask':m.user?'My collection':m.mode==='confirm'?'Check your email':'Save your mask';
     root.querySelector('.collection-status').textContent=m.message;
     this.form.hidden=!auth;this.password.minLength=m.mode==='register'?8:1;this.password.autocomplete=m.mode==='register'?'new-password':'current-password';
     this.password.placeholder=m.mode==='register'?'At least 8 characters':'Your password';
-    root.querySelector('[data-collection="submit"]').textContent=busy?'Please wait…':m.mode==='register'?'Create account & save':m.pending?'Sign in & save':'Sign in';
+    root.querySelector('[data-collection="submit"]').textContent=busy?'Please wait…':m.mode==='register'?'Create account & continue':m.pending?'Sign in & continue':'Sign in';
+    this.nameForm.hidden=!naming;this.maskName.disabled=busy;
+    if(naming&&this.namingRequestId!==m.pending.requestId){this.maskName.value=m.pending.record.label;this.namingRequestId=m.pending.requestId;}
+    if(naming&&this.previousMode!=='name'&&this.visible)requestAnimationFrame(()=>{if(this.visible&&m.mode==='name'){this.maskName.focus();this.maskName.select();}});
+    this.previousMode=m.mode;
     root.querySelector('.collection-auth-actions').hidden=!auth;
     root.querySelector('.collection-auth-actions [data-collection="login"]').hidden=m.mode==='login';
     root.querySelector('.collection-auth-actions [data-collection="register"]').hidden=m.mode==='register';
     root.querySelector('.collection-confirm').hidden=m.mode!=='confirm';
-    root.querySelector('.collection-account').hidden=!m.user;
+    root.querySelector('.collection-account').hidden=!m.user||naming;
     root.querySelector('.collection-email').textContent=m.user?.email ?? '';
-    root.querySelector('.collection-pending').hidden=!m.pending;
+    root.querySelector('.collection-pending').hidden=!m.pending||naming;
     root.querySelector('[data-collection="retry"]').hidden=!m.user;
     root.querySelector('[data-collection="copy"]').hidden=!m.conflict;
     root.querySelector('[data-collection="previous"]').hidden=m.page===0;

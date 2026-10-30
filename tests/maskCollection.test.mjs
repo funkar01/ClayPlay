@@ -43,13 +43,30 @@ test('Guest Save persists the snapshot before asking for registration',async()=>
   const {m,pending,saved}=fixture();await m.initialize();await m.queue(record(),{sourceToken:'local-mask'});
   assert.equal(m.mode,'register');assert.deepEqual(pending.value.record,record());assert.equal(saved.length,0);assert.equal(pending.value.ownerId,null);
 });
-test('An existing session saves directly and repeated Save updates the same owned record',async()=>{
+
+test('Unveiling starts after authentication and before packing or upload completes',async()=>{
+  const {m,saved}=fixture();await m.initialize();const started=[];
+  m.onSaveStarted=pending=>started.push(pending.requestId);
+  await m.queue(record());assert.equal(started.length,0);
+  let release;const packing=new Promise(resolve=>{release=resolve;});
+  m.codec=async(_operation,data)=>{await packing;return data;};
+  const signingIn=m.authenticate('login',owner.email,'correct-password');
+  await signingIn;assert.equal(m.mode,'name');assert.equal(started.length,0);
+  const naming=m.confirmName('My revealed mask');
+  await new Promise(resolve=>setTimeout(resolve,0));
+  assert.equal(started.length,1);assert.equal(m.busy,true);assert.equal(saved.length,0);
+  release();await naming;assert.equal(saved.length,1);assert.equal(saved[0].mask_name,'My revealed mask');
+});
+test('An existing session can rename a mask before updating the same owned record',async()=>{
   const {m,saved,pending}=fixture({user:owner});await m.initialize();
-  await m.queue(record(),{id:'existing',owner:owner.id,revision:4});assert.equal(saved.length,1);assert.equal(saved[0].mask_id,'existing');
+  await m.queue(record(),{id:'existing',owner:owner.id,revision:4});assert.equal(saved.length,0);assert.equal(m.mode,'name');
+  await m.confirmName('  Moonlight  ');assert.equal(saved.length,1);assert.equal(saved[0].mask_id,'existing');
+  assert.equal(saved[0].mask_name,'Moonlight');assert.equal(saved[0].mask_payload.label,'Moonlight');
   assert.equal(saved[0].expected_revision,4);assert.equal(pending.value,null);assert.match(m.message,/Saved/);
 });
 test('Opening another account’s local mask creates a new collection copy',async()=>{
   const {m,saved}=fixture({user:other});await m.initialize();await m.queue(record(),{id:'foreign',owner:owner.id,revision:8});
+  await m.confirmName(m.pending.record.label);
   assert.notEqual(saved[0].mask_id,'foreign');assert.equal(saved[0].expected_revision,0);
 });
 test('Registration awaiting email confirmation keeps the mask across restart; login resumes it',async t=>{
@@ -57,12 +74,14 @@ test('Registration awaiting email confirmation keeps the mask across restart; lo
   const {m,pending,saved}=fixture({confirm:true});await m.initialize();await m.queue(record());await m.authenticate('register',owner.email,'example-password');
   assert.equal(m.mode,'confirm');assert.equal(saved.length,0);assert.equal(pending.value.email,owner.email);
   assert.equal(JSON.stringify(pending.value).includes('example-password'),false);
-  const reopened=fixture({user:owner,pending});await reopened.m.initialize();assert.equal(reopened.saved.length,1);assert.equal(pending.value,null);
+  const reopened=fixture({user:owner,pending});await reopened.m.initialize();assert.equal(reopened.saved.length,0);assert.equal(reopened.m.mode,'name');
+  await reopened.m.confirmName('Confirmed creation');assert.equal(reopened.saved.length,1);assert.equal(pending.value,null);
 });
 test('Failed login keeps the draft, and a later correct password saves it',async()=>{
   const {m,pending,saved}=fixture();await m.initialize();await m.queue(record());
   await m.authenticate('login',owner.email,'wrong');assert.ok(pending.value);assert.equal(saved.length,0);assert.match(m.message,/Invalid/);
-  await m.authenticate('login',owner.email,'correct-password');assert.equal(saved.length,1);assert.equal(pending.value,null);
+  await m.authenticate('login',owner.email,'correct-password');assert.equal(saved.length,0);assert.equal(m.mode,'name');
+  await m.confirmName(m.pending.record.label);assert.equal(saved.length,1);assert.equal(pending.value,null);
 });
 test('A different signed-in account cannot auto-upload a pending mask on restart',async()=>{
   const first=fixture();await first.m.initialize();await first.m.queue(record());first.pending.value.email=owner.email;
@@ -70,12 +89,12 @@ test('A different signed-in account cannot auto-upload a pending mask on restart
 });
 test('Network failure retains the request ID and retry does not create a second logical mask',async()=>{
   const {m,client,saved,pending}=fixture({user:owner});await m.initialize();client.failure=new Error('Offline');
-  await m.queue(record());const id=pending.value.id,request=pending.value.requestId;assert.ok(pending.value);
+  await m.queue(record());await m.confirmName(m.pending.record.label);const id=pending.value.id,request=pending.value.requestId;assert.ok(pending.value);
   client.failure=null;await m.resume();assert.equal(saved.length,2);assert.equal(saved[1].mask_id,id);assert.equal(saved[1].save_request,request);assert.equal(pending.value,null);
 });
 test('Conflicting revisions retain the waiting mask and Save a copy uses a fresh ID',async()=>{
   const {m,client,saved}=fixture({user:owner});await m.initialize();client.failure={code:'40001',message:'Changed'};
-  await m.queue(record(),{id:'old',owner:owner.id,revision:2});assert.equal(m.conflict,true);assert.ok(m.pending);
+  await m.queue(record(),{id:'old',owner:owner.id,revision:2});await m.confirmName(m.pending.record.label);assert.equal(m.conflict,true);assert.ok(m.pending);
   client.failure=null;await m.saveCopy();assert.notEqual(saved[1].mask_id,'old');assert.equal(saved[1].expected_revision,0);
 });
 test('Storage failure cannot claim success or start an upload',async()=>{
@@ -88,4 +107,17 @@ test('A damaged mask cannot replace a waiting save or start a network upload',as
 });
 test('Signing out immediately clears the displayed account collection',async()=>{
   const {m}=fixture({user:owner});await m.initialize();m.rows=[{id:'private'}];await m.signOut();assert.equal(m.user,null);assert.deepEqual(m.rows,[]);
+});
+
+test('Empty or overlong names keep the naming step open without starting a save',async()=>{
+  const {m,saved,pending}=fixture({user:owner});await m.initialize();await m.queue(record());
+  for(const name of ['   ','x'.repeat(121)])await assert.rejects(m.confirmName(name),/1 and 120/);
+  assert.equal(m.mode,'name');assert.equal(saved.length,0);assert.equal(pending.value.nameConfirmed,false);
+});
+test('A confirmed name survives upload failure and reload without prompting again',async()=>{
+  const first=fixture({user:owner});await first.m.initialize();first.client.failure=new Error('Offline');
+  await first.m.queue(record());await first.m.confirmName('Silver Fox');
+  assert.equal(first.pending.value.nameConfirmed,true);assert.equal(first.pending.value.record.label,'Silver Fox');
+  const reopened=fixture({user:owner,pending:first.pending});await reopened.m.initialize();
+  assert.equal(reopened.saved.length,1);assert.equal(reopened.saved[0].mask_name,'Silver Fox');
 });

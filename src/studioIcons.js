@@ -3,6 +3,7 @@ const paths = {
   paint: 'm15 4 5 5-8 8-5-5zM7 12l5 5M7 17c0 4-4 4-4 4s0-4 4-4',
   erase: 'm4 14 9-10 8 7-9 10H9zM8 10l8 7M12 21h9',
   mask: 'M5 4q7 3 14 0v10q-1 5-7 8-6-3-7-8zM8 10l3 1m5-1-3 1M9 16q3 2 6 0',
+  bag: 'M5 7h14l1 14H4L5 7ZM8 9V6a4 4 0 0 1 8 0v3',
   eyes: 'M3 12q4-7 8 0-4 5-8 0Zm10 0q4-7 8 0-4 5-8 0Z',
   more: 'M4 7h16M4 17h16M8 4v6m8 4v6',
   camera: 'M3 7h5l2-3h4l2 3h5v13H3zM16 13a4 4 0 1 1-8 0 4 4 0 0 1 8 0',
@@ -59,7 +60,7 @@ function iconKey(button, label) {
   if (action === 'adjust' || adjust) return Number((value ?? adjust).split(':')[1]) < 0 ? 'minus' : 'plus';
   if (selfie) return ({ close: 'close', share: 'share', download: 'save', copy: 'copy', retake: 'camera' })[selfie];
   if(action==='save-mask')return 'save';
-  if(action==='collection')return 'mask';
+  if(action==='collection')return 'bag';
   const actions = { try: 'mask', selfie: 'camera', more: 'more', close: 'close', 'try-done': 'back', symmetry: 'symmetry', position: 'position', reset: 'reset', remove: 'erase', confirm: 'check', 'custom-apply': 'check', 'camera-on': 'camera', 'camera-off': 'camera', tutorial: 'tutorial', 'tracking-report': 'report', dwell: 'clock' };
   if (actions[action]) return actions[action];
   if (button.id === 'paint-collapse') return button.getAttribute('aria-expanded') === 'true' ? 'minus' : 'palette';
@@ -140,7 +141,7 @@ export class StudioIcons {
 
   decorate(button) {
     if (!button.isConnected) return;
-    if(button.closest('#mask-collection'))return;
+    if(button.closest('#mask-collection, #mask-unveiling'))return;
     // Existing action code can still read/update the original text and nodes.
     const text = button.textContent.trim().replace(/^[↶↷↑↓←→＋−]\s*/, '').replace(/\s+/g, ' ');
     const existingName = button.getAttribute('aria-label');

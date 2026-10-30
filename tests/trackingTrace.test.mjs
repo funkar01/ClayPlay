@@ -21,8 +21,8 @@ test('Trace preserves the initiating failure before later resets and bounds rece
 test('Palm diagnostics distinguish edge-on geometry, frame gaps, jumps and ambiguous fingers',()=>{
   const ready=()=>{const c=new PalmControl();c.update(palmHand(),0);c.update(palmHand(),100);c.update(palmHand(true),130);c.update(palmHand(true),240);return c;};
   const c=ready();
-  c.update(palmHand(true),510);assert.equal(c.diagnostic.reason,'palm-frame-gap');
-  assert.equal(c.diagnostic.gapMs,270);assert.equal(c.diagnostic.heldBefore,true);
+  c.update(palmHand(true),540);assert.equal(c.diagnostic.reason,'palm-frame-gap');
+  assert.equal(c.diagnostic.gapMs,300);assert.equal(c.diagnostic.heldBefore,true);
   const edge=palmHand(true);edge[5]={x:.45,y:.5,z:0};edge[17]={x:.55,y:.8,z:0};
   let reason;assert.equal(palmPosture(edge,1,r=>{reason=r;}),null);assert.equal(reason,'palm-too-edge-on');
   const a=ready();const mixed=palmHand(true);for(const i of [8,12])mixed[i].y=.38;
