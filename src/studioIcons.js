@@ -47,7 +47,8 @@ function iconKey(button, label) {
   if (tool) return ({ pinch: 'pull', extrude: 'extrude', paint: 'paint', erase: 'erase' })[tool] || 'mask';
   if (button.id === 'sculpt-undo') return 'undo';
   if (button.id === 'sculpt-redo') return 'redo';
-  if (button.id === 'tutorial-next' && /^next\b/i.test(label)) return 'next';
+  if (button.id === 'mask-picker-continue' || /\bcontinue\b/i.test(label)) return 'play';
+  if (button.matches('.mask-picker-start') || /^next\b/i.test(label)) return 'next';
   if (action === 'dock-pin') return button.getAttribute('aria-pressed') === 'true' ? 'unpin' : 'pin';
   if (action === 'size-open') return 'size';
   if (action === 'page') return ({ more: /cancel/i.test(label) ? 'close' : 'back', themes: 'palette', controls: 'hand', masks: 'mask', eyes: 'eyes', colors: 'palette', custom: 'palette' })[value];
@@ -55,7 +56,7 @@ function iconKey(button, label) {
   if (action === 'control-mode') return value === 'palm' ? 'hand' : 'pinch';
   if (action === 'pause') return /resume/i.test(label) ? 'play' : 'pause';
   if (action === 'scroll' || paintScroll) return Number(value ?? paintScroll) < 0 ? 'upper' : 'lower';
-  if (action === 'mask-page') return Number(value) < 0 ? 'undo' : 'redo';
+  if (action === 'mask-page') return Number(value) < 0 ? 'undo' : 'next';
   if (action === 'smoothness-step') return Number(value) < 0 ? 'rough' : 'smooth';
   if (action === 'adjust' || adjust) return Number((value ?? adjust).split(':')[1]) < 0 ? 'minus' : 'plus';
   if (selfie) return ({ close: 'close', share: 'share', download: 'save', copy: 'copy', retake: 'camera' })[selfie];

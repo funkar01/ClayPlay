@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { syncPaintTexture,canBuildPaintInWorker } from './paintTexture.js';
 import { inverseWarp } from './maskWarp.js';
+import { applyExtrusionTint } from './extrusionTint.js';
 
 export const PAINT_CELL=.02;
 const empty=[0,0,0,0];
@@ -32,7 +33,7 @@ export function samplePaint(volume,x,y,z) {
 export function enablePaintMaterial(material) {
   // Missing custom attributes otherwise use WebGL's opaque (0,0,0,1).
   // An uninitialized mesh must show its clay color, never black paint.
-  material.defaultAttributeValues={...material.defaultAttributeValues,paintColor:[0,0,0,0]};
+  material.defaultAttributeValues={...material.defaultAttributeValues,paintColor:[0,0,0,0],extrudeColor:[0,0,0,0]};
   const state={dirty:true,uniforms:{paintEnabled:{value:0},paintMap:{value:null},paintOrigin:{value:new THREE.Vector3()},paintExtent:{value:new THREE.Vector3(1,1,1)}}};
   material.userData.surfacePaint=state;
   const previous=material.onBeforeCompile,cache=material.customProgramCacheKey(),render=material.onBeforeRender;
@@ -44,16 +45,18 @@ export function enablePaintMaterial(material) {
   material.onBeforeCompile=(shader,renderer)=>{
     previous.call(material,shader,renderer);
     Object.assign(shader.uniforms,state.uniforms);
-    shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nattribute vec4 paintColor;\nvarying vec4 vPaintColor;\nvarying vec3 vPaintPosition;')
-      .replace('#include <begin_vertex>','#include <begin_vertex>\nvPaintColor = paintColor;\nvPaintPosition = position;');
+    shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nattribute vec4 paintColor;\nattribute vec4 extrudeColor;\nvarying vec4 vExtrudeColor;\nvarying vec4 vPaintColor;\nvarying vec3 vPaintPosition;')
+      .replace('#include <begin_vertex>','#include <begin_vertex>\nvPaintColor = paintColor;\nvExtrudeColor = extrudeColor;\nvPaintPosition = position;');
     shader.fragmentShader=shader.fragmentShader.replace('#include <common>',`#include <common>
       varying vec4 vPaintColor;
+      varying vec4 vExtrudeColor;
       varying vec3 vPaintPosition;
       uniform highp sampler3D paintMap;
       uniform float paintEnabled;
       uniform vec3 paintOrigin;
       uniform vec3 paintExtent;`)
       .replace('#include <color_fragment>',`#include <color_fragment>
+      diffuseColor.rgb = diffuseColor.rgb * (1.0-vExtrudeColor.a) + vExtrudeColor.rgb;
       vec4 pigment = vPaintColor;
       if (paintEnabled > 0.5) {
         vec3 uvw = (vPaintPosition - paintOrigin) / paintExtent;
@@ -65,10 +68,11 @@ export function enablePaintMaterial(material) {
       }
       diffuseColor.rgb = diffuseColor.rgb * (1.0-pigment.a) + pigment.rgb;`);
   };
-  material.customProgramCacheKey=()=>`${cache}:surface-paint-v2`;material.needsUpdate=true;
+  material.customProgramCacheKey=()=>`${cache}:surface-paint-v3`;material.needsUpdate=true;
 }
 
 export function applyVertexPaint(volume,geometry,bounds=null,{invalidateTexture=true}={}) {
+  applyExtrusionTint(volume,geometry);
   const textureState=volume.material?.userData.surfacePaint;
   if(textureState && invalidateTexture){textureState.volume=volume;textureState.dirty=true;textureState.bounds=null;}
   const positions=geometry.attributes.position;

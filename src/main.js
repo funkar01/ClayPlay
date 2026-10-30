@@ -1065,7 +1065,11 @@ function renderScene() {
   }
   paintPicker.setControlMode(controlMode);
   document.querySelector('#tool-paint').style.setProperty('--active-paint',paintColor);
-  paintPalette.hidden=activeTool!=='paint' || tryOn.enabled || Boolean(handUI?.isOpen);
+  paintPalette.hidden=!['paint','extrude'].includes(activeTool) || tryOn.enabled || Boolean(handUI?.isOpen);
+  const paletteTitle=activeTool==='extrude'?'Extrusion color':'Paint color';
+  if(paintPalette.getAttribute('aria-label')!==`${paletteTitle}s`)paintPalette.setAttribute('aria-label',`${paletteTitle}s`);
+  const paletteHeading=paintPalette.querySelector('.paint-palette-heading strong');
+  if(paletteHeading.textContent!==paletteTitle)paletteHeading.textContent=paletteTitle;
   const building=Boolean(clayVolume.meshQueue?.pending || (clayVolume.pulling && clayVolume.surfacePull?.released) || (clayVolume.cutting && clayVolume.surfaceErase?.released));
   const refining=Boolean(clayVolume.meshQueue?.refining);
   surfaceStatus.hidden=!building && !refining;
@@ -1596,7 +1600,7 @@ function processSculptPoint(sculptPoint, pinchOverride, pinchRatio = 1, cursor =
         const points=volume.extrusion?.points;
         queueMicrotask(()=>{if(volume===clayVolume)studioTutorial?.recordAction('extrude',{points});});
       });
-      if (!volume.surfaceExtrude.begin(hit.point,brushRadius(),symmetryEnabled)) {
+      if (!volume.surfaceExtrude.begin(hit.point,brushRadius(),symmetryEnabled,paintColor)) {
         setExtrudeState('applying');
         sceneHint.textContent='Your strokes are catching up · release before starting the next one';
         return;
@@ -2194,7 +2198,7 @@ handUI = new HandUI({
     return { x: rect.left + mapped.x * rect.width, y: rect.top + mapped.y * rect.height };
   },
   getState: () => ({
-    active: clayObjects.active.id, eyeShape: clayVolume.eyeShape ?? 'oval', color: activeTool==='paint' ? paintColor : `#${clayObjects.active.material.color.getHexString()}`,
+    active: clayObjects.active.id, eyeShape: clayVolume.eyeShape ?? 'oval', color: ['paint','extrude'].includes(activeTool) ? paintColor : `#${clayObjects.active.material.color.getHexString()}`,
     smoothness: Math.round((1 - clayObjects.active.material.roughness) * 100),
     masks: clayObjects.items.map(item => ({ id: item.id, label: item.label, shape: item.shape, color: `#${item.material.color.getHexString()}` })),
     edited: clayObjects.active.edited, symmetry: symmetryEnabled, ar: arView.enabled, trying: tryOn.enabled,
@@ -2209,7 +2213,7 @@ handUI = new HandUI({
     else if(action==='collection')openMaskCollection();
     else if (action === 'control-mode') setControlMode(value);
     else if (action === 'sound') { sculptSounds.toggle(); handUI.sync(); }
-    else if (action === 'color') {if(activeTool==='paint')setPaintColor(value);else clayMenu.setColor(value);}
+    else if (action === 'color') {if(['paint','extrude'].includes(activeTool))setPaintColor(value);else clayMenu.setColor(value);}
     else if(action === 'size' && !sizeInput.disabled) {
       sizeInput.value=String(value);sizeInput.dispatchEvent(new Event('input',{bubbles:true}));
     }

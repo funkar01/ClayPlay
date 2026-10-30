@@ -27,6 +27,17 @@ export function anchorVertex(bricks, anchor, tolerance = 1e-5) {
         norms.set(n.subarray(i + a, i + a + 3), at); norms.set(n.subarray(i + d, i + d + 3), at + 3); norms.set(normal.map(v => v / length), at + 6);
       }
       pos.set(p.subarray(i + 9), i + 27); norms.set(n.subarray(i + 9), i + 27);
+      if(brick.tints) {
+        const old=brick.tints,at=i/3*4,tints=new Float32Array(old.length+24);
+        const color=[0,1,2,3].map(a=>old[at+a]*(1-b-c)+old[at+4+a]*b+old[at+8+a]*c);
+        tints.set(old.subarray(0,at));
+        for(let t=0;t<3;t++) {
+          const [a,d]=corners[t],target=at+t*12;
+          tints.set(old.subarray(at+a/3*4,at+a/3*4+4),target);
+          tints.set(old.subarray(at+d/3*4,at+d/3*4+4),target+4);tints.set(color,target+8);
+        }
+        tints.set(old.subarray(at+12),at+36);brick.tints=tints;
+      }
       brick.positions = pos; brick.normals = norms;
       return;
     }

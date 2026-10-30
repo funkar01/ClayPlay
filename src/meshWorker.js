@@ -25,8 +25,10 @@ self.onmessage = ({ data }) => {
       const mesh = volume.bricks.get(key)?.mesh;
       const positions = mesh?.geometry.attributes.position.array ?? new Float32Array();
       const normals = mesh?.geometry.attributes.normal.array ?? new Float32Array();
-      bricks.push({ key, positions, normals });
+      const tints = mesh?.geometry.getAttribute('extrudeColor')?.array;
+      bricks.push({ key, positions, normals, tints });
       transfer.push(positions.buffer, normals.buffer);
+      if(tints)transfer.push(tints.buffer);
       if (mesh) { volume.parent.remove(mesh); mesh.geometry.dispose(); volume.bricks.delete(key); }
     }
     self.postMessage({ id, generation, bricks, duration: performance.now() - start }, transfer);

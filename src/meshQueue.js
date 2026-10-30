@@ -9,13 +9,14 @@ let busy = false;
 let activeId = null;
 const volumes = new Map();
 let scheduled = false;
-function installBrick(volume,{key,positions,normals}) {
+function installBrick(volume,{key,positions,normals,tints}) {
   const old=volume.bricks.get(key);
   if(old){volume.parent.remove(old.mesh);old.mesh.geometry.dispose();volume.bricks.delete(key);}
   if(!positions.length)return;
   const geometry=new THREE.BufferGeometry();
   geometry.setAttribute('position',new THREE.BufferAttribute(positions,3));
   geometry.setAttribute('normal',new THREE.BufferAttribute(normals,3));geometry.computeBoundingSphere();
+  if(tints)geometry.setAttribute('extrudeColor',new THREE.BufferAttribute(tints,4));
   applyVertexPaint(volume,geometry);
   const mesh=new THREE.Mesh(geometry,volume.material);mesh.name=`ClayBrick_${key}`;
   volume.parent.add(mesh);volume.bricks.set(key,{mesh});

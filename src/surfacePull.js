@@ -52,6 +52,7 @@ export class SurfacePull {
           mesh.geometry.setAttribute('position', new THREE.BufferAttribute(brick.positions, 3).setUsage(THREE.DynamicDrawUsage));
           mesh.geometry.setAttribute('normal', new THREE.BufferAttribute(brick.normals, 3).setUsage(THREE.DynamicDrawUsage));
         }
+        if(brick.tints)mesh.geometry.setAttribute('extrudeColor',new THREE.BufferAttribute(brick.tints,4));
         mesh.geometry.boundingBox = null; mesh.geometry.boundingSphere = null;
         mesh.frustumCulled = false;
       }
@@ -90,7 +91,8 @@ export class SurfacePull {
     };
     this.worker.onerror = event => { if (this.worker === worker) this.fail(event.message); };
     const bricks = [...this.volume.bricks].map(([key, { mesh }]) => ({ key,
-      positions: mesh.geometry.attributes.position.array.slice(), normals: mesh.geometry.attributes.normal.array.slice() }));
+      positions: mesh.geometry.attributes.position.array.slice(), normals: mesh.geometry.attributes.normal.array.slice(),
+      tints:mesh.geometry.getAttribute('extrudeColor')?.array.slice() }));
     const original = bricks.map(b => ({ ...b }));
     anchorVertex(bricks, anchor.toArray());
     if (symmetry && Math.abs(anchor.x) > 1e-6) anchorVertex(bricks, [-anchor.x, anchor.y, anchor.z], .005);
@@ -99,6 +101,7 @@ export class SurfacePull {
       const geometry = this.volume.bricks.get(bricks[i].key).mesh.geometry;
       geometry.setAttribute('position', new THREE.BufferAttribute(bricks[i].positions.slice(), 3));
       geometry.setAttribute('normal', new THREE.BufferAttribute(bricks[i].normals.slice(), 3));
+      if(bricks[i].tints)geometry.setAttribute('extrudeColor',new THREE.BufferAttribute(bricks[i].tints.slice(),4));
       // Inserting an anchor only subdivides the existing surface. Its paint
       // field and bounds are unchanged, so keep the already sampled texture.
       applyVertexPaint(this.volume,geometry,null,{invalidateTexture:false});
@@ -107,7 +110,7 @@ export class SurfacePull {
     for (const { mesh } of this.volume.bricks.values()) mesh.frustumCulled = false;
     this.preview.begin(this.lastWarp);
     // Send the original topology so a no-op release restores it exactly.
-    this.worker.postMessage({ type: 'begin', bricks: original, anchor: anchor.toArray(), symmetry }, original.flatMap(b => [b.positions.buffer, b.normals.buffer]));
+    this.worker.postMessage({ type: 'begin', bricks: original, anchor: anchor.toArray(), symmetry }, original.flatMap(b => [b.positions.buffer, b.normals.buffer,...(b.tints?[b.tints.buffer]:[])]));
     return true;
   }
   update(delta) {

@@ -10,7 +10,8 @@ export function checkpointPaint(volume,changes) {
 
 function capture(volume) {
   return { userScale: volume.userScale ?? 1, userOffset: [...(volume.userOffset ?? [0, 0])], state: volume.snapshot(), bricks: [...volume.bricks].map(([key, { mesh }]) => ({ key,
-    positions: mesh.geometry.attributes.position.array.slice(), normals: mesh.geometry.attributes.normal.array.slice() })) };
+    positions: mesh.geometry.attributes.position.array.slice(), normals: mesh.geometry.attributes.normal.array.slice(),
+    tints:mesh.geometry.getAttribute('extrudeColor')?.array.slice() })) };
 }
 
 export function applyMaskScale(volume, scale) {
@@ -91,6 +92,7 @@ export function restoreHistory(volume, redo = false) {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(brick.positions.slice(), 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(brick.normals.slice(), 3));
+    if(brick.tints)geometry.setAttribute('extrudeColor',new THREE.BufferAttribute(brick.tints.slice(),4));
     applyVertexPaint(volume,geometry);
     const mesh = new THREE.Mesh(geometry, volume.material);
     mesh.name = `ClayBrick_${brick.key}`;

@@ -25,8 +25,8 @@ self.onmessage = ({ data }) => {
     const steps = data.warp.steps ?? [data.warp];
     const squaredLength = dx * dx + dy * dy + dz * dz;
     if (data.final && squaredLength <= 0.00000025) {
-      const restored = unmodified.map(b => ({ key: b.key, positions: b.positions.slice(), normals: b.normals.slice() }));
-      self.postMessage({ bricks: restored, warp: data.warp, final: true, duration: performance.now() - start }, restored.flatMap(b => [b.positions.buffer, b.normals.buffer]));
+      const restored = unmodified.map(b => ({ key: b.key, positions: b.positions.slice(), normals: b.normals.slice(),tints:b.tints?.slice() }));
+      self.postMessage({ bricks: restored, warp: data.warp, final: true, duration: performance.now() - start }, restored.flatMap(b => [b.positions.buffer, b.normals.buffer,...(b.tints?[b.tints.buffer]:[])]));
       return;
     }
     const squaredSupport = support * support;
@@ -83,8 +83,10 @@ self.onmessage = ({ data }) => {
         for(let z=first[2];z<=last[2];z++)for(let y=first[1];y<=last[1];y++)for(let x=first[0];x<=last[0];x++)repairKeys.add(`${x},${y},${z}`);
       }
       if (!data.final && !affected && !previousKeys.has(brick.key)) continue;
-      bricks.push({ key: brick.key, positions, normals });
+      const tints=brick.tints?.slice();
+      bricks.push({ key: brick.key, positions, normals, tints });
       transfer.push(positions.buffer, normals.buffer);
+      if(tints)transfer.push(tints.buffer);
     }
     previousKeys = nextKeys;
     const repartition = data.final && dx * dx + dy * dy + dz * dz > 0.00000025;
@@ -92,19 +94,23 @@ self.onmessage = ({ data }) => {
       // Keep the spatial brick ownership correct after triangles move across
       // boundaries, keeping subsequent drags and surface picking consistent.
       const buckets = new Map();
+      const colored=bricks.some(brick=>brick.tints);
       for (const brick of bricks) for (let i = 0; i < brick.positions.length; i += 9) {
         const gx = Math.floor(((brick.positions[i] + brick.positions[i + 3] + brick.positions[i + 6]) / 3 + 2.4) / 0.6);
         const gy = Math.floor(((brick.positions[i + 1] + brick.positions[i + 4] + brick.positions[i + 7]) / 3 + 2.4) / 0.6);
         const gz = Math.floor(((brick.positions[i + 2] + brick.positions[i + 5] + brick.positions[i + 8]) / 3 + 2.4) / 0.6);
         const key = `${gx},${gy},${gz}`;
         let bucket = buckets.get(key);
-        if (!bucket) { bucket = { key, positions: [], normals: [] }; buckets.set(key, bucket); }
+        if (!bucket) { bucket = { key, positions: [], normals: [],tints:colored?[]:null }; buckets.set(key, bucket); }
         for (let j = 0; j < 9; j++) { bucket.positions.push(brick.positions[i + j]); bucket.normals.push(brick.normals[i + j]); }
+        if(colored)for(let j=0;j<12;j++)bucket.tints.push(brick.tints?.[i/3*4+j] ?? 0);
       }
       bricks.length = 0; transfer.length = 0;
       for (const bucket of buckets.values()) {
         const positions = new Float32Array(bucket.positions), normals = new Float32Array(bucket.normals);
-        bricks.push({ key: bucket.key, positions, normals }); transfer.push(positions.buffer, normals.buffer);
+        const tints=bucket.tints?new Float32Array(bucket.tints):undefined;
+        bricks.push({ key: bucket.key, positions, normals,tints }); transfer.push(positions.buffer, normals.buffer);
+        if(tints)transfer.push(tints.buffer);
       }
     }
     self.postMessage({ bricks, warp: data.warp, final: data.final, repartition, repairKeys:[...repairKeys], duration: performance.now() - start }, transfer);

@@ -4,6 +4,7 @@ import { inverseWarp } from './maskWarp.js';
 import { cutDistance } from './cutGeometry.js';
 import { extrusionDistance, blendExtrusion } from './extrudeGeometry.js';
 import { applyVertexPaint,PAINT_CELL } from './paintLayer.js';
+import { applyExtrusionTint } from './extrusionTint.js';
 
 const GRID_MIN = -2.4;
 const GRID_CELLS = 192;
@@ -299,7 +300,7 @@ export class ClayVolume {
     geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
-    if(this.material)applyVertexPaint(this,geometry);
+    if(this.material)applyVertexPaint(this,geometry);else applyExtrusionTint(this,geometry);
     const mesh = new THREE.Mesh(geometry, this.material);
     mesh.name = `ClayBrick_${key}`;
     mesh.castShadow = true;

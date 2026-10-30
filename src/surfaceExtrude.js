@@ -10,11 +10,12 @@ export class SurfaceExtrude {
     const v=this.volume;
     return !this.active && !v.pulling && !v.cutting && (!v.meshQueue?.pending || this.committing) && this.queue.length<4;
   }
-  begin(anchor,radius,symmetry) {
+  begin(anchor,radius,symmetry,color=null) {
     const v=this.volume;
     if(!this.canBegin || radius<=0) return false;
     v.meshQueue?.pauseRefinement?.();
     this.radius=Math.min(.16,Math.max(.04,radius*.4)); this.symmetry=symmetry;
+    this.color=color===null ? null : new THREE.Color(color).toArray();
     // Embed the attachment slightly into the existing shell, keeping the root flush.
     this.points=[anchor.clone().add(new THREE.Vector3(0,0,-this.radius*.55))]; this.active=true;
     this.preview=new THREE.Group(); v.parent.add(this.preview);
@@ -64,11 +65,13 @@ export class SurfaceExtrude {
       const n=new THREE.Vector3().fromBufferAttribute(normals,first).add(new THREE.Vector3().fromBufferAttribute(normals,last)).normalize();
       normals.setXYZ(first,n.x,n.y,n.z);normals.setXYZ(last,n.x,n.y,n.z);
     }
-    const add=mesh=>{mesh.geometry.setAttribute('paintColor',new THREE.BufferAttribute(new Float32Array(mesh.geometry.attributes.position.count*4),4));this.preview.add(mesh);if(this.symmetry){const twin=mesh.clone();twin.position.x*=-1;twin.scale.x=-1;this.preview.add(twin);}};
+    const add=mesh=>{mesh.geometry.setAttribute('paintColor',new THREE.BufferAttribute(new Float32Array(mesh.geometry.attributes.position.count*4),4));
+      if(this.color){const tint=new Float32Array(mesh.geometry.attributes.position.count*4);for(let i=0;i<tint.length;i+=4)tint.set([...this.color,1],i);mesh.geometry.setAttribute('extrudeColor',new THREE.BufferAttribute(tint,4));}
+      this.preview.add(mesh);if(this.symmetry){const twin=mesh.clone();twin.position.x*=-1;twin.scale.x=-1;this.preview.add(twin);}};
     add(new THREE.Mesh(geometry,this.volume.material));
     for(const i of [centers.length-1]) {
       const cap=new THREE.Mesh(new THREE.SphereGeometry(this.stroke.radii[i],32,20),this.volume.material);
-      cap.position.copy(centers[i]); add(cap);
+      cap.geometry.translate(centers[i].x,centers[i].y,centers[i].z); add(cap);
     }
   }
   finish() {
@@ -77,7 +80,9 @@ export class SurfaceExtrude {
     this.active=false; v.pulling=false;
     v.meshQueue?.flush?.();
     if(this.stroke) {
-      this.queue.push({stroke:taperedStroke(this.stroke.points,this.radius,this.symmetry),radius:this.radius,symmetry:this.symmetry,preview:this.preview});
+      const stroke=taperedStroke(this.stroke.points,this.radius,this.symmetry);
+      if(this.color)stroke.color=[...this.color];
+      this.queue.push({stroke,radius:this.radius,symmetry:this.symmetry,preview:this.preview});
       this.preview=null;this.stroke=null;
       this.drain();
     } else {this.removePreview(this.preview);this.preview=null;this.drain();}
