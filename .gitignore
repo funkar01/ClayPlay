@@ -5,3 +5,6 @@ Thumbs.db
 /artifacts
 
 .vercel
+.env
+.env.*
+!.env.example

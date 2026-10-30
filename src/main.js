@@ -1,5 +1,8 @@
 import { StudioFeedback, emitStudioCommit } from './studioFeedback.js';
 import { SelfieStudio } from './selfie.js';
+import { MaskCollection,connectMaskCollection } from './maskCollection.js';
+import { MaskCollectionUI } from './maskCollectionUI.js';
+import { captureSavedMask,validateSavedMask } from './savedMask.js';
 import { brushApplying, deformationApplying } from './brushAvailability.js';
 import { pointerOnPlane } from './toolPointer.js';
 import { ComfortSetup } from './comfortSetup.js';
@@ -156,6 +159,7 @@ let arStartedCamera = false;
 let arAction = 0;
 let faceTracker, faceAbort, faceFrame;
 let selfie;
+let maskCollection,maskCollectionUI,collectionPreparing=false,collectionPauseState=false;
 let faceEpoch = 0, lastFaceVideoTime = -1, nextFaceTrackingAt = 0;
 let tryPreviousAR = false, tryStartedCamera = false;
 let tryHandWasDone = false;
@@ -1134,7 +1138,7 @@ function palmInstruction(text) {
   return text.replace(/keep your fingers pinched/gi,'keep your hand closed').replace(/pinching/gi,'holding your hand closed').replace(/pinched/gi,'closed').replace(/pinch/gi,'close your hand').replace(/your index(?: finger)?/gi,'your palm').replace(/open your fingers/gi,'open your hand');
 }
 
-function cursorInputEnabled() { return !comfortSetup.active && !stream && !cameraOpening && !tryOn.enabled; }
+function cursorInputEnabled() { return !maskCollectionUI?.visible && !comfortSetup.active && !stream && !cameraOpening && !tryOn.enabled; }
 
 function showToolInstructions() {
   const details = toolDetails();
@@ -2171,13 +2175,15 @@ handUI = new HandUI({
     smoothness: Math.round((1 - clayObjects.active.material.roughness) * 100),
     masks: clayObjects.items.map(item => ({ id: item.id, label: item.label, shape: item.shape, color: `#${item.material.color.getHexString()}` })),
     edited: clayObjects.active.edited, symmetry: symmetryEnabled, ar: arView.enabled, trying: tryOn.enabled,
-    selfieBusy:Boolean(selfie?.busy), controlMode, sound: sculptSounds.enabled, paused: editingPaused, cameraOn: Boolean(stream), positionResetDisabled: positionResetButton.disabled,
+    collectionBusy:collectionPreparing || Boolean(maskCollection?.busy),selfieBusy:Boolean(selfie?.busy), controlMode, sound: sculptSounds.enabled, paused: editingPaused, cameraOn: Boolean(stream), positionResetDisabled: positionResetButton.disabled,
     trackingIssue:Boolean(trackingTrace.failure),
     busy: Boolean(clayMenu?.isBusy || clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending),
   }),
   onPause: pauseForHandUI,
   onAction: (action, value) => {
     if (action === 'selfie') {if(handUI.isOpen)handUI.close();selfie?.start();}
+    else if(action==='save-mask')saveCurrentMask();
+    else if(action==='collection')openMaskCollection();
     else if (action === 'control-mode') setControlMode(value);
     else if (action === 'sound') { sculptSounds.toggle(); handUI.sync(); }
     else if (action === 'color') {if(activeTool==='paint')setPaintColor(value);else clayMenu.setColor(value);}
@@ -2231,6 +2237,7 @@ maskShapePicker = new MaskShapePicker({
     item.edited = false;
     item.shape = shape;
     item.label = `${MASK_SHAPES[shape].label} ${item.id}`;
+    delete item.collectionId;delete item.collectionOwner;delete item.collectionRevision;delete item.saveToken;
     for (const other of [...clayObjects.items]) {
       if (other === item) continue;
       clayObjects.select(other.id);
@@ -2255,6 +2262,7 @@ studioTutorial = new StudioTutorial({
       } else item.volume.reset(recipe.shape,'oval');
       item.material.color.set(recipe.maskColour);
       item.shape=recipe.shape;item.label=`${recipe.shapeLabel} ${item.id}`;
+      delete item.collectionId;delete item.collectionOwner;delete item.collectionRevision;delete item.saveToken;
       item.volume.undoStack=[];item.volume.redoStack=[];
       item.volume.userScale=1;item.volume.userOffset=[0,0];
       clayObjects.layout(camera);selectClayObject(item.id);
@@ -2302,6 +2310,56 @@ studioTutorial = new StudioTutorial({
 
 selfie=new SelfieStudio({stage:document.querySelector('#stage'),prepare:()=>startTryOn(),onExit:()=>endTryOn(),onChange:()=>handUI?.sync()});
 
+maskCollection=new MaskCollection({
+  connect:()=>connectMaskCollection(import.meta.env.VITE_SUPABASE_URL,import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY),
+  onSaved:(pending,saved)=>{
+    const item=clayObjects.items.find(item=>item.saveToken===pending.sourceToken);
+    if(item){item.collectionId=saved.id;item.collectionRevision=saved.revision;item.collectionOwner=pending.ownerId;}
+    maskCollectionUI.open();handUI.announce('Mask saved to your collection');
+  },
+});
+maskCollectionUI=new MaskCollectionUI({stage:document.querySelector('#stage'),model:maskCollection,
+  onOpen:()=>{
+    if(handUI.isOpen)handUI.close();collectionPauseState=editingPaused;pauseForHandUI();editingPaused=true;
+  },
+  onClose:()=>{pauseForHandUI();editingPaused=collectionPauseState;handUI.reset();handUICaptured=false;handUI.sync();},
+  onLoad:saved=>{
+    if(!validateSavedMask(saved.record))throw new Error('This saved mask could not be opened. Its online copy has been kept.');
+    if(clayObjects.items.length>=clayObjects.limit)throw new Error('Your studio has eight masks open. Remove one under More → Masks, then open this mask.');
+    if(tryOn.enabled)endTryOn();
+    const item=clayObjects.add(saved.record.shape,saved.record.color,{saved:saved.record});
+    item.collectionId=saved.id;item.collectionOwner=saved.owner_id;item.collectionRevision=saved.revision;
+    clayObjects.layout(camera);selectClayObject(item.id);setPrompt('Your mask is ready.', 'Keep creating, then choose Save mask to update your collection.', 'success');
+  },
+});
+maskCollection.initialize().catch(error=>maskCollection.fail(error));
+
+async function openMaskCollection(){
+  maskCollectionUI.open();
+  try{await maskCollection.initialize();if(maskCollection.user)await maskCollection.refresh();else{maskCollection.mode='login';maskCollection.emit();}}
+  catch(error){maskCollection.fail(error);}
+}
+async function saveCurrentMask(){
+  if(collectionPreparing || maskCollection.busy)return;
+  const item=clayObjects.active;maskCollectionUI.open();collectionPreparing=true;handUI.sync();
+  try{
+    await maskCollection.initialize();
+    if(maskCollection.pending){
+      if(maskCollection.canResume())await maskCollection.resume();
+      else{maskCollection.message='A mask is waiting to save. Sign in to finish saving it.';maskCollection.emit();}return;
+    }
+    maskCollection.message='Finishing your edit and preparing the mask…';maskCollection.emit();
+    const deadline=performance.now()+30000;
+    while(item.volume.pulling || item.volume.cutting || item.volume.erasing || item.volume.surfacePaint?.active || item.volume.surfaceExtrude?.active || item.volume.meshQueue?.pending){
+      if(performance.now()>deadline)throw new Error('Your edit is still finishing. Close this window and try Save again in a moment.');
+      await new Promise(resolve=>setTimeout(resolve,100));
+    }
+    if(item.volume.meshFailed)throw new Error('The last edit could not finish. Please resolve it before saving.');
+    item.saveToken ??= crypto.randomUUID();
+    await maskCollection.queue(captureSavedMask(item),{id:item.collectionId,owner:item.collectionOwner,revision:item.collectionRevision,sourceToken:item.saveToken});
+  }catch(error){maskCollection.fail(error);}finally{collectionPreparing=false;handUI.sync();}
+}
+
 setupFullscreen(document.querySelector('#stage'), cancelMouseStroke, { controls: [cameraButton, mouseButton] });
 scenePlaceholder.classList.add('is-hidden');
 showToolInstructions();
@@ -2312,7 +2370,9 @@ resetButton.addEventListener('click', (event) => {
   resetClay();
 });
 
-window.addEventListener('beforeunload', () => {
+window.addEventListener('beforeunload',event=>{if(collectionPreparing&&!maskCollection?.pending){event.preventDefault();event.returnValue='';}});
+window.addEventListener('pagehide', event => {
+  if(event.persisted)return;
   selfie?.dispose();
   sculptSounds.dispose();
   for(const item of clayObjects.items)item.volume.surfacePaint?.finish();

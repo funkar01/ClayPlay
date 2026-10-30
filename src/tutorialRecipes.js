@@ -1,7 +1,7 @@
 import { MASK_SHAPES, EYE_SHAPES, faceSurface } from './clayShapes.js';
 import { acceptsTutorialPull } from './tutorialMission.js';
 
-const shapes = ['animal', 'full', 'half', 'armor', 'cowl', 'wings', 'helmet'].filter(key => MASK_SHAPES[key]);
+const shapes = Object.keys(MASK_SHAPES);
 const eyes = Object.keys(EYE_SHAPES);
 const challenges = {
   horns: { id:'horns', tool:'pinch', title:'Using Pull for two little horns.', copy:'Pinch the glowing spot, pull up and out, then open your fingers.', target:[.43,1.08,.4], motion:'up' },

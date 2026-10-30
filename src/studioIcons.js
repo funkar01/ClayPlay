@@ -58,6 +58,8 @@ function iconKey(button, label) {
   if (action === 'smoothness-step') return Number(value) < 0 ? 'rough' : 'smooth';
   if (action === 'adjust' || adjust) return Number((value ?? adjust).split(':')[1]) < 0 ? 'minus' : 'plus';
   if (selfie) return ({ close: 'close', share: 'share', download: 'save', copy: 'copy', retake: 'camera' })[selfie];
+  if(action==='save-mask')return 'save';
+  if(action==='collection')return 'mask';
   const actions = { try: 'mask', selfie: 'camera', more: 'more', close: 'close', 'try-done': 'back', symmetry: 'symmetry', position: 'position', reset: 'reset', remove: 'erase', confirm: 'check', 'custom-apply': 'check', 'camera-on': 'camera', 'camera-off': 'camera', tutorial: 'tutorial', 'tracking-report': 'report', dwell: 'clock' };
   if (actions[action]) return actions[action];
   if (button.id === 'paint-collapse') return button.getAttribute('aria-expanded') === 'true' ? 'minus' : 'palette';
@@ -138,6 +140,7 @@ export class StudioIcons {
 
   decorate(button) {
     if (!button.isConnected) return;
+    if(button.closest('#mask-collection'))return;
     // Existing action code can still read/update the original text and nodes.
     const text = button.textContent.trim().replace(/^[↶↷↑↓←→＋−]\s*/, '').replace(/\s+/g, ' ');
     const existingName = button.getAttribute('aria-label');

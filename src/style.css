@@ -892,3 +892,31 @@ html[data-studio-theme] .stage-size-control input { accent-color:var(--selected-
  #stage .studio-button-icon.studio-clay-icon { width:42px; height:42px; }
  :root[data-studio-theme] #app .hand-panel-grid.hand-options { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
+.stage-save.stage-selfie { top:calc(27px + var(--right-control-size,60px) + 12px) !important; }
+#mask-collection[hidden], #mask-collection [hidden] { display:none !important; }
+#mask-collection { position:absolute; inset:0; z-index:80; display:flex; align-items:center; justify-content:center; padding:20px; background:#130e26bb; backdrop-filter:blur(12px); overflow:auto; }
+.mask-collection-card { box-sizing:border-box; width:min(560px,100%); max-height:100%; overflow:auto; padding:28px; color:var(--ink,#44382f); background:var(--ui-panel,#fffaf5); border:1px solid var(--line,#d5c3b3); border-radius:22px; box-shadow:0 16px 60px #0005; }
+.mask-collection-card header { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.mask-collection-card h2 { margin:3px 0 0; font-size:25px; }
+.collection-eyebrow { margin:0; font-size:10px; letter-spacing:.15em; opacity:.7; }
+.collection-status { min-height:42px; line-height:1.55; font-size:14px; }
+.collection-auth { display:grid; gap:10px; }
+.collection-auth label { font-size:13px; font-weight:600; }
+.collection-auth input { box-sizing:border-box; width:100%; min-width:0; min-height:48px; padding:12px 14px; margin-bottom:8px; border:1px solid var(--line,#d5c3b3); border-radius:10px; background:var(--ui-soft,#f1e8dd); color:inherit; font:inherit; }
+#mask-collection button { min-height:46px; padding:12px 16px; border:1px solid var(--line,#d5c3b3); border-radius:12px; background:var(--ui-soft,#f1e8dd); color:inherit; font:600 13px/1.4 'DM Sans',sans-serif; cursor:pointer; }
+#mask-collection button:disabled { opacity:.6; cursor:wait; }
+#mask-collection .collection-primary { background:var(--selected-fill,#326b49); color:var(--selected-ink,#fff); }
+#mask-collection :is(button,input):focus-visible, #mask-collection .hand-hover { outline:3px solid var(--ui-focus,#a37bff); outline-offset:3px; }
+.collection-auth-actions { display:flex; justify-content:center; margin-top:12px; }
+.collection-pending, .collection-actions, .collection-pages { display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; }
+.collection-privacy, .collection-confirm p, .collection-email { font-size:12px; line-height:1.6; opacity:.8; overflow-wrap:anywhere; }
+.collection-privacy { margin-bottom:0; }
+.collection-masks { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:18px; }
+#mask-collection .collection-mask-card { display:flex; flex-direction:column; align-items:center; gap:8px; overflow-wrap:anywhere; }
+.collection-mask-card svg { width:70px; height:70px; stroke:currentColor; stroke-width:.5; }
+.collection-mask-card small { font-size:10px; font-weight:400; opacity:.75; }
+#stage:has(#mask-collection:not([hidden])) .hand-ui-cursor { z-index:90; }
+@media(max-width:760px) {
+ .stage-save.stage-selfie { top:calc(18px + var(--right-control-size,48px) + 10px) !important; }
+ #mask-collection { padding:12px; } .mask-collection-card { padding:20px; }
+}

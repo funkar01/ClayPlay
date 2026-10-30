@@ -1,4 +1,4 @@
-import { MASK_SHAPES } from './clayShapes.js';
+import { MASK_SHAPES, maskPreview } from './clayShapes.js';
 import { CLAY_COLORS } from './clayAppearance.js';
 
 export function setupClayMenu(objects, { onSelect, onLayout, onPause }) {
@@ -13,7 +13,7 @@ export function setupClayMenu(objects, { onSelect, onLayout, onPause }) {
   let busy = false;
 
   shapeGrid.innerHTML = Object.entries(MASK_SHAPES).map(([key, shape]) =>
-    `<button type="button" class="shape-option" data-shape="${key}" aria-label="Add ${shape.label.toLowerCase()}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${shape.icon}"/></svg><span>${shape.label}</span></button>`).join('');
+    `<button type="button" class="shape-option" data-shape="${key}" aria-label="Add ${shape.label.toLowerCase()}">${maskPreview(key)}<span>${shape.label}</span></button>`).join('');
   swatches.innerHTML = CLAY_COLORS.map(([name, hex]) =>
     `<button type="button" class="clay-swatch" data-color="${hex}" style="--swatch:${hex}" aria-label="${name}" aria-pressed="false" title="${name}"></button>`).join('');
 

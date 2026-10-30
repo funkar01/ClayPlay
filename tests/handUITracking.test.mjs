@@ -176,3 +176,13 @@ test('Dock reveal is offered only by open input, never a pinch or active sculpti
  ui.receive(grip,100);assert.equal(allowed.at(-1),false);
  ui.receive(result,200,{blocked:true});assert.equal(allowed.at(-1),false);
 });
+
+test('Collection actions start separate dwell timers when the selected action changes',()=>{
+  const f=fixture(),{ui,target,result}=f;ui.selection.dwellMs=500;
+  target.id='';target.dataset={collection:'login'};
+  for(const now of [0,100,200])ui.receive(result,now);
+  target.dataset.collection='register';
+  for(const now of [350,450,550,650,750])ui.receive(result,now);
+  assert.equal(f.clicks(),0,'Dwell on Sign in cannot carry over to registration');
+  ui.receive(result,850);assert.equal(f.clicks(),1);
+});

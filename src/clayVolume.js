@@ -22,13 +22,13 @@ const CUBE_CORNERS = [
 ];
 
 export class ClayVolume {
-  constructor(parent, material, shape = 'full', meshQueueFactory = null) {
+  constructor(parent, material, shape = 'full', meshQueueFactory = null, savedState = null) {
     this.parent = parent;
     this.material = material;
     this.field = new Map();
     this.bricks = new Map();
     if (meshQueueFactory) this.meshQueue = meshQueueFactory(this);
-    this.reset(shape);
+    if(savedState)Object.assign(this,ClayVolume.fromState(savedState));else this.reset(shape);
   }
 
   nodeKey(x, y, z) {
@@ -127,7 +127,7 @@ export class ClayVolume {
     ).normalize();
   }
 
-  reset(shape = this.shape, eyeShape = this.eyeShape ?? 'oval') {
+  reset(shape = this.shape, eyeShape = CLAY_SHAPES[shape]?.eyeShape ?? this.eyeShape ?? 'oval') {
     this.paint=new Map();
     this.paintCell=PAINT_CELL;
     this.extrudeSource=null; this.extrusion=null;
@@ -139,6 +139,21 @@ export class ClayVolume {
     this.shape = shape;
     this.eyeShape = eyeShape;
     this.field.clear();
+    const starter=CLAY_SHAPES[shape];
+    if(starter.palette) {
+      // Seed ordinary editable pigment, so history, deformation and saving use
+      // exactly the same path as the creator's own brush strokes.
+      this.paintCell=.05;
+      const colors=starter.palette.map(hex=>[...new THREE.Color(hex).toArray(),1]);
+      for(let iy=-31;iy<=39;iy++)for(let ix=-26;ix<=26;ix++) {
+        const x=ix*this.paintCell,y=iy*this.paintCell;
+        for(let iz=-18;iz<=23;iz++) {
+          const z=iz*this.paintCell;
+          if(starter.distance(x,y,z,eyeShape)>.09)continue;
+          this.paint.set(`${ix},${iy},${iz}`,colors[Number(starter.accentAt(x,y))]);
+        }
+      }
+    }
     this.rebuildSurface();
   }
 

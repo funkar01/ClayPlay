@@ -6,7 +6,7 @@ import { trackingTrace } from './trackingTrace.js';
 import { HandSelection, ControlHand } from './handSelection.js';
 import { palmCenter } from './twoHandScale.js';
 import { closedPalm } from './palmMove.js';
-import { MASK_SHAPES, EYE_SHAPES, eyePreview } from './clayShapes.js';
+import { MASK_SHAPES, EYE_SHAPES, eyePreview, maskPreview } from './clayShapes.js';
 import { HandMotion } from './handMotion.js';
 import { PinchGesture } from './pinchGesture.js';
 import { CLAY_COLORS } from './clayAppearance.js';
@@ -107,6 +107,9 @@ export class HandUI {
     this.selfieButton.classList.add('stage-selfie');
     this.selfieButton.addEventListener('pointerdown',event=>event.stopPropagation());
     stage.append(this.selfieButton);
+    this.saveButton=button('Save mask','save-mask');this.saveButton.id='hand-save-mask';
+    this.saveButton.className='stage-selfie stage-save';this.saveButton.setAttribute('aria-label','Save mask to my collection');
+    this.saveButton.addEventListener('pointerdown',event=>event.stopPropagation());stage.append(this.saveButton);
     this.panel = document.createElement('section'); this.panel.id = 'hand-panel'; this.panel.className = 'hand-panel'; this.panel.hidden = true;
     this.panel.setAttribute('aria-label', 'Studio options'); stage.append(this.panel);
     this.done = button('Back to creating', 'try-done'); this.done.id = 'hand-try-done'; this.done.className = 'hand-try-done'; this.done.hidden = true; stage.append(this.done);
@@ -183,6 +186,7 @@ export class HandUI {
     const s = this.getState(); this.controlMode=s.controlMode ?? 'palm'; this.done.hidden = !s.trying;
     this.tryIt.disabled = s.busy || s.selfieBusy;
     this.selfieButton.disabled=s.busy || s.selfieBusy;
+    if(this.saveButton)this.saveButton.disabled=s.busy || s.selfieBusy || s.collectionBusy;
     this.tryIt.setAttribute('aria-pressed', String(s.trying));
     // Keep the slider and dwell targets mounted while the finish changes.
     // Replacing the panel here would interrupt an ongoing pointer drag.
@@ -204,6 +208,7 @@ export class HandUI {
       grid.classList.add('hand-options');
       grid.append(button('Studio themes', 'page', 'themes'), button('Hand controls', 'page', 'controls'));
       grid.append(button('Masks', 'page', 'masks'), button('Mask eyes', 'page', 'eyes'), button('Color & finish', 'page', 'colors'));
+      grid.append(button('My collection','collection'));
       const symmetry = button(`Symmetry ${s.symmetry ? 'On' : 'Off'}`, 'symmetry'); symmetry.setAttribute('aria-pressed', String(s.symmetry)); symmetry.disabled = s.trying;
       symmetry.classList.add('hand-symmetry');
       const symmetryIcon = document.querySelector('#vertical-symmetry svg')?.cloneNode(true);
@@ -256,17 +261,8 @@ export class HandUI {
       for (const [shape, details] of Object.entries(MASK_SHAPES)) {
         const add = button(`＋ ${details.label}`, 'add-mask', shape);
         add.className = 'hand-mask-card hand-starter-mask';
-        const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        icon.setAttribute('viewBox', '0 0 24 24'); icon.setAttribute('aria-hidden', 'true');
-        const outline = document.createElementNS(icon.namespaceURI, 'path');
-        outline.setAttribute('d', details.icon); icon.append(outline);
-        for (const cx of ['9.2', '14.8']) {
-          const eye = document.createElementNS(icon.namespaceURI, 'ellipse');
-          eye.setAttribute('cx', cx); eye.setAttribute('cy', '10');
-          eye.setAttribute('rx', '1.5'); eye.setAttribute('ry', '.7');
-          icon.append(eye);
-        }
-        add.prepend(icon);
+        const preview = document.createElement('span'); preview.innerHTML = maskPreview(shape);
+        add.prepend(preview);
         add.disabled = s.busy || s.masks.length >= 8; grid.append(add);
       }
       const remove = button('Remove selected', 'remove'); remove.disabled = s.busy || s.masks.length < 2; grid.append(remove);
@@ -463,7 +459,7 @@ export class HandUI {
     if(palmMode)this.palmPointer=palm.point;
     const point = this.mapPoint(palmMode ? palm.point : measured[8]);
     this.measuredPointer=point;
-    const tutorial = this.stage.querySelector('#selfie-preview:not([hidden]), #mask-shape-picker:not([hidden]), #studio-tutorial:not([hidden])');
+    const tutorial = this.stage.querySelector('#mask-collection:not([hidden]), #selfie-preview:not([hidden]), #mask-shape-picker:not([hidden]), #studio-tutorial:not([hidden])');
     const tutorialBounds = tutorial?.getBoundingClientRect();
     const overTutorial = tutorialBounds && point.x >= tutorialBounds.left && point.x <= tutorialBounds.right
       && point.y >= tutorialBounds.top && point.y <= tutorialBounds.bottom;
@@ -484,7 +480,7 @@ export class HandUI {
       this.sizeDrag={target,startX:pinchPoint.x,startValue:Number(target.value)};
     }
     if(this.sizeDrag) target=this.sizeDrag.target;
-    const key = target && (target.id || target.dataset.maskBase || target.dataset.eyeBase || (target.classList.contains('mask-picker-start') ? 'picker-next' : target.classList.contains('mask-picker-back') ? 'picker-back' : `${this.page}:${target.dataset.handAction ?? target.dataset.adjust ?? target.dataset.paintColor}:${target.dataset.value ?? ''}`));
+    const key = target && (target.id || (target.dataset.collection && `collection:${target.dataset.collection}`) || (target.dataset.savedMask && `saved-mask:${target.dataset.savedMask}`) || target.dataset.maskBase || target.dataset.eyeBase || (target.classList.contains('mask-picker-start') ? 'picker-next' : target.classList.contains('mask-picker-back') ? 'picker-back' : `${this.page}:${target.dataset.handAction ?? target.dataset.adjust ?? target.dataset.paintColor}:${target.dataset.value ?? ''}`));
     const rect = target?.getBoundingClientRect();
     const bounds = rect && { left: rect.left - 12, right: rect.right + 12, top: rect.top - 12, bottom: rect.bottom + 12 };
     const isRange=target?.id==='tool-size' || target?.hasAttribute?.('data-hand-range');
