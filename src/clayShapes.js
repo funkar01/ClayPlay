@@ -16,11 +16,11 @@ export function faceSurface(x, y) {
   return wrap + forehead + bridge + nose + cheeks + muzzle + chin;
 }
 
-function facialShell(x, y, z, footprint) {
+function facialShell(x, y, z, footprint, rimRadius = RIM_RADIUS) {
   // Rounded intersection closes the front and back at every outer and eye rim.
-  const edge = footprint + RIM_RADIUS;
-  const depth = Math.abs(z-faceSurface(x,y)) - SHELL_HALF_THICKNESS + RIM_RADIUS;
-  return Math.min(Math.max(edge,depth),0) + Math.hypot(Math.max(edge,0),Math.max(depth,0)) - RIM_RADIUS;
+  const edge = footprint + rimRadius;
+  const depth = Math.abs(z-faceSurface(x,y)) - SHELL_HALF_THICKNESS + rimRadius;
+  return Math.min(Math.max(edge,depth),0) + Math.hypot(Math.max(edge,0),Math.max(depth,0)) - rimRadius;
 }
 
 export const EYE_SHAPES = {
@@ -102,7 +102,7 @@ for(const key of ['mummy','cat'])Object.defineProperty(MASK_SHAPES,key,{value:ha
 export function maskPreview(key) {
   const shape=MASK_SHAPES[key], colors=shape.palette ?? ['#b98261','#b98261'];
   const details={
-    vampire:`<path d="M9 15q3-2 6 0l-1 2h-4Z" style="fill:${colors[1]}"/><path d="m10 14.6.8 1.9.5-2m1.4 0 .5 2 .8-1.9" style="fill:${colors[0]};stroke:none"/>`,
+    vampire:`<path d="m4 13 4 3 4 4 4-4 4-3-1 6-7 3-7-3Z" style="fill:${colors[2]};stroke:none"/><path d="M9 15q3-2 6 0l-1 2h-4Z" style="fill:var(--ui-soft,#eee4d6)"/><path d="m9.7 14.7.75 2.1.65-2.1m1.8 0 .65 2.1.75-2.1" style="fill:${colors[0]};stroke:none"/>`,
     witch:`<path d="M4.5 7h15M11.7 10l-1 3h2M9.5 16q2.5 1.5 5 0" style="fill:none;stroke:${colors[1]};stroke-width:.6"/>`,
     werewolf:`<ellipse cx="12" cy="15" rx="3.6" ry="2.6" style="fill:${colors[1]}"/><path d="m10.7 13 1.3 1.5 1.3-1.5Z" style="fill:${colors[0]}"/>`,
     skull:`<path d="m12 12-1 2h2ZM9.3 16h5.4m-4-1v2m1.3-2v2m1.3-2v2" style="fill:${colors[1]};stroke:${colors[1]};stroke-width:.45"/>`,
@@ -113,7 +113,7 @@ export function maskPreview(key) {
 function halloweenMask(kind) {
   const specs = {
     pumpkin: ['Pumpkin', 'Plump lobes · orange & forest green', '#ed8129', '#355b38', [[0,1.7],[.16,1.65],[.12,1.28],[.68,1.25],[1.05,.92],[1.2,.35],[1.16,-.5],[.8,-1.08],[0,-1.25],[-.8,-1.08],[-1.16,-.5],[-1.2,.35],[-1.05,.92],[-.68,1.25],[-.12,1.28],[-.16,1.65]]],
-    vampire: ['Vampire', 'Fangs · widow’s peak · pointed ears', '#e5d7c8', '#40263e', [[0,1.22],[.4,1.4],[.8,1.2],[.92,.65],[1.2,.72],[1.02,.02],[.88,-.35],[.65,-.98],[0,-1.42],[-.65,-.98],[-.88,-.35],[-1.02,.02],[-1.2,.72],[-.92,.65],[-.8,1.2],[-.4,1.4]]],
+    vampire: ['Vampire', 'Sharp fangs · open mouth · red Dracula collar', '#e5d7c8', '#40263e', [[0,1.22],[.4,1.4],[.8,1.2],[.92,.65],[1.2,.72],[1.02,.02],[.88,-.35],[.65,-.98],[0,-1.42],[-.65,-.98],[-.88,-.35],[-1.02,.02],[-1.2,.72],[-.92,.65],[-.8,1.2],[-.4,1.4]]],
     witch: ['Witch', 'Pointed hat · hooked nose · arched brows', '#a6bf68', '#50365f', [[0,1.98],[.32,1.69],[.59,1.04],[1.3,.87],[1.3,.71],[.84,.68],[.97,-.2],[.58,-.95],[.2,-1.42],[0,-1.5],[-.2,-1.42],[-.58,-.95],[-.97,-.2],[-.84,.68],[-1.3,.71],[-1.3,.87],[-.59,1.04],[-.32,1.69]]],
     frankie: ['Frankenstein’s monster', 'Broad brow · moss & charcoal', '#91b76b', '#343b38', [[-.82,1.4],[.82,1.4],[1,1.13],[.98,-.45],[1.18,-.48],[1.18,-.72],[.91,-.75],[.7,-1.2],[0,-1.35],[-.7,-1.2],[-.91,-.75],[-1.18,-.72],[-1.18,-.48],[-.98,-.45],[-1,1.13]]],
     werewolf: ['Werewolf', 'Tufted fur · pointed ears · rounded muzzle', '#79513c', '#dfbd86', [[0,1.14],[.28,1.3],[.43,1.1],[.98,1.8],[1.05,1.05],[.94,.7],[1.24,.43],[1.04,.25],[1.23,.02],[1.02,-.12],[1.2,-.4],[.9,-.42],[1.02,-.7],[.71,-.7],[.63,-1.04],[.32,-1.14],[0,-1.3],[-.32,-1.14],[-.63,-1.04],[-.71,-.7],[-1.02,-.7],[-.9,-.42],[-1.2,-.4],[-1.02,-.12],[-1.23,.02],[-1.04,.25],[-1.24,.43],[-.94,.7],[-1.05,1.05],[-.98,1.8],[-.43,1.1],[-.28,1.3]]],
@@ -122,8 +122,10 @@ function halloweenMask(kind) {
     cat: ['Black cat', 'Pointed ears · charcoal & warm gold', '#30323c', '#dca951', [[0,1.02],[.5,1.12],[1,1.7],[1.08,.8],[1.12,.05],[.85,-.75],[0,-1.18],[-.85,-.75],[-1.12,.05],[-1.08,.8],[-1,1.7],[-.5,1.12]]],
   };
   const [label,description,base,accent,points] = specs[kind];
+  const collar=[[0,-1.3],[.6,-1],[1.38,-.06],[1.25,-1.15],[.55,-1.68],[0,-1.5],[-.55,-1.68],[-1.25,-1.15],[-1.38,-.06],[-.6,-1]];
+  const fangDistance=(x,y)=>silhouetteDistance(Math.abs(x),y,[[.21,-.43],[.45,-.43],[.34,-.91]]);
   const iconPoints = points ?? Array.from({length:32},(_,i)=>[Math.cos(i*Math.PI/16)*1.04,Math.sin(i*Math.PI/16)*1.4]);
-  return {label,description,palette:[base,accent], eyeShape:kind,
+  return {label,description,palette:kind==='vampire'?[base,accent,'#b51f38']:[base,accent], eyeShape:kind,
     icon:iconPoints.map(([x,y],i)=>`${i?'L':'M'}${12+x*5.8} ${12-y*5.8}`).join('')+'Z',
     accentAt(x,y) {
       const a=Math.abs(x);
@@ -132,7 +134,7 @@ function halloweenMask(kind) {
         const hair=y>1.04-.43*Math.exp(-((x/.25)**2));
         const brow=a>.18 && a<.77 && Math.abs(y-(.68+.12*a))<.045;
         const mouth=(x/.52)**2+((y+.69)/.22)**2<1;
-        const fang=a>.25 && a<.41 && y<-.52 && y>-.88+(Math.abs(a-.33)/.08)*.3;
+        const fang=fangDistance(x,y)<.025;
         return hair || brow || (mouth && !fang) || (a>.78 && y<-.25);
       }
       if(kind==='witch') {
@@ -158,8 +160,20 @@ function halloweenMask(kind) {
       if(kind==='mummy')return Math.abs(Math.sin((y+x*.24)*12))<.23;
       return (y>.95 && a>.6) || ((a/.55)**2+((y+.55)/.38)**2<1);
     },
+    colorIndexAt(x,y) {
+      if(kind==='vampire' && silhouetteDistance(x,y,collar)<.07 && silhouetteDistance(x,y,points)>-.025)return 2;
+      return Number(this.accentAt(x,y));
+    },
     distance(x,y,z,eyes=kind) {
       let outline=points ? silhouetteDistance(x,y,points) : (Math.hypot(x/1.04,y/1.4)-1)*1.04;
+      if(kind==='vampire') {
+        outline=Math.min(outline,silhouetteDistance(x,y,collar));
+        const mouth=(Math.hypot(x/.55,(y+.73)/.29)-1)*.29;
+        // Remove a through-opening while retaining teeth attached to its top
+        // edge. Geometry, rather than painted pixels, defines their points.
+        const opening=Math.max(mouth,-fangDistance(x,y));
+        return facialShell(x,y,z,Math.max(outline,-eyeDistance(x,y,eyes),-opening),.018);
+      }
       if(kind==='pumpkin')outline-=.035*Math.cos(x*11);
       // Small rounded relief follows the curved hollow shell on both sides.
       let relief=kind==='pumpkin'?.012*(Math.cos(x*11)-1):kind==='mummy'?.009*(Math.cos((y+Math.abs(x)*.24)*24)-1):0;
