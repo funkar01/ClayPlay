@@ -4,9 +4,9 @@ import { VOLUME_GRID } from './clayVolume.js';
 // owning cell. Replacing only one touched cell would overlap those old faces.
 export function spanningSurfaceRegions(bricks) {
   const {min, voxel, brick}=VOLUME_GRID, width=voxel*brick, regions=[];
-  for(const {key,positions} of bricks) {
-    const owner=key.split(',').map(Number),low=[Infinity,Infinity,Infinity],high=[-Infinity,-Infinity,-Infinity];
-    for(let i=0;i<positions.length;i+=3)for(let a=0;a<3;a++) {
+  for(const {key,positions,bounds} of bricks) {
+    const owner=key.split(',').map(Number),low=bounds?.min ?? [Infinity,Infinity,Infinity],high=bounds?.max ?? [-Infinity,-Infinity,-Infinity];
+    if(!bounds)for(let i=0;i<positions.length;i+=3)for(let a=0;a<3;a++) {
       low[a]=Math.min(low[a],positions[i+a]);high[a]=Math.max(high[a],positions[i+a]);
     }
     if(!low.some((v,a)=>v<min+owner[a]*width-1e-6 || high[a]>min+(owner[a]+1)*width+1e-6))continue;

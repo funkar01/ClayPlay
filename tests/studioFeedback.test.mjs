@@ -4,11 +4,21 @@ import {trackingPresentation} from '../src/studioFeedback.js';
 test('Tracking feedback distinguishes cursor, hand loss, grip and paused modes',()=>{
  assert.equal(trackingPresentation().label,'Cursor mode · ready');
  assert.equal(trackingPresentation({cameraOn:true}).state,'searching');
+ assert.equal(trackingPresentation({cameraOn:true,mouse:true}).label,'Cursor mode · ready');
+ assert.equal(trackingPresentation({cameraOn:true,mouse:true,held:true}).label,'Creating · release to keep');
  assert.equal(trackingPresentation({cameraOn:true,tracked:false,held:true}).state,'searching','lost tracking must never claim a grip');
  assert.equal(trackingPresentation({cameraOn:true,tracked:true,held:true}).state,'held');
  assert.equal(trackingPresentation({cameraOn:true,tracked:true,held:true,palm:false}).label,'Shaping · release your pinch');
  assert.equal(trackingPresentation({paused:true,held:true}).state,'paused');
  assert.equal(trackingPresentation({trying:true}).label,'Try-on mode');
+});
+
+test('Accepting another extrusion keeps a ready cursor message while earlier strokes finish',async()=>{
+ const {studioMessagePresentation}=await import('../src/studioFeedback.js');
+ const state={applying:true,waiting:false,tool:'extrude',cameraOn:true,tracked:true};
+ assert.equal(studioMessagePresentation(state).state,'background');
+ assert.match(studioMessagePresentation(state).label,/Keep creating/);
+ assert.equal(studioMessagePresentation({...state,waiting:true}).state,'applying','a full queue still communicates a real wait');
 });
 
 test('Applying stays visible without a tracked hand and clears to ready when work finishes', async () => {

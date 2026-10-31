@@ -29,6 +29,15 @@ function fixture() {
   return { ui, result, target, styles, clicks: () => clicks };
 }
 
+test('Mouse mode ignores hand dwell and slider gestures',()=>{
+  const {ui,result,clicks}=fixture();ui.controlMode='mouse';
+  for(const now of [0,100,300,600,900,1200]) {
+    const response=ui.receive(result,now);
+    assert.deepEqual(response,{owns:false,index:null,missing:false});
+  }
+  assert.equal(ui.cursor.hidden,true);assert.equal(ui.sizeDrag,undefined);assert.equal(clicks(),0);
+});
+
 test('Palm cursor exposes one timestamped gesture decision for sculpting and clears it on reset',()=>{
   const {ui}=fixture();ui.controlMode='palm';ui.hit=()=>null;
   const sample=closed=>({landmarks:[palmHand(closed)],handedness:[[{categoryName:'Left'}]]});

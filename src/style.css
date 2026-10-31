@@ -577,6 +577,7 @@ body.play-area-fullscreen { overflow: hidden; }
 .tutorial-overlay[data-motion="ui"] .mission-hand { transform:none; left:calc(var(--mission-hand-size,100px) * var(--gesture-tip-x,-.3740)); top:calc(var(--mission-hand-size,100px) * var(--gesture-tip-y,-.0762)); }
 .tutorial-overlay[data-motion="ui"] .mission-open { animation:none; opacity:1; }
 .tutorial-overlay[data-motion="ui"] .mission-pinched { display:none; }
+.tutorial-overlay[data-control-mode="mouse"] .mission-hand { display:none; }
 .studio-tutorial[data-lesson="ui"] #tutorial-next { min-width:160px; min-height:64px; box-shadow:0 0 0 4px #d2e4c8; }
 @keyframes mission-ui-hover { 0%,15% { transform:translate(-65px,0); opacity:.45; } 40%,85% { transform:translate(0,0); opacity:.9; } 100% { transform:translate(-65px,0); opacity:.45; } }
 
@@ -636,7 +637,7 @@ html[data-studio-theme] .hand-ui-cursor { --cursor-color:var(--ui-focus); }
 .studio-theme-description { grid-column:1/-1; font-size:12px; line-height:1.5; }
 .studio-theme-selected { font-size:12px; align-self:center; }
 html[data-studio-theme] .hand-panel .studio-theme-card[aria-pressed="true"] { background:var(--ui-soft); color:var(--ink); border:2px solid var(--selected-fill); box-shadow:none; }
-html[data-studio-theme] .stage:has(#hand-panel:not([hidden])) .stage-selfie { visibility:hidden; }
+html[data-studio-theme] .stage:has(#hand-panel:not([hidden])) :is(.stage-selfie,#studio-size-tab,.stage-size-control) { visibility:hidden; }
 html[data-studio-theme] .stage-size-control input { accent-color:var(--selected-fill); }
 
 /* All controls share these rules, including dialogs and less-used setup flows. */
@@ -814,16 +815,16 @@ html[data-studio-theme] .stage-size-control input { accent-color:var(--selected-
 #stage #scene-hint,#stage #hand-feedback,#stage .surface-status { display:none !important; }
 
 /* The size tray mirrors the left tools, with a quiet handle at the right edge. */
-#stage { --right-control-inset:28px; --right-control-size:60px; }
+#stage { --right-control-inset:28px; --right-control-size:60px; --right-control-top:27px; --right-control-gap:12px; --size-control-top:calc(var(--right-control-top) + var(--right-control-size) + var(--right-control-gap) + var(--right-control-size) + var(--right-control-gap)); }
 :root[data-studio-theme] #app .stage-size-control {
- top:50%; left:auto; right:var(--right-control-inset); bottom:auto; width:min(300px,calc(100% - 125px)); min-width:0;
- transform:translateY(-50%); z-index:12; transition:transform .22s ease,opacity .18s ease;
+ top:var(--size-control-top); left:auto; right:var(--right-control-inset); bottom:auto; width:min(300px,calc(100% - 125px)); min-width:0;
+ transform:none; z-index:9; transition:transform .22s ease,opacity .18s ease;
 }
 :root[data-studio-theme] #app .size-collapsed .stage-size-control {
- transform:translate(calc(100% + 32px),-50%); opacity:0; pointer-events:none;
+ transform:translateX(calc(100% + 32px)); opacity:0; pointer-events:none;
 }
 :root[data-studio-theme] #app #studio-size-tab {
- position:absolute; z-index:11; right:12px; top:50%; transform:translateY(-50%); width:56px; min-height:64px;
+ position:absolute; z-index:9; right:12px; top:var(--size-control-top); transform:none; width:56px; min-height:64px;
  border:1px solid var(--line); border-radius:16px; background:var(--ui-panel); color:var(--ink); box-shadow:0 4px 20px #0003;
 }
 :root[data-studio-theme] #app #stage :is(.stage-selfie,#studio-size-tab,.hand-try-done) {
@@ -831,14 +832,16 @@ html[data-studio-theme] .stage-size-control input { accent-color:var(--selected-
  min-height:var(--right-control-size); padding:10px; border-radius:16px;
 }
 :root[data-studio-theme] #app #stage .hand-try-done {
- top:calc(50% + 64px); bottom:auto; max-width:none; transform:none;
+ top:calc(var(--size-control-top) + 100px); bottom:auto; max-width:none; transform:none;
 }
-@media(max-width:760px) {
- #stage { --right-control-inset:12px; --right-control-size:48px; }
+:root[data-studio-theme] #app #stage .stage-selfie { top:var(--right-control-top); }
+@media(max-width:760px),(max-height:500px) {
+ #stage { --right-control-inset:12px; --right-control-size:48px; --right-control-top:18px; --right-control-gap:10px; }
  :root[data-studio-theme] #app .stage-size-control { right:12px; width:min(280px,calc(100% - 112px)); padding:12px 16px; }
  :root[data-studio-theme] #app #studio-size-tab { width:48px; min-height:56px; }
 }
 @media(prefers-reduced-motion:reduce) { :root[data-studio-theme] #app .stage-size-control { transition:none; } }
+@media(max-width:760px) { #stage:not(.size-collapsed) .studio-tracking-status { top:calc(var(--size-control-top) + 96px); } }
 
 /* Icon actions share one scale and keep their names available to assistive tech. */
 #stage .studio-button-label {
@@ -892,7 +895,7 @@ html[data-studio-theme] .stage-size-control input { accent-color:var(--selected-
  #stage .studio-button-icon.studio-clay-icon { width:42px; height:42px; }
  :root[data-studio-theme] #app .hand-panel-grid.hand-options { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
-.stage-save.stage-selfie { top:calc(27px + var(--right-control-size,60px) + 12px) !important; }
+.stage-save.stage-selfie { top:calc(var(--right-control-top,27px) + var(--right-control-size,60px) + var(--right-control-gap,12px)) !important; }
 #mask-collection[hidden], #mask-collection [hidden] { display:none !important; }
 #mask-collection { position:absolute; inset:0; z-index:80; display:flex; align-items:center; justify-content:center; padding:20px; background:#130e26bb; backdrop-filter:blur(12px); overflow:auto; }
 .mask-collection-card { box-sizing:border-box; width:min(560px,100%); max-height:100%; overflow:auto; padding:28px; color:var(--ink,#44382f); background:var(--ui-panel,#fffaf5); border:1px solid var(--line,#d5c3b3); border-radius:22px; box-shadow:0 16px 60px #0005; }

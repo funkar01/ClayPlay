@@ -233,14 +233,16 @@ export class HandUI {
       if(s.trackingIssue)grid.append(button('Copy issue report','tracking-report'));
     } else if (this.page === 'controls') {
       const note=document.createElement('p');note.className='hand-panel-caption';
-      note.textContent='Try both and choose what feels natural. Your choice is remembered.';grid.append(note);
-      for(const [mode,label]of [['index','Index & pinch'],['palm','Palm & grip']]) {
+      note.textContent='Choose how you create. Your choice is remembered.';grid.append(note);
+      for(const [mode,label]of [['index','Index & pinch'],['palm','Palm & grip'],['mouse','Mouse cursor']]) {
         const choice=button(label,'control-mode',mode);choice.setAttribute('aria-pressed',String(s.controlMode===mode));grid.append(choice);
       }
-      const timing=document.createElement('p');timing.className='hand-panel-caption';timing.textContent='Button selection speed';grid.append(timing);
-      for(const [ms,label] of [[500,'Quick · 0.5s'],[800,'Relaxed · 0.8s'],[1200,'Steady · 1.2s']]) {const option=button(label,'dwell',String(ms));option.setAttribute('aria-pressed',String((this.selection.dwellMs ?? 800)===ms));grid.append(option);}
+      if(s.controlMode!=='mouse') {
+        const timing=document.createElement('p');timing.className='hand-panel-caption';timing.textContent='Button selection speed';grid.append(timing);
+        for(const [ms,label] of [[500,'Quick · 0.5s'],[800,'Relaxed · 0.8s'],[1200,'Steady · 1.2s']]) {const option=button(label,'dwell',String(ms));option.setAttribute('aria-pressed',String((this.selection.dwellMs ?? 800)===ms));grid.append(option);}
+      }
       const help=document.createElement('p');help.className='hand-panel-caption';
-      help.textContent='Palm: move your palm to aim, close gently to apply, open to release. Hover with an open hand to choose buttons; close and slide to adjust sliders. Keep your wrist visible. One closed hand applies a tool; two fists resize. Use Index control for the whole-mask move gesture.';grid.append(help);
+      help.textContent=s.controlMode==='mouse' ? 'Click a tool to select it. Click and drag on the mask to shape, paint or erase. Drag sliders to adjust them. Hand gestures are off in mouse mode.' : 'Palm: move your palm to aim, close gently to apply, open to release. Hover with an open hand to choose buttons; close and slide to adjust sliders. Keep your wrist visible. One closed hand applies a tool; two fists resize. Use Index control for the whole-mask move gesture.';grid.append(help);
     } else if (this.page === 'masks') {
       const start = Math.max(0, Math.min(this.maskPage, Math.ceil(s.masks.length / 4) - 1)); this.maskPage = start;
       for (const item of s.masks.slice(start * 4, start * 4 + 4)) {
@@ -310,7 +312,7 @@ export class HandUI {
     }
     const scroll = document.createElement('div'); scroll.className = 'hand-panel-scroll';
     scroll.append(button('↑ Up', 'scroll', '-1'), button('↓ Down', 'scroll', '1')); this.panel.append(scroll);
-    const help = document.createElement('p'); help.className = 'hand-panel-help'; help.textContent = this.controlMode === 'palm' ? 'Hold your open palm on a button until the ring fills' : 'Hold your index on a button until the ring fills'; this.panel.append(help);
+    const help = document.createElement('p'); help.className = 'hand-panel-help'; help.textContent = this.controlMode==='mouse' ? 'Click to choose · drag sliders to adjust' : this.controlMode === 'palm' ? 'Hold your open palm on a button until the ring fills' : 'Hold your index on a button until the ring fills'; this.panel.append(help);
     scroll.hidden = this.body.scrollHeight <= this.body.clientHeight + 2;
   }
   syncFinish(value) {
@@ -330,7 +332,7 @@ export class HandUI {
     this.motion.reset();
     this.selection.cancel(); this.cursor.hidden = true; this.cursor.style.setProperty('--dwell-progress', '0deg'); this.highlight?.classList.remove('hand-hover', 'hand-selected'); this.highlight = null;
     this.feedback.hidden = !this.isOpen;
-    if (this.isOpen) this.announce(this.controlMode === 'palm' ? 'Hand lost · show your open palm to continue' : 'Hand lost · show your index finger to continue');
+    if (this.isOpen) this.announce(this.controlMode==='mouse' ? 'Click to choose · drag sliders to adjust' : this.controlMode === 'palm' ? 'Hand lost · show your open palm to continue' : 'Hand lost · show your index finger to continue');
   }
   reset() { this.lose(); this.selection.reset(); this.identity.reset(); }
   suspend(now) {
@@ -374,10 +376,10 @@ export class HandUI {
   }
   nearSizeControl(point) {
     const stage=this.stage.getBoundingClientRect(),panel=this.sizeControl;
-    const middle=stage.top+stage.height/2;
+    const top=stage.top+panel.offsetTop;
     const width=this.sizeVisibility.expanded ? panel.offsetWidth+44 : 110;
-    const height=Math.max(90,panel.offsetHeight/2+35);
-    return point.x>=Math.max(stage.left,stage.right-width) && point.x<=stage.right && Math.abs(point.y-middle)<=height;
+    const height=this.sizeVisibility.expanded ? panel.offsetHeight : (this.sizeTab.offsetHeight || 48);
+    return point.x>=Math.max(stage.left,stage.right-width) && point.x<=stage.right && point.y>=top-8 && point.y<=top+height+8;
   }
   updateSizeControl(now,inputBlocked=false) {
     if(!this.sizeVisibility)return;
@@ -459,6 +461,10 @@ export class HandUI {
   }
   visible(target) { return Boolean(target.getClientRects().length && !target.closest('[hidden], [inert]') && getComputedStyle(target).visibility !== 'hidden'); }
   receive(result, now, { blocked = false, aspect = 1, sampleAt = now } = {}) {
+    if(this.controlMode==='mouse') {
+      if(!this.cursor.hidden || this.lastAt!==null)this.lose();
+      return {owns:false,index:null,missing:false};
+    }
     if (now - sampleAt >= HAND_UI_SAMPLE_AGE_MS) {
       this.suspend(now); return { owns: this.isOpen || Boolean(this.selection.hover), index: null, missing: true };
     }

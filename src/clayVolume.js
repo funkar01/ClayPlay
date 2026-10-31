@@ -66,10 +66,11 @@ export class ClayVolume {
     return field;
   }
 
-  serialize() {
-    return { shape: this.shape, eyeShape: this.eyeShape, field: [...this.field], paint:[...(this.paint ?? [])], paintCell:this.paintCell, extrudeSource:this.extrudeSource?.serialize(), extrusion:this.extrusion,
-      pullWarp: this.pullWarp, pullSource: this.pullSource?.serialize(),
-      cutRegion: this.cutRegion, cutSource: this.cutSource?.serialize() };
+  serialize({includePaint=true} = {}) {
+    const options={includePaint};
+    return { shape: this.shape, eyeShape: this.eyeShape, field: [...this.field], paint:includePaint?[...(this.paint ?? [])]:[], paintCell:this.paintCell, extrudeSource:this.extrudeSource?.serialize(options), extrusion:this.extrusion,
+      pullWarp: this.pullWarp, pullSource: this.pullSource?.serialize(options),
+      cutRegion: this.cutRegion, cutSource: this.cutSource?.serialize(options) };
   }
 
   static fromState(state) {
@@ -121,6 +122,29 @@ export class ClayVolume {
 
   gradient(x, y, z) {
     const h = VOXEL_SIZE * 0.5;
+    const root=this.extrusion?.points[0],reach=this.extrusion ? this.extrusion.radii[0]*2+VOXEL_SIZE : 0;
+    const nearRoot=root && Math.abs(y-root[1])<=reach && Math.abs(z-root[2])<=reach
+      && (Math.abs(x-root[0])<=reach || (this.extrusion.symmetry && Math.abs(x+root[0])<=reach));
+    if(this.extrudeSource && !this.field.size && nearRoot) {
+      // Reuse the same six source-distance evaluations that the extrusion
+      // field needs. Blend shading normals back to the original skin at the
+      // join; a sub-voxel crease otherwise creates dark, jagged little faces.
+      // This changes lighting only, never positions, density, or topology.
+      const field=this.extrudeSource;
+      const xp=field.sample(x+h,y,z),xm=field.sample(x-h,y,z),yp=field.sample(x,y+h,z),ym=field.sample(x,y-h,z),zp=field.sample(x,y,z+h),zm=field.sample(x,y,z-h);
+      const sample=(a,b,c,d)=>this.peekNodeSample?.(a,b,c) ?? blendExtrusion(d,extrusionDistance(a,b,c,this.extrusion,d+.035),this.extrusion.radii[0]);
+      const normal=new THREE.Vector3(sample(x+h,y,z,xp)-sample(x-h,y,z,xm),sample(x,y+h,z,yp)-sample(x,y-h,z,ym),sample(x,y,z+h,zp)-sample(x,y,z-h,zm)).normalize();
+      const skin=new THREE.Vector3(xp-xm,yp-ym,zp-zm);
+      if(skin.lengthSq()<1e-20)return normal;
+      const clearance=(xp+xm+yp+ym+zp+zm)/6;
+      const blend=THREE.MathUtils.smoothstep(clearance,0,VOXEL_SIZE*2);
+      skin.normalize().lerp(normal,blend);
+      if(skin.lengthSq()<1e-20 || skin.dot(normal)<0)return normal;
+      // Keep the actual field normal for face winding; softened lighting
+      // must never flip a triangle or change the surface topology.
+      skin.normalize();skin.fieldNormal=normal;
+      return skin;
+    }
     return new THREE.Vector3(
       this.sample(x + h, y, z) - this.sample(x - h, y, z),
       this.sample(x, y + h, z) - this.sample(x, y - h, z),
@@ -261,7 +285,7 @@ export class ClayVolume {
       if(inside.length===1)crossings=outside.map(c=>crossing(inside[0],c));
       else if(outside.length===1)crossings=inside.map(c=>crossing(c,outside[0]));
       else crossings=[crossing(inside[0],outside[0]),crossing(inside[0],outside[1]),crossing(inside[1],outside[1]),crossing(inside[1],outside[0])];
-      const normal=crossings.reduce((sum,item)=>sum.add(item.normal),new THREE.Vector3());
+      const normal=crossings.reduce((sum,item)=>sum.add(item.normal.fieldNormal ?? item.normal),new THREE.Vector3());
       emitTriangle(crossings[0],crossings[1],crossings[2],normal);
       if(crossings.length===4)emitTriangle(crossings[0],crossings[2],crossings[3],normal);
     };

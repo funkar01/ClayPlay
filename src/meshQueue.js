@@ -9,7 +9,7 @@ let busy = false;
 let activeId = null;
 const volumes = new Map();
 let scheduled = false;
-function installBrick(volume,{key,positions,normals,tints}) {
+function installBrick(volume,{key,positions,normals,tints,bounds}) {
   const old=volume.bricks.get(key);
   if(old){volume.parent.remove(old.mesh);old.mesh.geometry.dispose();volume.bricks.delete(key);}
   if(!positions.length)return;
@@ -17,6 +17,7 @@ function installBrick(volume,{key,positions,normals,tints}) {
   geometry.setAttribute('position',new THREE.BufferAttribute(positions,3));
   geometry.setAttribute('normal',new THREE.BufferAttribute(normals,3));geometry.computeBoundingSphere();
   if(tints)geometry.setAttribute('extrudeColor',new THREE.BufferAttribute(tints,4));
+  if(bounds)geometry.boundingBox=new THREE.Box3(new THREE.Vector3(...bounds.min),new THREE.Vector3(...bounds.max));
   applyVertexPaint(volume,geometry);
   const mesh=new THREE.Mesh(geometry,volume.material);mesh.name=`ClayBrick_${key}`;
   volume.parent.add(mesh);volume.bricks.set(key,{mesh});
@@ -46,7 +47,10 @@ function pump() {
   diagnostics.meshPending = entry.keys.size;
   // Bound worker jobs; publish their results together after the last batch.
   const keys = [...entry.keys].slice(0, 4);
-  worker.postMessage({ id: entry.id, generation: entry.generation, shape: entry.volume.shape, state: entry.reset ? entry.volume.serialize() : undefined, keys, edits: [...entry.edits], reset: entry.reset, step:1 });
+  worker.postMessage({ id: entry.id, generation: entry.generation, shape: entry.volume.shape,
+    state: entry.reset && !entry.appendExtrusion ? entry.volume.serialize({includePaint:false}) : undefined,
+    appendExtrusion:entry.appendExtrusion, keys, edits: [...entry.edits], reset: entry.reset, step:1 });
+  entry.appendExtrusion=null;
   keys.forEach(key => entry.keys.delete(key)); entry.edits.clear(); entry.reset = false;
 }
 export function attachMeshQueue(volume) {
@@ -85,7 +89,14 @@ export function attachMeshQueue(volume) {
   entry.cleanup=cleanup;
   return {
     edit(key, value) { cleanup.pause(); entry.edits.set(key, value); },
-    reset() { cleanup.pause(); entry.generation++; entry.keys.clear(); entry.edits.clear(); entry.staged.clear(); entry.reset = true; },
+    reset() { cleanup.pause(); entry.generation++; entry.keys.clear(); entry.edits.clear(); entry.staged.clear(); entry.appendExtrusion=null;entry.reset = true; },
+    appendExtrusion(stroke) {
+      // Reuse only a completely published source. Other geometry edits mark
+      // reset=true and fall back to sending the full authoritative state.
+      const reusable=!entry.reset && !entry.keys.size && !(busy && activeId===entry.id);
+      cleanup.pause();entry.generation++;entry.keys.clear();entry.edits.clear();entry.staged.clear();
+      entry.appendExtrusion=reusable?stroke:null;entry.reset=true;
+    },
     brick(key) { cleanup.pause(); entry.keys.add(key); schedule(); },
     get pending() { return entry.keys.size > 0 || (busy && activeId === entry.id); },
     get refining() {return cleanup.pending;},
@@ -96,7 +107,7 @@ export function attachMeshQueue(volume) {
     remeshSurface(keys) {cleanup.request(keys);},
     prioritize() {},
     flush() {schedule();},
-    invalidate() { cleanup.pause(); entry.generation++; entry.keys.clear(); entry.edits.clear(); entry.staged.clear(); entry.reset = true; },
+    invalidate() { cleanup.pause(); entry.generation++; entry.keys.clear(); entry.edits.clear(); entry.staged.clear(); entry.appendExtrusion=null;entry.reset = true; },
     dispose() { cleanup.dispose(); volumes.delete(entry.id); worker.postMessage({ id: entry.id, remove: true }); },
   };
 }

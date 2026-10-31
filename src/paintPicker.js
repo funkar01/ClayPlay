@@ -60,7 +60,7 @@ export class PaintPicker {
   setControlMode(mode) {
     if(this.controlMode===mode)return;
     this.controlMode=mode;
-    this.element.querySelector('#paint-slider-help').textContent=mode==='palm' ? 'Close your hand and slide · open to finish. Mouse, touch and arrow keys work too.' : 'Pinch and slide · release to finish. Mouse, touch and arrow keys work too.';
+    this.element.querySelector('#paint-slider-help').textContent=mode==='mouse' ? 'Click and drag to mix · touch and arrow keys work too.' : mode==='palm' ? 'Close your hand and slide · open to finish. Mouse, touch and arrow keys work too.' : 'Pinch and slide · release to finish. Mouse, touch and arrow keys work too.';
   }
   setColor(color) {
     this.color=color.toLowerCase();this.hsv=hexToHsv(this.color,this.hsv?.[0]);this.render();

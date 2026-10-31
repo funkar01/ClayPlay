@@ -53,7 +53,7 @@ export class SurfaceCleanup {
   send(epoch,reset) {
     const keys=this.keys.splice(0,2);
     if(!keys.length){this.running=false;this.needed=false;return;}
-    this.worker.postMessage({id:1,generation:epoch,shape:this.volume.shape,state:reset?this.volume.serialize():undefined,keys,edits:[],reset,step:1});
+    this.worker.postMessage({id:1,generation:epoch,shape:this.volume.shape,state:reset?this.volume.serialize({includePaint:false}):undefined,keys,edits:[],reset,step:1});
   }
   stopAfterError(message) {
     // The saved field and visible mesh are already valid. Optional cleanup

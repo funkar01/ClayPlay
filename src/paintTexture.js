@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { trackingTrace } from './trackingTrace.js';
 import { PaintTextureQueue } from './paintTextureQueue.js';
 import { fillPaintTexture } from './paintTextureData.js';
+import { createPaintSampler } from './paintSampling.js';
 
 export const canBuildPaintInWorker=volume=>typeof Worker!=='undefined' && typeof volume.serialize==='function';
 
@@ -86,7 +87,7 @@ export function syncPaintTexture(state,volume,sample,hasPaint) {
       const p=id.split(',').map(Number).map((v,i)=>Math.round((v*cell-min[i])/spacing));
       const index=((p[2]*size[1]+p[1])*size[0]+p[0])*4;
       for(let c=0;c<4;c++)pixels[index+c]=Math.round(THREE.MathUtils.clamp(color[c],0,1)*255);
-    } else fillPaintTexture(pixels,{min,size,spacing,lo,hi},(x,y,z)=>sample(volume,x,y,z));
+    } else fillPaintTexture(pixels,{min,size,spacing,lo,hi},inherited?createPaintSampler(volume):(x,y,z)=>sample(volume,x,y,z));
     if(rebuild)installTexture(state,plan,pixels);
     else {state.pendingBuild=false;state.texture.needsUpdate=true;state.uniforms.paintEnabled.value=1;}
   }

@@ -16,3 +16,14 @@ test('Nested source caches reuse grid samples while preserving overlay edits',()
   const key=volume.nodeKey(...points[0]);volume.field.set(key,1);assert.equal(volume.nodeValue(...points[0]),1);
   volume.field.delete(key);assert.equal(volume.nodeValue(...points[0]),expected[0]);
 });
+
+test('Later extrusion layers reuse source grid samples without wrapping caches again',()=>{
+  const source=ClayVolume.fromState({shape:'full',field:[]});let samples=0;
+  const original=source.baseDistance.bind(source);source.baseDistance=(...p)=>{samples++;return original(...p);};
+  cacheVolumeNodes(source);const cachedSample=source.sample;
+  const point=[-2.4+100*.025,-2.4+110*.025,-2.4+120*.025];
+  const expected=source.sample(...point);const before=samples;
+  for(let i=0;i<30;i++)assert.equal(source.sample(...point),expected);
+  assert.equal(samples,before);cacheVolumeNodes(source);assert.equal(source.sample,cachedSample);
+  assert.equal(source.sample(.51343,.38798,.41234),original(.51343,.38798,.41234),'off-grid evaluation must not be rounded');
+});

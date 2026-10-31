@@ -5,7 +5,7 @@ import { DockVisibility } from '../src/dockVisibility.js';
 
 function fixture() {
   const ui=Object.create(HandUI.prototype), classes=new Map();
-  const panel={offsetWidth:300,offsetHeight:100,attrs:{},contains:target=>target==='slider',setAttribute(key,value){this.attrs[key]=value;}};
+  const panel={offsetTop:171,offsetWidth:300,offsetHeight:100,attrs:{},contains:target=>target==='slider',setAttribute(key,value){this.attrs[key]=value;}};
   Object.assign(ui,{
     sizeVisibility:new DockVisibility({pinned:false,expanded:false}),sizeControl:panel,
     sizeTab:{attrs:{},setAttribute(key,value){this.attrs[key]=value;}},
@@ -15,13 +15,13 @@ function fixture() {
   return {ui,panel,classes};
 }
 
-test('Size tray starts hidden and only the middle right edge reveals it',()=>{
+test('Size tray starts hidden and reveals below Save, away from its former middle position',()=>{
   const {ui,panel,classes}=fixture();
   ui.updateSizeControl(0);assert.equal(panel.inert,true);assert.equal(classes.get('size-collapsed'),true);
-  assert.equal(ui.nearSizeControl({x:1400,y:500}),true);
-  for(const point of [{x:1100,y:500},{x:1400,y:100},{x:1450,y:500}])assert.equal(ui.nearSizeControl(point),false);
+  assert.equal(ui.nearSizeControl({x:1400,y:200}),true);
+  for(const point of [{x:1100,y:200},{x:1400,y:130},{x:1400,y:500},{x:1450,y:200}])assert.equal(ui.nearSizeControl(point),false);
   ui.mouseNearSize=true;ui.updateSizeControl(20);assert.equal(panel.inert,false);
-  assert.equal(ui.nearSizeControl({x:1130,y:500}),true,'expanded tray includes the full slider');
+  assert.equal(ui.nearSizeControl({x:1130,y:200}),true,'expanded tray includes the full slider');
   assert.equal(ui.sizeTab.hidden,true);
 });
 
@@ -40,9 +40,9 @@ test('Size tray stays open throughout pointer, grip and keyboard adjustments',()
 test('Closed or blocked hands cannot reveal the size tray; stale proximity expires',()=>{
   const {ui,panel}=fixture();ui.dockVisibility={};
   ui.nearDock=()=>false;ui.updateDock=(now,blocked)=>ui.updateSizeControl(now,blocked);
-  ui.recordDockHand({x:1400,y:500},10,false);assert.equal(panel.inert,true);
-  ui.recordDockHand({x:1400,y:500},20,true);assert.equal(panel.inert,false);
+  ui.recordDockHand({x:1400,y:200},10,false);assert.equal(panel.inert,true);
+  ui.recordDockHand({x:1400,y:200},20,true);assert.equal(panel.inert,false);
   ui.updateSizeControl(100);assert.equal(panel.inert,false);
   ui.updateSizeControl(1600);assert.equal(panel.inert,true);
-  ui.getState=()=>({busy:true});ui.recordDockHand({x:1400,y:500},1700,true);assert.equal(panel.inert,true);
+  ui.getState=()=>({busy:true});ui.recordDockHand({x:1400,y:200},1700,true);assert.equal(panel.inert,true);
 });

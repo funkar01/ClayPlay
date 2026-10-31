@@ -126,12 +126,21 @@ const pinchGesture = new PinchGesture();
 const palmControl = new PalmControl();
 let palmControlState=null;
 let controlMode='palm';
-try { const saved=localStorage.getItem('clayplay-control-mode'); if(['index','palm'].includes(saved))controlMode=saved; } catch {}
+try { const saved=localStorage.getItem('clayplay-control-mode'); if(['index','palm','mouse'].includes(saved))controlMode=saved; } catch {}
 function setControlMode(mode) {
-  if(!['index','palm'].includes(mode) || mode===controlMode)return;
+  if(!['index','palm','mouse'].includes(mode) || mode===controlMode)return;
   cancelMouseStroke();setResizeMode(false);finishMoveStroke();
   controlMode=mode;palmControl.reset();palmControlState=null;handMotion.reset();
-  poseTarget=null;poseDisplayed=null;smoothedPoints=null;handUI?.reset();
+  poseTarget=null;poseDisplayed=null;smoothedPoints=null;gapStartedAt=null;handUICaptured=false;
+  handModel.visible=false;clearPreview();
+  if(handUI){handUI.controlMode=mode;handUI.reset();}
+  if(mode==='mouse') {
+    trackingEpoch++;handFramePump?.stop();
+    comfortSetup.card.hidden=true;dismissStudioMessage();
+    setStatus('ready','CURSOR MODE');landmarkCount.textContent='MOUSE CURSOR';
+  } else if(stream && !tryOn.enabled) {
+    if(landmarker)scheduleHandTracking();else startTracking();
+  }
   try {localStorage.setItem('clayplay-control-mode',mode);}catch{}
   showToolInstructions();
 }
@@ -259,7 +268,7 @@ const comfortSetup = new ComfortSetup({
     if (!stream) await startCamera();
     else if (!landmarker) await startTracking();
   },
-  onReady: (cursor = false) => { if (cursor) stopCamera(); sceneHint.hidden = false; studioTutorial.start(); },
+  onReady: (cursor = false) => { if (cursor) {setControlMode('mouse');stopCamera();} sceneHint.hidden = false; studioTutorial.start(); },
 });
 video.addEventListener('resize', () => {
   if (arView.live) { cancelMouseStroke(); poseTarget = null; poseDisplayed = null; smoothedPoints = null; }
@@ -309,7 +318,7 @@ async function startTryOn() {
     const tracker = await TrackingClient.create('face', signal);
     if (epoch !== faceEpoch || !tryOn.enabled) { tracker.close(); return; }
     faceTracker = tracker; lastFaceVideoTime = -1; nextFaceTrackingAt = 0;
-    if (!landmarker) {
+    if (!landmarker && controlMode!=='mouse') {
       const hands = await createLandmarker();
       if (epoch !== faceEpoch || !tryOn.enabled) { hands.close(); return; }
       landmarker = hands;
@@ -440,7 +449,9 @@ function updateBrushFeedback(now) {
       if (pinchCue.visible) pinchCue.position.copy(aim);
     }
   }
-  const applying = !tryOn.enabled && (isBrushApplying() || deformationApplying(clayVolume));
+  // A live preview can accept new strokes while older extrusions commit.
+  // Replace the cursor only for real backpressure, not background progress.
+  const applying = !tryOn.enabled && isBrushApplying();
   const showLoading = applying && !resizeEnabled && !handUI?.isOpen && !editingPaused;
   handUI?.cursor.classList.toggle('is-applying', showLoading);
   brushCue.material.color.set('#286743');
@@ -623,8 +634,10 @@ resizeButton.addEventListener('pointerdown', event => event.stopPropagation());
 updateResizeControl();
 
 function processHandResult(result, now, sampleAt = now) {
+  if(controlMode==='mouse')return;
   trackingTrace.record('tracking-result',{sampleAgeMs:now-sampleAt,hands:result.landmarks?.length??0,grabbing:Boolean(previousPullPoint),held:pinchActive,meshPending:Boolean(clayVolume.meshQueue?.pending)});
   const inputStream = stream;
+  const inputControlMode = controlMode;
   const wasTrying = tryOn.enabled;
   const editingMask = Boolean(previousPullPoint || cutStroke || palmMove.active || twoHandScale.active || pinchActive);
   const active = editingMask || moveIntent;
@@ -646,7 +659,9 @@ function processHandResult(result, now, sampleAt = now) {
   const ui = handUI?.receive(result, now, { blocked: editingMask && !tryOn.enabled, aspect: video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 1, sampleAt });
   // A hand-selected camera shutdown must not reclaim input for that last
   // tracking frame after stopCamera has handed editing back to the cursor.
-  if (inputStream && stream !== inputStream) { handUICaptured = false; return; }
+  // receive() can select Mouse Cursor synchronously through a hand dwell.
+  // Its old hand/UI ownership must not reclaim input after the mode reset.
+  if (controlMode !== inputControlMode || (inputStream && stream !== inputStream)) { handUICaptured = false; return; }
   // A hand-selected return changes modes inside receive(). Do not sculpt
   // with the same frame that just selected Back to creating.
   if (wasTrying || tryOn.enabled) return;
@@ -1082,7 +1097,7 @@ function renderScene() {
   const surfaceText=building ? (canContinue ? 'Keep creating · saving strokes in the background' : 'Keeping your change · choose your next tool or brush size') : 'Ready to create · surface cleanup in background';
   if(surfaceStatus.textContent!==surfaceText)surfaceStatus.textContent=surfaceText;
   surfaceStatus.dataset.phase=building ? 'building' : 'refining';
-  studioFeedback.update({cameraOn:Boolean(stream),tracked:now-lastHandAt<600,held:pinchActive||mousePinching,paused:editingPaused,trying:tryOn.enabled,palm:controlMode==='palm',tool:activeTool,
+  studioFeedback.update({cameraOn:Boolean(stream),mouse:controlMode==='mouse',tracked:now-lastHandAt<600,held:pinchActive||mousePinching,paused:editingPaused,trying:tryOn.enabled,palm:controlMode==='palm',tool:activeTool,
     applying:deformationApplying(clayVolume) || isBrushApplying(),waiting:isBrushApplying()});
   animationFrame = requestAnimationFrame(renderScene);
 }
@@ -1153,7 +1168,7 @@ function palmInstruction(text) {
   return text.replace(/keep your fingers pinched/gi,'keep your hand closed').replace(/pinching/gi,'holding your hand closed').replace(/pinched/gi,'closed').replace(/pinch/gi,'close your hand').replace(/your index(?: finger)?/gi,'your palm').replace(/open your fingers/gi,'open your hand');
 }
 
-function cursorInputEnabled() { return !maskUnveiling?.visible && !maskCollectionUI?.visible && !comfortSetup.active && !stream && !cameraOpening && !tryOn.enabled; }
+function cursorInputEnabled() { return !maskUnveiling?.visible && !maskCollectionUI?.visible && !comfortSetup.active && (controlMode==='mouse' || !stream) && !cameraOpening && !tryOn.enabled; }
 
 function showToolInstructions() {
   const details = toolDetails();
@@ -1754,6 +1769,7 @@ function pauseTracking(now,reason='tracking-pause') {
 }
 
 function showNoHand(now,reason='hand-unavailable') {
+  if(controlMode==='mouse')return;
   setResizeMode(false);
   pauseTracking(now,reason);
   if (now - gapStartedAt <= 700) {
@@ -1800,14 +1816,14 @@ function scheduleHandTracking() {
   // until the previous inference settles, preventing overlapping hand jobs.
   handFramePump ??= new VideoFramePump(video, frame => trackingLoop(trackingEpoch, frame), {
     interval: () => Math.max(landmarker?.minInterval ?? 0, tryOn.enabled ? 80 : 0),
-    canRun: () => Boolean(stream && landmarker),
+    canRun: () => Boolean(stream && landmarker && controlMode!=='mouse'),
   });
   handFramePump.start();
 }
 
 async function trackingLoop(epoch, frame) {
   const tracker = landmarker;
-  if (!stream || !tracker || epoch !== trackingEpoch) return false;
+  if (!stream || !tracker || epoch !== trackingEpoch || controlMode==='mouse') return false;
   let phase = 'frame capture / inference';
   try {
     if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
@@ -1918,6 +1934,10 @@ async function createLandmarker() {
 
 async function startTracking() {
   if (tryOn.enabled) return;
+  if(controlMode==='mouse') {
+    handFramePump?.stop();cameraButton.disabled=false;buttonLabel.textContent='Camera on';
+    cameraButton.classList.add('is-secondary');showToolInstructions();return;
+  }
   cameraButton.disabled = true;
   buttonLabel.textContent = 'Loading tracking…';
   setStatus('loading', 'SETTING UP');
@@ -2082,6 +2102,7 @@ cameraButton.addEventListener('click', () => {
 });
 
 mouseButton.addEventListener('click', () => {
+  setControlMode('mouse');
   stopCamera();
 });
 
@@ -2448,7 +2469,8 @@ document.addEventListener('sculpt-save-pending',()=>{
 // and mesh state. Camera data is never retained or transmitted by this hook.
 window.clayPlayTrackingReport=()=>JSON.stringify({diagnostics,...trackingTrace.report()},null,2);
 sceneHint.hidden = true;
-comfortSetup.open(() => Boolean(stream && landmarker));
+if(controlMode==='mouse'){dismissStudioMessage();showToolInstructions();}
+else comfortSetup.open(() => Boolean(stream && landmarker));
 if (new URLSearchParams(location.search).has('diagnostics')) {
   window.clayPlayDebug = { objects: clayObjects, camera, tryOn,
     feedHands: (hands, now, { sampleAt = now, handedness } = {}) => processHandResult({ landmarks: hands, handedness }, now, sampleAt),

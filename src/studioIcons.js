@@ -55,7 +55,7 @@ function iconKey(button, label) {
   if (action === 'page') return ({ more: /cancel/i.test(label) ? 'close' : 'back', themes: 'palette', controls: 'hand', masks: 'mask', eyes: 'eyes', colors: 'palette', custom: 'palette' })[value];
   if (action === 'sound') return /off/i.test(label) ? 'muted' : 'sound';
   if (action === 'music') return /off/i.test(label) ? 'muted' : 'music';
-  if (action === 'control-mode') return value === 'palm' ? 'hand' : 'pinch';
+  if (action === 'control-mode') return value==='mouse' ? 'cursor' : value === 'palm' ? 'hand' : 'pinch';
   if (action === 'pause') return /resume/i.test(label) ? 'play' : 'pause';
   if (action === 'scroll' || paintScroll) return Number(value ?? paintScroll) < 0 ? 'upper' : 'lower';
   if (action === 'mask-page') return Number(value) < 0 ? 'undo' : 'next';

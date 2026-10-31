@@ -11,7 +11,7 @@ export function shuffledTracks(tracks, random = Math.random, last = null) {
 // work or preloading of the playlist. Each shuffled round uses every track.
 export class BackgroundMusic {
   constructor({ tracks=[], volume=.07, random=Math.random, createAudio=()=>new Audio(),
-    storage=globalThis.localStorage, schedule=setTimeout, cancel=clearTimeout }={}) {
+    storage=globalThis.localStorage, schedule=(callback,ms)=>globalThis.setTimeout(callback,ms), cancel=id=>globalThis.clearTimeout(id) }={}) {
     Object.assign(this,{tracks:[...new Set(tracks)],volume,random,createAudio,storage,schedule,cancel});
     this.enabled=true;this.foreground=true;this.bag=[];this.failed=new Set();
     try {this.enabled=storage?.getItem('clayplay-music')!=='off';}catch{}

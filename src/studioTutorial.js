@@ -94,6 +94,9 @@ export class StudioTutorial {
     this.refreshControlGuidance();
   }
   instruction(text) {
+    if(this.getControlMode()==='mouse')return text.replace(/pinch thumb and index together/gi,'click and hold').replace(/pinch/gi,'click and hold')
+      .replace(/open your fingers|open your palm|open your hand/gi,'release the mouse button').replace(/point your index/gi,'move your cursor')
+      .replace(/point at/gi,'move your cursor to').replace(/point here/gi,'cursor here');
     if (this.getControlMode() !== 'palm') return text;
     return text.replace(/pinch thumb and index together/gi, 'close your palm')
       .replace(/pinch/gi, 'close your palm').replace(/open your fingers/gi, 'open your palm')
@@ -103,13 +106,19 @@ export class StudioTutorial {
   refreshControlGuidance() {
     this.guideMode = this.getControlMode();
     const palm = this.guideMode === 'palm';
+    const mouse = this.guideMode === 'mouse';
+    this.overlay.dataset.controlMode=this.guideMode;
+    if(this.phase==='ui') {
+      this.card.querySelector('#tutorial-title').textContent=mouse ? 'Your mouse is the cursor.' : this.mission.title;
+      this.card.querySelector('#tutorial-step').textContent=mouse ? '1 · MOUSE CURSOR' : '1 · HAND CURSOR';
+    }
     // Cursor hotspot is the fingertip inside each transparent 512px icon,
     // rather than the icon's bounding box or the center of the hand.
     this.overlay.style.setProperty('--gesture-tip-x',palm?'-.4873':'-.3740');
     this.overlay.style.setProperty('--gesture-tip-y',palm?'-.0410':'-.0762');
     this.overlay.querySelector('.mission-open').style.setProperty('--gesture-icon',`url("${palm ? openPalmIcon : selectIcon}")`);
     this.overlay.querySelector('.mission-pinched').style.setProperty('--gesture-icon',`url("${palm ? closedPalmIcon : pinchIcon}")`);
-    this.card.querySelector('#tutorial-copy').textContent = this.phase==='ui' && palm
+    this.card.querySelector('#tutorial-copy').textContent = this.phase==='ui' && mouse ? 'Click the Next button below to begin.' : this.phase==='ui' && palm
       ? 'Move your open palm over the Next button below and hold until it is selected.'
       : this.mission.copy && this.instruction(this.mission.copy);
   }

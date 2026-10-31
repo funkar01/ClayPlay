@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { taperedStroke } from './extrudeGeometry.js';
 import { checkpoint } from './sculptHistory.js';
 import { spanningSurfaceRegions, expandSurfaceRebuildKeys } from './surfaceBricks.js';
+import { enablePaintMaterial } from './paintLayer.js';
 
 export class SurfaceExtrude {
   constructor(volume,onChange) { this.volume=volume; this.onChange=onChange; this.queue=[]; }
@@ -16,6 +17,13 @@ export class SurfaceExtrude {
     v.meshQueue?.pauseRefinement?.();
     this.radius=Math.min(.16,Math.max(.04,radius*.4)); this.symmetry=symmetry;
     this.color=color===null ? null : new THREE.Color(color).toArray();
+    if(!this.previewMaterial) {
+      // Copy appearance, not the paint texture's circular runtime state.
+      const appearance=Object.create(v.material);appearance.userData={};
+      this.previewMaterial=new v.material.constructor().copy(appearance);enablePaintMaterial(this.previewMaterial);
+      v.material.addEventListener('dispose',()=>{this.previewMaterial?.dispose();this.previewMaterial=null;});
+    }
+    this.previewMaterial.roughness=v.material.roughness;
     // Embed the attachment slightly into the existing shell, keeping the root flush.
     this.points=[anchor.clone().add(new THREE.Vector3(0,0,-this.radius*.55))]; this.active=true;
     this.preview=new THREE.Group(); v.parent.add(this.preview);
@@ -68,9 +76,9 @@ export class SurfaceExtrude {
     const add=mesh=>{mesh.geometry.setAttribute('paintColor',new THREE.BufferAttribute(new Float32Array(mesh.geometry.attributes.position.count*4),4));
       if(this.color){const tint=new Float32Array(mesh.geometry.attributes.position.count*4);for(let i=0;i<tint.length;i+=4)tint.set([...this.color,1],i);mesh.geometry.setAttribute('extrudeColor',new THREE.BufferAttribute(tint,4));}
       this.preview.add(mesh);if(this.symmetry){const twin=mesh.clone();twin.position.x*=-1;twin.scale.x=-1;this.preview.add(twin);}};
-    add(new THREE.Mesh(geometry,this.volume.material));
+    add(new THREE.Mesh(geometry,this.previewMaterial));
     for(const i of [centers.length-1]) {
-      const cap=new THREE.Mesh(new THREE.SphereGeometry(this.stroke.radii[i],32,20),this.volume.material);
+      const cap=new THREE.Mesh(new THREE.SphereGeometry(this.stroke.radii[i],32,20),this.previewMaterial);
       cap.geometry.translate(centers[i].x,centers[i].y,centers[i].z); add(cap);
     }
   }
@@ -99,7 +107,7 @@ export class SurfaceExtrude {
       v.pullSource=null; v.pullWarp=null; v.cutSource=null; v.cutRegion=null; v.field.clear();
       v.paint=new Map();
       this.committing=true;
-      v.meshQueue?.reset();
+      if(v.meshQueue?.appendExtrusion)v.meshQueue.appendExtrusion(stroke);else v.meshQueue?.reset();
       // Union changes only cells near the new path; keep the rest of the mask.
       const paths=[stroke.points];
       if(symmetry) paths.push(stroke.points.map(p=>[-p[0],p[1],p[2]]));
@@ -110,7 +118,10 @@ export class SurfaceExtrude {
         const high=[0,1,2].map(a=>Math.floor((Math.max(...points.map(p=>p[a]))+padding+2.4)/cell));
         for(let z=low[2];z<=high[2];z++)for(let y=low[1];y<=high[1];y++)for(let x=low[0];x<=high[0];x++)keys.add(`${x},${y},${z}`);
       }
-      const regions=spanningSurfaceRegions([...v.bricks].map(([key,{mesh}])=>({key,positions:mesh.geometry.attributes.position.array})));
+      const regions=spanningSurfaceRegions([...v.bricks].map(([key,{mesh}])=>{
+        mesh.geometry.boundingBox ??=new THREE.Box3().setFromBufferAttribute(mesh.geometry.attributes.position);
+        return {key,positions:mesh.geometry.attributes.position.array,bounds:{min:mesh.geometry.boundingBox.min.toArray(),max:mesh.geometry.boundingBox.max.toArray()}};
+      }));
       for(const key of expandSurfaceRebuildKeys(keys,regions)) v.rebuildBrick(...key.split(',').map(Number));
       this.onChange();
       // New strokes keep their own visible previews while full-detail commits

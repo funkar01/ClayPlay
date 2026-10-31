@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { syncPaintTexture,canBuildPaintInWorker } from './paintTexture.js';
 import { inverseWarp } from './maskWarp.js';
 import { applyExtrusionTint } from './extrusionTint.js';
+import { inheritsExtrusionPaint } from './extrusionMaterials.js';
 
 export const PAINT_CELL=.02;
 const empty=[0,0,0,0];
@@ -12,7 +13,7 @@ export function hasPaint(volume) {
 function inherited(volume,x,y,z) {
   if(volume.pullSource)return hasPaint(volume.pullSource)?samplePaint(volume.pullSource,...inverseWarp(x,y,z,volume.pullWarp)):empty;
   if(volume.cutSource)return samplePaint(volume.cutSource,x,y,z);
-  if(volume.extrudeSource && hasPaint(volume.extrudeSource) && volume.extrudeSource.sample(x,y,z)<.08)return samplePaint(volume.extrudeSource,x,y,z);
+  if(volume.extrudeSource && hasPaint(volume.extrudeSource) && inheritsExtrusionPaint(volume,x,y,z))return samplePaint(volume.extrudeSource,x,y,z);
   return empty;
 }
 export function samplePaint(volume,x,y,z) {
@@ -56,7 +57,11 @@ export function enablePaintMaterial(material) {
       uniform vec3 paintOrigin;
       uniform vec3 paintExtent;`)
       .replace('#include <color_fragment>',`#include <color_fragment>
-      diffuseColor.rgb = diffuseColor.rgb * (1.0-vExtrudeColor.a) + vExtrudeColor.rgb;
+      // Boundary triangles have been split in the worker. Each face keeps a
+      // single material; standard MSAA handles the shared, coincident edge.
+      float tintCoverage = clamp(vExtrudeColor.a, 0.0, 1.0);
+      vec3 tint = vExtrudeColor.rgb / max(vExtrudeColor.a, 0.001);
+      diffuseColor.rgb = mix(diffuseColor.rgb, tint, tintCoverage);
       vec4 pigment = vPaintColor;
       if (paintEnabled > 0.5) {
         vec3 uvw = (vPaintPosition - paintOrigin) / paintExtent;
@@ -68,7 +73,7 @@ export function enablePaintMaterial(material) {
       }
       diffuseColor.rgb = diffuseColor.rgb * (1.0-pigment.a) + pigment.rgb;`);
   };
-  material.customProgramCacheKey=()=>`${cache}:surface-paint-v3`;material.needsUpdate=true;
+  material.customProgramCacheKey=()=>`${cache}:surface-paint-v6`;material.needsUpdate=true;
 }
 
 export function applyVertexPaint(volume,geometry,bounds=null,{invalidateTexture=true}={}) {
