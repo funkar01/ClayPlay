@@ -19,6 +19,7 @@ const paths = {
   hand: 'M7 12V7a1.5 1.5 0 0 1 3 0v4-7a1.5 1.5 0 0 1 3 0v7-6a1.5 1.5 0 0 1 3 0v7-4a1.5 1.5 0 0 1 3 0v6c0 5-2 7-6 7-3 0-5-2-7-5l-3-4q1-2 3 0l2 2',
   pinch: 'M6 20c-4-5-3-10 1-10h5V5a2 2 0 0 1 4 0v7l3-2q3 0 2 3l-3 6q-2 3-7 2M6 10l5 5',
   sound: 'M4 9h4l5-5v16l-5-5H4zM17 8q5 4 0 8M19 4q9 8 0 16',
+  music: 'M9 18V5l12-2v13M9 8l12-2M9 18a3 2 0 1 1-6 0 3 2 0 0 1 6 0ZM21 16a3 2 0 1 1-6 0 3 2 0 0 1 6 0Z',
   muted: 'M4 9h4l5-5v16l-5-5H4zM17 9l5 6m0-6-5 6',
   symmetry: 'M12 3v18M8 5 3 17h5ZM16 5l5 12h-5Z',
   position: 'M3 8V3h5m8 0h5v5M3 16v5h5m8 0h5v-5M8 12h8m-4-4v8',
@@ -48,11 +49,12 @@ function iconKey(button, label) {
   if (button.id === 'sculpt-undo') return 'undo';
   if (button.id === 'sculpt-redo') return 'redo';
   if (button.id === 'mask-picker-continue' || /\bcontinue\b/i.test(label)) return 'play';
-  if (button.matches('.mask-picker-start') || /^next\b/i.test(label)) return 'next';
+  if (button.matches('.mask-picker-start') || /\bnext\b/i.test(label)) return 'next';
   if (action === 'dock-pin') return button.getAttribute('aria-pressed') === 'true' ? 'unpin' : 'pin';
   if (action === 'size-open') return 'size';
   if (action === 'page') return ({ more: /cancel/i.test(label) ? 'close' : 'back', themes: 'palette', controls: 'hand', masks: 'mask', eyes: 'eyes', colors: 'palette', custom: 'palette' })[value];
   if (action === 'sound') return /off/i.test(label) ? 'muted' : 'sound';
+  if (action === 'music') return /off/i.test(label) ? 'muted' : 'music';
   if (action === 'control-mode') return value === 'palm' ? 'hand' : 'pinch';
   if (action === 'pause') return /resume/i.test(label) ? 'play' : 'pause';
   if (action === 'scroll' || paintScroll) return Number(value ?? paintScroll) < 0 ? 'upper' : 'lower';
@@ -142,7 +144,7 @@ export class StudioIcons {
 
   decorate(button) {
     if (!button.isConnected) return;
-    if(button.closest('#mask-collection, #mask-unveiling'))return;
+    if(button.closest('#mask-collection, #mask-unveiling') && button.dataset.collection!=='next')return;
     // Existing action code can still read/update the original text and nodes.
     const text = button.textContent.trim().replace(/^[↶↷↑↓←→＋−]\s*/, '').replace(/\s+/g, ' ');
     const existingName = button.getAttribute('aria-label');

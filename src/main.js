@@ -10,6 +10,8 @@ import { ComfortSetup } from './comfortSetup.js';
 import { PalmControl } from './palmControl.js';
 import { PaintPicker } from './paintPicker.js';
 import { SculptSounds } from './sculptSounds.js';
+import { BackgroundMusic } from './backgroundMusic.js';
+import { MUSIC_THEMES } from './musicLibrary.js';
 import * as THREE from 'three';
 import { ClayObjects } from './clayObjects.js';
 import { setupClayMenu } from './clayMenu.js';
@@ -46,16 +48,18 @@ import { inject } from '@vercel/analytics';
 if (import.meta.env.PROD) inject({ mode: 'production' });
 
 const sculptSounds = new SculptSounds();
+const backgroundMusic = new BackgroundMusic({tracks:MUSIC_THEMES.halloween.tracks});
 document.addEventListener('studio-edit-committed', event => {
-  if (!document.hidden) sculptSounds.play(event.tool, event.intensity);
+  if (!document.hidden && sculptSounds.play(event.tool, event.intensity)) backgroundMusic.duck();
 });
 // Setup cards stop bubbling to protect the canvas. Activate audio during
 // capture so that the first real click still reaches the browser audio gate.
-document.addEventListener('pointerdown', () => sculptSounds.unlock(), { capture: true });
-document.addEventListener('keydown', () => sculptSounds.unlock(), { capture: true });
-document.addEventListener('visibilitychange', () => { if (document.hidden) sculptSounds.stop(); else if (sculptSounds.context) sculptSounds.unlock(); });
-window.addEventListener('focus', () => { if (sculptSounds.context) sculptSounds.unlock(); });
-window.addEventListener('blur', () => sculptSounds.stop());
+document.addEventListener('pointerdown', () => {sculptSounds.unlock();backgroundMusic.activate();}, { capture: true });
+document.addEventListener('keydown', () => {sculptSounds.unlock();backgroundMusic.activate();}, { capture: true });
+document.addEventListener('visibilitychange', () => { backgroundMusic.setForeground(!document.hidden);if (document.hidden) sculptSounds.stop(); else if (sculptSounds.context) sculptSounds.unlock(); });
+window.addEventListener('focus', () => { backgroundMusic.setForeground(!document.hidden);if (sculptSounds.context) sculptSounds.unlock(); });
+window.addEventListener('blur', () => {sculptSounds.stop();backgroundMusic.setForeground(false);});
+window.addEventListener('pageshow', () => backgroundMusic.setForeground(!document.hidden));
 const video = document.querySelector('#camera-video');
 const previewCanvas = document.querySelector('#preview-overlay');
 const previewContext = previewCanvas.getContext('2d');
@@ -2202,7 +2206,7 @@ handUI = new HandUI({
     smoothness: Math.round((1 - clayObjects.active.material.roughness) * 100),
     masks: clayObjects.items.map(item => ({ id: item.id, label: item.label, shape: item.shape, color: `#${item.material.color.getHexString()}` })),
     edited: clayObjects.active.edited, symmetry: symmetryEnabled, ar: arView.enabled, trying: tryOn.enabled,
-    collectionBusy:collectionPreparing || Boolean(maskCollection?.busy),selfieBusy:Boolean(selfie?.busy), controlMode, sound: sculptSounds.enabled, paused: editingPaused, cameraOn: Boolean(stream), positionResetDisabled: positionResetButton.disabled,
+    collectionBusy:collectionPreparing || Boolean(maskCollection?.busy),selfieBusy:Boolean(selfie?.busy), controlMode, sound: sculptSounds.enabled, music: backgroundMusic.enabled, paused: editingPaused, cameraOn: Boolean(stream), positionResetDisabled: positionResetButton.disabled,
     trackingIssue:Boolean(trackingTrace.failure),
     busy: Boolean(clayMenu?.isBusy || clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending),
   }),
@@ -2213,6 +2217,7 @@ handUI = new HandUI({
     else if(action==='collection')openMaskCollection();
     else if (action === 'control-mode') setControlMode(value);
     else if (action === 'sound') { sculptSounds.toggle(); handUI.sync(); }
+    else if (action === 'music') { backgroundMusic.toggle(); handUI.sync(); }
     else if (action === 'color') {if(['paint','extrude'].includes(activeTool))setPaintColor(value);else clayMenu.setColor(value);}
     else if(action === 'size' && !sizeInput.disabled) {
       sizeInput.value=String(value);sizeInput.dispatchEvent(new Event('input',{bubbles:true}));
@@ -2369,7 +2374,7 @@ let unveilingPauseState=false;
 maskUnveiling=new MaskUnveiling({stage:document.querySelector('#stage'),
   onOpen:()=>{if(handUI.isOpen)handUI.close();unveilingPauseState=editingPaused;pauseForHandUI();editingPaused=true;},
   onClose:()=>{pauseForHandUI();editingPaused=unveilingPauseState;handUI.reset();handUICaptured=false;handUI.sync();},
-  onCollection:()=>openMaskCollection(),onSound:()=>sculptSounds.playReveal(),
+  onCollection:()=>openMaskCollection(),onSound:()=>{backgroundMusic.duck(2500);return sculptSounds.playReveal();},
 });
 const renderCollection=maskCollection.onChange;
 maskCollection.onChange=()=>{renderCollection();if(maskCollection.mode==='name'&&maskCollection.canResume()&&!maskCollectionUI.visible)maskCollectionUI.open();maskUnveiling.update(maskCollection);};
@@ -2413,9 +2418,11 @@ resetButton.addEventListener('click', (event) => {
 
 window.addEventListener('beforeunload',event=>{if(collectionPreparing&&!maskCollection?.pending){event.preventDefault();event.returnValue='';}});
 window.addEventListener('pagehide', event => {
+  backgroundMusic.setForeground(false);
   if(event.persisted)return;
   selfie?.dispose();
   sculptSounds.dispose();
+  backgroundMusic.dispose();
   for(const item of clayObjects.items)item.volume.surfacePaint?.finish();
   for (const item of clayObjects.items) item.volume.surfaceExtrude?.abort();
   for (const item of clayObjects.items) item.volume.surfaceCut?.abort();

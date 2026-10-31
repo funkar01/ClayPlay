@@ -220,7 +220,8 @@ export class HandUI {
       const camera = button(s.cameraOn ? 'Turn camera off' : 'Set up camera', s.cameraOn ? 'camera-off' : 'camera-on');
       const tutorial = button('Replay tutorial', 'tutorial'); tutorial.disabled = s.busy;
       const sound = button(`Sounds ${s.sound ? 'On' : 'Off'}`, 'sound'); sound.setAttribute('aria-pressed', String(s.sound));
-      grid.append(sound, symmetry, position, reset, pause, camera, tutorial);
+      const music = button(`Music ${s.music ? 'On' : 'Off'}`, 'music');music.setAttribute('aria-pressed',String(Boolean(s.music)));music.title='Quiet Halloween background music';
+      grid.append(sound, music, symmetry, position, reset, pause, camera, tutorial);
       if(s.trackingIssue)grid.append(button('Copy issue report','tracking-report'));
     } else if (this.page === 'themes') {
       grid.classList.add('studio-themes');
