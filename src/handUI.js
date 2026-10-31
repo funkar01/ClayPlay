@@ -1,6 +1,6 @@
 import { DockVisibility } from './dockVisibility.js';
 import { StudioIcons } from './studioIcons.js';
-import { STUDIO_THEMES, savedStudioTheme, applyStudioTheme } from './studioThemes.js';
+import { DEFAULT_STUDIO_THEME, applyStudioTheme } from './studioThemes.js';
 import { PalmControl } from './palmControl.js';
 import { HAND_RESULT_GAP_MS } from './handTrackingTiming.js';
 import { trackingTrace } from './trackingTrace.js';
@@ -38,7 +38,7 @@ export class HandUI {
     this.selection.dwellMs = 800;
     try { const dwell=Number(localStorage.getItem('clayplay-dwell')); if([500,800,1200].includes(dwell))this.selection.dwellMs=dwell; } catch {} this.identity = new ControlHand({ graceMs: cursorGraceMs });
     this.motion = new HandMotion({ staleMs: HAND_UI_SAMPLE_AGE_MS });
-    this.theme=savedStudioTheme();applyStudioTheme(this.theme);
+    this.theme=DEFAULT_STUDIO_THEME;applyStudioTheme(this.theme);
     this.page = 'more'; this.maskPage = 0;
     const sizeControl=this.sizeControl=document.querySelector('.size-control');
     sizeControl.classList.add('stage-size-control');
@@ -66,7 +66,7 @@ export class HandUI {
     this.tryIt.setAttribute('aria-label', 'Try it: wear your mask'); this.dock.append(this.tryIt);
     this.selfieButton=button('Selfie','selfie');this.selfieButton.id='hand-selfie';this.selfieButton.setAttribute('aria-label','Take a mask selfie');this.dock.append(this.selfieButton);
     for (const id of ['sculpt-undo', 'sculpt-redo']) this.dock.append(document.getElementById(id));
-    this.more = button('More', 'more'); this.more.id = 'hand-more';
+    this.more = button('Settings', 'more'); this.more.id = 'hand-more';
     this.more.setAttribute('aria-expanded', 'false'); this.more.setAttribute('aria-controls', 'hand-panel');
     this.dock.append(this.more); stage.append(this.dock);
     const icons = {
@@ -113,6 +113,20 @@ export class HandUI {
     this.saveButton.addEventListener('pointerdown',event=>event.stopPropagation());stage.append(this.saveButton);
     this.panel = document.createElement('section'); this.panel.id = 'hand-panel'; this.panel.className = 'hand-panel'; this.panel.hidden = true;
     this.panel.setAttribute('aria-label', 'Studio options'); stage.append(this.panel);
+    this.panelVisibility=new DockVisibility({pinned:false,expanded:false,delay:1500});
+    const rememberPanelPointer=event=>{
+      this.recordPanelPointer({x:event.clientX,y:event.clientY},performance.now(),event.pointerType==='touch'?'touch':'mouse');
+      if(event.type==='pointerdown') {
+        this.keyboardDock=false;
+        this.panelPointerHeld=this.isOpen && this.panel.contains(event.target);
+        if(this.isOpen && !this.panelPointerHeld)this.panelTouchActive=false;
+      }
+    };
+    document.addEventListener('pointermove',rememberPanelPointer);
+    document.addEventListener('pointerdown',rememberPanelPointer,true);
+    const releasePanelPointer=()=>{this.panelPointerHeld=false;};
+    window.addEventListener('pointerup',releasePanelPointer);window.addEventListener('pointercancel',releasePanelPointer);
+    stage.addEventListener('pointerleave',()=>{if(this.panelPointer?.source==='mouse')this.panelPointer=null;});
     this.done = button('Back to creating', 'try-done'); this.done.id = 'hand-try-done'; this.done.className = 'hand-try-done'; this.done.hidden = true; stage.append(this.done);
     this.cursor = document.createElement('div'); this.cursor.className = 'hand-ui-cursor'; this.cursor.hidden = true; this.cursor.setAttribute('aria-hidden', 'true'); stage.append(this.cursor);
     const loading = document.createElement('span'); loading.className = 'studio-loading-icon hand-cursor-loading'; loading.textContent = 'Ⅱ'; this.cursor.append(loading);
@@ -128,13 +142,19 @@ export class HandUI {
   }
   get isOpen() { return !this.panel.hidden; }
   open(page = 'more') {
+    if(page==='themes')page='more';
     this.dockVisibility?.reveal(performance.now());
+    this.panelVisibility.reveal(performance.now());
+    this.panelTouchActive=this.panelPointer?.source==='touch';
     this.page = page; this.panel.hidden = false; this.more.setAttribute('aria-expanded', 'true');
     this.onPause(); this.selection.cancel(); this.signature = null; this.sync();
   }
-  close() {
+  close({restoreFocus=true}={}) {
     this.panel.hidden = true; this.more.setAttribute('aria-expanded', 'false');
-    this.onPause(); this.selection.cancel(); this.more.focus({ preventScroll: true });
+    this.panelPointerHeld=false;this.panelTouchActive=false;
+    if(this.highlight && this.panel.contains(this.highlight)){this.highlight.classList.remove('hand-hover','hand-selected');this.highlight=null;}
+    this.onPause(); this.selection.cancel();
+    if(restoreFocus)this.more.focus({ preventScroll: true });
   }
   act(action, value) {
     const state = this.getState();
@@ -144,18 +164,6 @@ export class HandUI {
       this.dockVisibility.pinned=!this.dockVisibility.pinned;this.dockVisibility.reveal(performance.now());
       try{localStorage.setItem('clayplay-tools-pinned',String(this.dockVisibility.pinned));}catch{}
       this.updateDock(performance.now());return;
-    }
-    if(action === 'theme') {
-      const scrollTop=this.body?.scrollTop ?? 0;
-      if(applyStudioTheme(value)) {
-        this.theme=value;this.signature=null;this.sync();
-        if(this.page==='themes' && this.body) {
-          this.body.scrollTop=scrollTop;
-          this.body.querySelector(`[data-hand-action="theme"][data-value="${value}"]`)?.focus({preventScroll:true});
-        }
-        this.announce(`${STUDIO_THEMES.find(t=>t.id===value).name} theme selected`);
-      }
-      return;
     }
     if(action === 'dwell') {this.selection.dwellMs=Number(value);this.selection.cancel();try{localStorage.setItem('clayplay-dwell',value);}catch{} this.signature=null;this.sync();return;}
     if (action === 'more') { if (this.isOpen) this.close(); else this.open(); return; }
@@ -199,7 +207,7 @@ export class HandUI {
     this.finishControl = null;
     const header = document.createElement('header');
     header.append(button(this.page === 'more' ? 'Close' : 'Back', this.page === 'more' ? 'close' : 'page', 'more'));
-    const title = document.createElement('strong'); title.textContent = ({themes:'Studio themes',controls:'Hand controls',more:'Studio options',masks:'Your masks',eyes:'Mask eyes',colors:'Color & finish',custom:'Mix your color',confirm:'Are you sure?'})[this.page];
+    const title = document.createElement('strong'); title.textContent = ({controls:'Hand controls',more:'Studio options',masks:'Your masks',eyes:'Mask eyes',colors:'Color & finish',custom:'Mix your color',confirm:'Are you sure?'})[this.page];
     header.append(title);
     if (this.page !== 'more') header.append(button('Close', 'close'));
     const grid = document.createElement('div'); grid.className = 'hand-panel-grid';
@@ -207,7 +215,7 @@ export class HandUI {
     this.panel.replaceChildren(header, this.body);
     if (this.page === 'more') {
       grid.classList.add('hand-options');
-      grid.append(button('Studio themes', 'page', 'themes'), button('Hand controls', 'page', 'controls'));
+      grid.append(button('Hand controls', 'page', 'controls'));
       grid.append(button('Masks', 'page', 'masks'), button('Mask eyes', 'page', 'eyes'), button('Color & finish', 'page', 'colors'));
       grid.append(button('My collection','collection'));
       const symmetry = button(`Symmetry ${s.symmetry ? 'On' : 'Off'}`, 'symmetry'); symmetry.setAttribute('aria-pressed', String(s.symmetry)); symmetry.disabled = s.trying;
@@ -223,19 +231,6 @@ export class HandUI {
       const music = button(`Music ${s.music ? 'On' : 'Off'}`, 'music');music.setAttribute('aria-pressed',String(Boolean(s.music)));music.title='Quiet Halloween background music';
       grid.append(sound, music, symmetry, position, reset, pause, camera, tutorial);
       if(s.trackingIssue)grid.append(button('Copy issue report','tracking-report'));
-    } else if (this.page === 'themes') {
-      grid.classList.add('studio-themes');
-      const note=document.createElement('p');note.className='hand-panel-caption';note.textContent='Try a different mood. Your choice is remembered; mask and paint colors stay yours.';grid.append(note);
-      for(const theme of STUDIO_THEMES) {
-        const choice=button('', 'theme', theme.id);choice.className='studio-theme-card';
-        choice.setAttribute('aria-label',theme.name);choice.setAttribute('aria-pressed',String(this.theme===theme.id));
-        const palette=document.createElement('span');palette.className='studio-theme-palette';palette.setAttribute('aria-hidden','true');
-        for(const color of theme.colors){const chip=document.createElement('i');chip.style.background=color;palette.append(chip);}
-        const name=document.createElement('strong');name.textContent=theme.name;
-        const detail=document.createElement('span');detail.className='studio-theme-description';detail.textContent=theme.description;
-        const selected=document.createElement('span');selected.className='studio-theme-selected';selected.textContent=this.theme===theme.id?'✓ Selected':'Try theme';
-        choice.append(palette,name,detail,selected);grid.append(choice);
-      }
     } else if (this.page === 'controls') {
       const note=document.createElement('p');note.className='hand-panel-caption';
       note.textContent='Try both and choose what feels natural. Your choice is remembered.';grid.append(note);
@@ -349,12 +344,29 @@ export class HandUI {
   }
   tick(now) {
     this.sync();
+    this.updatePanelVisibility(now);
     this.updateDock(now);
     // Source age is checked when a result arrives. Inference delay must not
     // disarm a healthy stream between results; only an actual arrival gap may
     // suspend it. Dwell/gesture actions still run only on accepted receive().
     if (this.lastAt !== null && now - this.lastAt >= HAND_RESULT_GAP_MS) this.suspend(now);
     if (!this.cursor.hidden && this.gapAt === null) this.drawCursor(now);
+  }
+  recordPanelPointer(point,now,source='hand') {
+    this.panelPointer={point,at:now,source};
+  }
+  updatePanelVisibility(now) {
+    if(!this.panelVisibility || !this.isOpen)return;
+    const pointer=this.panelPointer;
+    const point=pointer && (pointer.source!=='hand' || now-pointer.at<HAND_UI_SAMPLE_AGE_MS) ? pointer.point : null;
+    const bounds=this.panel.getBoundingClientRect();
+    const settings=this.more.getBoundingClientRect();
+    const inside=rect=>point && point.x>=rect.left-12 && point.x<=rect.right+12 && point.y>=rect.top-12 && point.y<=rect.bottom+12;
+    const near=inside(bounds) || inside(settings);
+    const keyboard=this.keyboardDock && this.panel.contains(this.stage.ownerDocument.activeElement);
+    const dragging=this.sizeDrag?.target && this.panel.contains(this.sizeDrag.target);
+    const hold=keyboard || dragging || this.panelPointerHeld || this.panelTouchActive;
+    if(!this.panelVisibility.update({now,near,hold}))this.close({restoreFocus:false});
   }
   nearDock(point) {
     const stage=this.stage.getBoundingClientRect(),bounds=this.dock.getBoundingClientRect();
@@ -379,6 +391,7 @@ export class HandUI {
     this.sizeTab.hidden=expanded;this.sizeTab.setAttribute('aria-expanded',String(expanded));
   }
   recordDockHand(point,now,allowed) {
+    this.recordPanelPointer(point,now);
     if(!this.dockVisibility)return;
     this.handDockNear=allowed && this.nearDock(point);this.handDockAt=now;
     if(this.sizeVisibility){this.handSizeNear=allowed && this.nearSizeControl(point);this.handSizeAt=now;}
