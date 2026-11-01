@@ -146,3 +146,26 @@ test('A confirmed name survives upload failure and reload without prompting agai
   const reopened=fixture({user:owner,pending:first.pending});await reopened.m.initialize();
   assert.equal(reopened.saved.length,1);assert.equal(reopened.saved[0].mask_name,'Silver Fox');
 });
+
+test('Received try-on masks cannot be captured for saving as editable copies',()=>{
+  assert.throws(()=>captureSavedMask({readOnly:true}),/try-on and selfies only/);
+});
+
+test('Public links open a read-only preview without a signed-in recipient',async()=>{
+  const {m,client}=fixture();const token='3eb9c436-d830-4184-87de-eae691f80861';let calls=0;
+  client.rpc=(name,args)=>({abortSignal:async()=>{calls++;assert.equal(name,'open_mask_share_link');assert.equal(args.link_token,token);return{data:record()};}});
+  const result=await m.openShareLink(token);
+  assert.equal(m.user,undefined);assert.equal(result.readOnly,true);assert.equal(result.previewOnly,true);assert.equal(result.record.label,'My painted mask');
+  await assert.rejects(m.openShareLink('invalid'),/invalid/);assert.equal(calls,1);
+});
+test('Share links point at the studio and exclude existing URL parameters',async()=>{
+  const {m,client}=fixture({user:owner});await m.initialize();const token='3eb9c436-d830-4184-87de-eae691f80861';
+  client.rpc=(name,args)=>({abortSignal:async()=>{assert.equal(name,'create_mask_share_link');assert.equal(args.mask_id,'mine');return{data:token};}});
+  assert.equal(await m.createShareLink('mine','https://example.test/studio/?private=value#old'),`https://example.test/studio/#mask=${token}`);
+  m.category='shared';await assert.rejects(m.createShareLink('received','https://example.test/'),/own saved masks/);
+});
+test('Missing and damaged link snapshots report an error',async()=>{
+  const {m,client}=fixture();const token='3eb9c436-d830-4184-87de-eae691f80861';
+  client.rpc=()=>({abortSignal:async()=>({data:null})});await assert.rejects(m.openShareLink(token),/no longer available/);
+  client.rpc=()=>({abortSignal:async()=>({data:{version:999}})});await assert.rejects(m.openShareLink(token),/could not be opened/);
+});

@@ -4,6 +4,7 @@ import { MASK_SHAPES,EYE_SHAPES } from './clayShapes.js';
 import { applyVertexPaint } from './paintLayer.js';
 
 export function captureSavedMask(item) {
+  if(item.readOnly)throw new Error('Shared masks are for try-on and selfies only.');
   return {version:1,label:item.label,shape:item.volume.shape,color:`#${item.material.color.getHexString()}`,
     roughness:item.material.roughness,scale:item.volume.userScale ?? 1,offset:[...(item.volume.userOffset ?? [0,0])],
     state:item.volume.serialize(),bricks:[...item.volume.bricks].map(([key,{mesh}])=>({key,

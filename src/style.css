@@ -974,3 +974,13 @@ html[data-studio-theme] .stage-size-control input { accent-color:var(--selected-
 .collection-tabs button { flex:1; }
 .collection-tabs button[aria-pressed="true"] { outline:2px solid var(--ui-focus); }
 .collection-share p { font-size:12px; line-height:1.5; }
+.collection-share-email { display:grid; grid-template-columns:minmax(0,1fr) 46px; align-items:center; gap:10px; }
+#mask-collection .collection-share-email input { margin-bottom:0; }
+.collection-share p { margin:2px 0 8px; }
+.collection-share-or { text-align:center; font-size:12px; font-weight:600; color:var(--muted); padding:4px 0; }
+
+.shared-mask-view {position:absolute;z-index:45;bottom:20px;left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);padding:12px;border-radius:16px;background:var(--ui-panel,#fff8ee);color:var(--ui-text,#352b40);box-shadow:0 4px 24px #0003;text-align:center;}
+.shared-mask-view[hidden] {display:none;}
+.shared-mask-view p {margin:0 0 8px;font-size:13px;}
+.shared-mask-view button {margin:4px;padding:10px;border-radius:8px;cursor:pointer;}
+.collection-link {width:100%;box-sizing:border-box;}

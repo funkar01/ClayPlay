@@ -117,7 +117,7 @@ export class MaskCollection {
     if(this.category==='shared'){
       const{data,error}=await this.client.from('mask_shares').select('id,sender_id,revision,payload').eq('id',id).single().abortSignal(AbortSignal.timeout(15000));
       if(error)throw error;if(this.user?.id!==owner)throw new Error('Your account changed. Open the collection again.');
-      return {...data,owner_id:data.sender_id,record:await this.codec('unpack',data.payload)};
+      return {...data,owner_id:data.sender_id,readOnly:true,record:await this.codec('unpack',data.payload)};
     }
     const{data,error}=await this.client.from('saved_masks').select('id,owner_id,revision,payload').eq('id',id).eq('owner_id',owner).single().abortSignal(AbortSignal.timeout(15000));
     if(error)throw error;if(this.user?.id!==owner)throw new Error('Your account changed. Please open the collection again.');
@@ -154,6 +154,28 @@ export class MaskCollection {
     try{const{error}=await this.client.rpc('share_collection_mask',{mask_id:id,friend_email:friend}).abortSignal(AbortSignal.timeout(20000));if(error)throw error;
       if(this.user?.id!==owner)return false;this.message='Mask shared. Your friend can find it under Shared with you after signing in with that email.';this.emit();return true;
     }catch(error){this.message=`Could not share the mask. ${error.message}`;this.emit();return false;}finally{this.busy=false;this.emit();}
+  }
+  async createShareLink(id,base=location.href){
+    if(this.busy)throw new Error('Please wait for the current action.');
+    if(!this.user||this.category==='shared')throw new Error('Only your own saved masks can be shared.');
+    const owner=this.user.id;this.busy=true;this.emit();
+    try{
+      const{data,error}=await this.client.rpc('create_mask_share_link',{mask_id:id}).abortSignal(AbortSignal.timeout(20000));
+      if(error)throw error;
+      if(this.user?.id!==owner)throw new Error('Your account changed. Please try again.');
+      if(!/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(data))throw new Error('The share link could not be created.');
+      const url=new URL(base);url.search='';url.hash=`mask=${data}`;return url.href;
+    }finally{this.busy=false;this.emit();}
+  }
+  async openShareLink(token){
+    if(!/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(token))throw new Error('This mask link is invalid.');
+    // No session or pending-save initialization is needed to view a link.
+    const client=await this.connect();
+    const{data,error}=await client.rpc('open_mask_share_link',{link_token:token}).abortSignal(AbortSignal.timeout(20000));
+    if(error)throw error;if(!data)throw new Error('This shared mask is no longer available.');
+    const record=await this.codec('unpack',data);
+    if(!validateSavedMask(record))throw new Error('This shared mask could not be opened.');
+    return {readOnly:true,previewOnly:true,record};
   }
   async discard(){if(this.busy)return;await this.storage.clear(this.pending?.requestId);this.pending=null;this.conflict=false;this.message='Waiting save discarded. The mask on your stage is unchanged.';this.emit();}
   async signOut(){if(this.busy)return;const{error}=await this.client.auth.signOut({scope:'local'});if(error)throw error;this.user=null;this.rows=[];this.mode='login';this.message='Signed out. Sign in to see your collection.';this.emit();}

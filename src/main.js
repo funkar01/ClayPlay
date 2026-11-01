@@ -175,6 +175,7 @@ let arAction = 0;
 let faceTracker, faceAbort, faceFrame;
 let selfie;
 let maskCollection,maskCollectionUI,maskUnveiling,collectionPreparing=false,collectionPauseState=false;
+let sharedPreview=null;
 let faceEpoch = 0, lastFaceVideoTime = -1, nextFaceTrackingAt = 0;
 let tryPreviousAR = false, tryStartedCamera = false;
 let tryHandWasDone = false;
@@ -341,6 +342,7 @@ function endTryOn({ restoreView = true, resumeTracking = true } = {}) {
   if (!tryOn.enabled) return;
   faceEpoch++; faceAbort?.abort(); faceTracker?.close(); faceTracker = null;
   cancelAnimationFrame(faceFrame); tryOn.setEnabled(false);
+  closeSharedPreview();
   trackingEpoch++;
   handUI?.reset(); handUICaptured = false;
   document.querySelector('#stage').classList.remove('is-trying');
@@ -359,6 +361,16 @@ function endTryOn({ restoreView = true, resumeTracking = true } = {}) {
   if (resumeTracking && stream) {
     if (landmarker) scheduleHandTracking(); else startTracking();
   }
+}
+
+function closeSharedPreview() {
+  if(!sharedPreview)return;
+  const {item,previousId}=sharedPreview;sharedPreview=null;
+  sharedLinkPanel.hidden=true;
+  if(location.hash.startsWith('#mask='))history.replaceState(null,'',location.pathname+location.search);
+  clayObjects.select(item.id);clayObjects.removeActive();
+  selectClayObject(previousId);clayObjects.layout(camera);
+  handUI?.sync();
 }
 
 async function faceTrackingLoop(epoch) {
@@ -665,7 +677,7 @@ function processHandResult(result, now, sampleAt = now) {
   if (controlMode !== inputControlMode || (inputStream && stream !== inputStream)) { handUICaptured = false; return; }
   // A hand-selected return changes modes inside receive(). Do not sculpt
   // with the same frame that just selected Back to creating.
-  if (wasTrying || tryOn.enabled) return;
+  if (wasTrying || tryOn.enabled || sharedPreview) return;
   // Stable camera/inference delay must not look like repeated hand loss.
   // Only new, usable measurements may edit; missing detections still pause.
   if (!usableHandSample(sampleAt, now)) { showNoHand(now,'stale-tracking-result'); return; }
@@ -777,7 +789,7 @@ function showResizeHands(hands, now) {
 }
 
 function resetClay() {
-  if (tryOn.enabled) return;
+  if (tryOn.enabled || sharedPreview) return;
   const cancelErase = !redo && clayVolume.erasing && clayVolume.surfaceErase?.active;
   if (!cancelErase && (clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending)) return;
   if(cancelErase) singleHandNeedsOpen = true;
@@ -798,6 +810,7 @@ function resetClay() {
 }
 
 function selectClayObject(id) {
+  if(sharedPreview && Number(id)!==sharedPreview.item.id)return;
   cancelMouseStroke();
   const item = clayObjects.select(id);
   clay = item.group;
@@ -1169,7 +1182,7 @@ function palmInstruction(text) {
   return text.replace(/keep your fingers pinched/gi,'keep your hand closed').replace(/pinching/gi,'holding your hand closed').replace(/pinched/gi,'closed').replace(/pinch/gi,'close your hand').replace(/your index(?: finger)?/gi,'your palm').replace(/open your fingers/gi,'open your hand');
 }
 
-function cursorInputEnabled() { return !maskUnveiling?.visible && !maskCollectionUI?.visible && !comfortSetup.active && (controlMode==='mouse' || !stream) && !cameraOpening && !tryOn.enabled; }
+function cursorInputEnabled() { return !maskUnveiling?.visible && !maskCollectionUI?.visible && !comfortSetup.active && (controlMode==='mouse' || !stream) && !cameraOpening && !tryOn.enabled && !sharedPreview; }
 
 function showToolInstructions() {
   const details = toolDetails();
@@ -1213,7 +1226,7 @@ function updateHistoryButtons() {
 }
 
 function useHistory(redo = false) {
-  if (tryOn.enabled) return;
+  if (tryOn.enabled || sharedPreview) return;
   const cancelErase = !redo && clayVolume.erasing && clayVolume.surfaceErase?.active;
   if (!cancelErase && (clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending)) return;
   if(cancelErase) singleHandNeedsOpen = true;
@@ -2229,12 +2242,13 @@ handUI = new HandUI({
     smoothness: Math.round((1 - clayObjects.active.material.roughness) * 100),
     masks: clayObjects.items.map(item => ({ id: item.id, label: item.label, shape: item.shape, color: `#${item.material.color.getHexString()}` })),
     edited: clayObjects.active.edited, symmetry: symmetryEnabled, ar: arView.enabled, trying: tryOn.enabled,
-    collectionBusy:collectionPreparing || Boolean(maskCollection?.busy),selfieBusy:Boolean(selfie?.busy), controlMode, sound: sculptSounds.enabled, music: backgroundMusic.enabled, paused: editingPaused, cameraOn: Boolean(stream), positionResetDisabled: positionResetButton.disabled,
+    readOnly:Boolean(sharedPreview), collectionBusy:collectionPreparing || Boolean(maskCollection?.busy),selfieBusy:Boolean(selfie?.busy), controlMode, sound: sculptSounds.enabled, music: backgroundMusic.enabled, paused: editingPaused, cameraOn: Boolean(stream), positionResetDisabled: positionResetButton.disabled,
     trackingIssue:Boolean(trackingTrace.failure),
     busy: Boolean(clayMenu?.isBusy || clayVolume.pulling || clayVolume.cutting || clayVolume.meshQueue?.pending),
   }),
   onPause: pauseForHandUI,
   onAction: (action, value) => {
+    if(sharedPreview && !['selfie','try','collection','sound','music','control-mode'].includes(action))return;
     if (action === 'selfie') {if(handUI.isOpen)handUI.close();selfie?.start();}
     else if(action==='save-mask')saveCurrentMask();
     else if(action==='collection')openMaskCollection();
@@ -2365,8 +2379,9 @@ studioTutorial = new StudioTutorial({
 
 selfie=new SelfieStudio({stage:document.querySelector('#stage'),prepare:()=>startTryOn(),onExit:()=>endTryOn(),onChange:()=>handUI?.sync()});
 
+let collectionConnection;
 maskCollection=new MaskCollection({
-  connect:()=>connectMaskCollection(import.meta.env.VITE_SUPABASE_URL,import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY),
+  connect:()=>collectionConnection ??= connectMaskCollection(import.meta.env.VITE_SUPABASE_URL,import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY),
   onSaveStarted:pending=>{
     if(maskUnveiling.seen.has(pending.requestId))return;
     const item=clayObjects.items.find(item=>item.saveToken===pending.sourceToken);
@@ -2387,15 +2402,30 @@ maskCollectionUI=new MaskCollectionUI({stage:document.querySelector('#stage'),mo
     if(handUI.isOpen)handUI.close();collectionPauseState=editingPaused;pauseForHandUI();editingPaused=true;
   },
   onClose:()=>{pauseForHandUI();editingPaused=collectionPauseState;handUI.reset();handUICaptured=false;handUI.sync();},
-  onLoad:saved=>{
+  onLoad:async saved=>{
     if(!validateSavedMask(saved.record))throw new Error('This saved mask could not be opened. Its online copy has been kept.');
     if(clayObjects.items.length>=clayObjects.limit)throw new Error('Your studio has eight masks open. Remove one under More → Masks, then open this mask.');
     if(tryOn.enabled)endTryOn();
+    closeSharedPreview();
+    const previousId=clayObjects.active.id;
     const item=clayObjects.add(saved.record.shape,saved.record.color,{saved:saved.record});
     item.collectionId=saved.id;item.collectionOwner=saved.owner_id;item.collectionRevision=saved.revision;
-    clayObjects.layout(camera);selectClayObject(item.id);setPrompt('Your mask is ready.', 'Keep creating, then choose Save mask to update your collection.', 'success');
+    clayObjects.layout(camera);selectClayObject(item.id);
+    if(saved.readOnly){
+      item.readOnly=true;sharedPreview={item,previousId};
+      pauseForHandUI();sharedLinkPanel.hidden=false;
+      sharedLinkStatus.textContent=`${item.label} · Shared mask · View, try on and take selfies`;
+      if(!saved.previewOnly)await startTryOn();
+      setPrompt("Try your friend's mask.", 'Take a selfie, or return to your own masks. Shared masks cannot be edited.', 'success');
+    }else setPrompt('Your mask is ready.', 'Keep creating, then choose Save mask to update your collection.', 'success');
   },
 });
+const sharedLinkPanel=document.createElement('div');sharedLinkPanel.className='shared-mask-view';sharedLinkPanel.hidden=true;
+const sharedLinkStatus=document.createElement('p');sharedLinkStatus.setAttribute('role','status');sharedLinkPanel.append(sharedLinkStatus);
+for(const [label,action]of [['Try on',()=>{if(sharedPreview)startTryOn();}],['Selfie',()=>{if(sharedPreview)selfie.start();}],['Back to my masks',()=>{if(tryOn.enabled)endTryOn();else if(sharedPreview)closeSharedPreview();else{sharedLinkPanel.hidden=true;history.replaceState(null,'',location.pathname+location.search);}}]]){
+  const button=document.createElement('button');button.type='button';button.textContent=label;button.addEventListener('click',action);sharedLinkPanel.append(button);
+}
+sharedLinkPanel.addEventListener('pointerdown',event=>event.stopPropagation());document.querySelector('#stage').append(sharedLinkPanel);
 let unveilingPauseState=false;
 maskUnveiling=new MaskUnveiling({stage:document.querySelector('#stage'),
   onOpen:()=>{if(handUI.isOpen)handUI.close();unveilingPauseState=editingPaused;pauseForHandUI();editingPaused=true;},
@@ -2413,6 +2443,7 @@ async function openMaskCollection(){
 }
 async function saveCurrentMask(){
   if(collectionPreparing || maskCollection.busy)return;
+  if(clayObjects.active.readOnly){handUI.announce('Shared masks are for try-on and selfies only.');return;}
   const item=clayObjects.active;maskCollectionUI.open();collectionPreparing=true;handUI.sync();
   try{
     await maskCollection.initialize();
@@ -2475,7 +2506,7 @@ document.addEventListener('sculpt-save-pending',()=>{
 window.clayPlayTrackingReport=()=>JSON.stringify({diagnostics,...trackingTrace.report()},null,2);
 sceneHint.hidden = true;
 if(controlMode==='mouse'){dismissStudioMessage();showToolInstructions();}
-else comfortSetup.open(() => Boolean(stream && landmarker));
+else if(!location.hash.startsWith('#mask='))comfortSetup.open(() => Boolean(stream && landmarker));
 if (new URLSearchParams(location.search).has('diagnostics')) {
   window.clayPlayDebug = { objects: clayObjects, camera, tryOn,
     feedHands: (hands, now, { sampleAt = now, handedness } = {}) => processHandResult({ landmarks: hands, handedness }, now, sampleAt),
@@ -2493,3 +2524,13 @@ if (new URLSearchParams(location.search).has('diagnostics')) {
       controlMode, palmPhase:palmControlState?.phase, held: pinchGesture.held, grabbed: Boolean(previousPullPoint), undo: clayVolume.undoStack?.length ?? 0,
       redo: clayVolume.redoStack?.length ?? 0, anchor: previousPullPoint?.toArray(), ...diagnostics }) };
 }
+
+async function openLinkedMask(){
+  if(!location.hash.startsWith('#mask='))return;
+  const token=new URLSearchParams(location.hash.slice(1)).get('mask');
+  sharedLinkPanel.hidden=false;sharedLinkStatus.textContent='Opening shared mask…';
+  try{const saved=await maskCollection.openShareLink(token);await maskCollectionUI.onLoad(saved);}
+  catch(error){sharedLinkStatus.textContent=`Could not open shared mask. ${error.message}`;}
+}
+window.addEventListener('hashchange',()=>openLinkedMask());
+openLinkedMask();

@@ -39,7 +39,7 @@ export function setupClayMenu(objects, { onSelect, onLayout, onPause }) {
   document.querySelector('#three-scene').addEventListener('pointerdown', () => { menu.open = false; });
 
   async function addShape(shape) {
-    if (!Object.hasOwn(MASK_SHAPES, shape) || busy || objects.items.length >= objects.limit) return;
+    if (objects.active.readOnly || !Object.hasOwn(MASK_SHAPES, shape) || busy || objects.items.length >= objects.limit) return;
     busy = true;
     status.textContent = `Adding ${MASK_SHAPES[shape].label.toLowerCase()}…`;
     refresh();
@@ -64,6 +64,7 @@ export function setupClayMenu(objects, { onSelect, onLayout, onPause }) {
   });
   picker.addEventListener('change', () => onSelect(picker.value));
   function setColor(hex) {
+    if(objects.active.readOnly)return;
     objects.active.material.color.set(hex);
     refresh();
   }
@@ -73,6 +74,7 @@ export function setupClayMenu(objects, { onSelect, onLayout, onPause }) {
     if (button) setColor(button.dataset.color);
   });
   remove.addEventListener('click', () => {
+    if(objects.active.readOnly)return;
     const name = objects.active.label;
     objects.removeActive();
     onLayout();

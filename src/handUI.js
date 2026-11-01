@@ -188,7 +188,9 @@ export class HandUI {
     const s = this.getState(); this.controlMode=s.controlMode ?? 'palm'; this.done.hidden = !s.trying;
     this.tryIt.disabled = s.busy || s.selfieBusy;
     this.selfieButton.disabled=s.busy || s.selfieBusy;
-    if(this.saveButton)this.saveButton.disabled=s.busy || s.selfieBusy || s.collectionBusy;
+    if(this.saveButton)this.saveButton.disabled=s.busy || s.selfieBusy || s.collectionBusy || s.readOnly;
+    this.done.textContent=s.readOnly?'Back to my masks':'Back to creating';
+    this.done.textContent=s.readOnly?'Back to my masks':'Back to creating';
     this.tryIt.setAttribute('aria-pressed', String(s.trying));
     // Keep the slider and dwell targets mounted while the finish changes.
     // Replacing the panel here would interrupt an ongoing pointer drag.

@@ -13,7 +13,7 @@ export class MaskCollectionUI {
     root.setAttribute('role','dialog');root.setAttribute('aria-modal','true');root.setAttribute('aria-labelledby','mask-collection-title');
     root.innerHTML=`<div class="mask-collection-card"><header><div><p class="collection-eyebrow">MADE BY YOU</p><h2 id="mask-collection-title">Save your mask</h2></div><button type="button" data-collection="close" aria-label="Close collection">Close</button></header>
       <p class="collection-status" role="status" aria-live="polite"></p>
-      <form class="collection-share collection-auth" hidden><label for="friend-mask-email">Friend’s email</label><input id="friend-mask-email" type="email" required maxlength="254" autocomplete="email" placeholder="friend@example.com"><p>The mask will appear in their Shared with you collection when they sign in with this verified email. This does not send an email notification.</p><button type="submit" data-collection="send-share">Share mask</button><button type="button" data-collection="share-cancel">Cancel</button></form>
+      <form class="collection-share collection-auth" hidden><label for="friend-mask-email" class="visually-hidden">Friend’s email</label><div class="collection-share-email"><input id="friend-mask-email" type="email" required maxlength="254" autocomplete="email" placeholder="friend@example.com" aria-describedby="collection-share-help"><button type="submit" class="collection-icon-action" data-collection="send-share" aria-label="Share mask with friend" title="Share mask with friend"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4 20-7ZM22 2 11 13"/></svg></button></div><p id="collection-share-help" hidden>Added to their collection after sign-in. No email is sent.</p><div class="collection-share-or">OR</div><button type="button" data-collection="copy-link" aria-live="polite">Copy link</button><p hidden>Anyone with the link can view and try your mask.</p></form>
       <div class="collection-delete-confirm" hidden><p></p><button type="button" data-collection="delete-confirm">Delete mask permanently</button><button type="button" data-collection="delete-cancel">Cancel</button></div>
       <form class="collection-auth"><label for="collection-email">Email</label><input id="collection-email" name="email" type="email" autocomplete="email" required placeholder="you@example.com">
       <label for="collection-password">Password</label><input id="collection-password" name="password" type="password" autocomplete="new-password" required minlength="8" placeholder="At least 8 characters">
@@ -24,7 +24,7 @@ export class MaskCollectionUI {
       <button type="submit" data-collection="save-name" class="collection-primary">Save mask</button><button type="button" data-collection="keep-name">Keep current name</button></form>
       <div class="collection-account" hidden><p class="collection-email"></p><div class="collection-actions"><button type="button" data-collection="refresh">Refresh collection</button><button type="button" data-collection="signout">Sign out</button></div><div class="collection-masks"></div><div class="collection-pages"><button type="button" data-collection="previous">Previous</button><button type="button" data-collection="next">Next</button></div></div>
       <div class="collection-pending" hidden><button type="button" data-collection="retry" class="collection-primary">Save waiting mask</button><button type="button" data-collection="copy">Save as a new copy</button><button type="button" data-collection="discard">Discard waiting save</button></div>
-      <p class="collection-privacy">Your masks are private to your account. Saving keeps the shape and paint so you can create again later.</p></div>`;
+      <p class="collection-privacy">Your masks stay private unless you share them. Saving keeps the shape and paint so you can create again later.</p></div>`;
     const headerActions=document.createElement('div');headerActions.className='collection-header-actions';
     for(const action of ['refresh','signout','close']){const control=root.querySelector(`[data-collection="${action}"]`);iconAction(control,control.textContent);headerActions.append(control);}
     root.querySelector('header').append(headerActions);root.querySelector('.collection-actions').remove();
@@ -71,8 +71,19 @@ export class MaskCollectionUI {
     const m=this.model;if(m.busy || this.loading)return;
     id=id??this.selectedId;
     if(action==='edit'){if(id)return this.load(id);return;}
-    if(action==='share'){if(!id||m.category==='shared')return;this.shareTarget=id;this.render();this.friendEmail.focus();return;}
-    if(action==='share-cancel'){this.shareTarget=null;this.render();return;}
+    if(action==='share'){if(!id||m.category==='shared')return;this.shareTarget=id;m.message='';this.render();this.friendEmail.focus();return;}
+    if(action==='copy-link'){
+      const url=await m.createShareLink(this.shareTarget);
+      clearTimeout(this.copyMessageTimer);
+      const button=this.element.querySelector('[data-collection="copy-link"]');
+      try{
+        await navigator.clipboard.writeText(url);m.message='';
+        button.textContent='Copied link';
+        this.copyMessageTimer=setTimeout(()=>{button.textContent='Copy link';},2000);
+      }
+      catch{m.message='Could not copy the link. Please try again.';}
+      m.emit();return;
+    }
     if(action==='own'||action==='shared'){m.category=action; m.page=0;this.selectedId=null;this.shareTarget=null;this.deleteTarget=null;await m.refresh();this.render();return;}
     if(action==='delete'){this.deleteTarget=m.rows.find(row=>row.id===id);this.render();return;}
     if(action==='delete-cancel'){this.deleteTarget=null;this.render();return;}
@@ -104,6 +115,8 @@ export class MaskCollectionUI {
     for(const tab of this.tabs.children)tab.setAttribute('aria-pressed',String((m.category??'own')===tab.dataset.collection));
     if(this.selectionOwner!==m.user?.id)this.shareTarget=null;
     this.shareForm.hidden=!this.shareTarget||!m.user||naming;this.friendEmail.disabled=busy;
+    const openControl=this.selectionActions.querySelector('[data-collection="edit"]');
+    iconAction(openControl,m.category==='shared'?'Try on selected mask':'Edit selected mask');
     for(const action of ['delete','share'])this.selectionActions.querySelector(`[data-collection="${action}"]`).hidden=m.category==='shared';
     if(this.selectionOwner!==m.user?.id){this.selectedId=null;this.selectionOwner=m.user?.id;}
     if(!m.rows.some(row=>row.id===this.selectedId))this.selectedId=null;
@@ -112,8 +125,11 @@ export class MaskCollectionUI {
     if(!m.user || !m.rows.some(row=>row.id===this.deleteTarget?.id))this.deleteTarget=null;
     root.querySelector('.collection-delete-confirm').hidden=!this.deleteTarget;
     root.querySelector('.collection-delete-confirm p').textContent=this.deleteTarget?`Delete “${this.deleteTarget.name}” from your collection? This cannot be undone. Any copy open in the studio will remain.`:'';
-    root.querySelector('h2').textContent=naming?'Name your mask':m.user?'My collection':m.mode==='confirm'?'Check your email':'Save your mask';
+    root.querySelector('h2').textContent=naming?'Name your mask':this.shareTarget?'Share mask':m.user?'My collection':m.mode==='confirm'?'Check your email':'Save your mask';
     root.querySelector('.collection-status').textContent=m.message;
+    root.querySelector('.collection-status').hidden=!m.message;
+    root.querySelector('.collection-privacy').hidden=Boolean(this.shareTarget);
+    root.querySelector('.collection-eyebrow').hidden=Boolean(this.shareTarget);
     this.form.hidden=!auth;this.password.minLength=m.mode==='register'?8:1;this.password.autocomplete=m.mode==='register'?'new-password':'current-password';
     this.password.placeholder=m.mode==='register'?'At least 8 characters':'Your password';
     root.querySelector('[data-collection="submit"]').textContent=busy?'Please wait…':m.mode==='register'?'Create account & continue':m.pending?'Sign in & continue':'Sign in';
