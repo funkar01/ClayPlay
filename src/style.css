@@ -248,6 +248,13 @@ body.play-area-fullscreen { overflow: hidden; }
 .hand-panel-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
 .hand-panel-grid.hand-options { grid-template-columns: minmax(0,1fr); }
 .hand-panel-caption, .hand-confirm-copy { grid-column: 1 / -1; margin: 4px 0; font-size: 12px; line-height: 1.6; }
+.hand-selection-speed { grid-column:1 / -1; padding:12px 8px; color:var(--muted,#bca4da); }
+.hand-selection-speed input { appearance:none; width:100%; height:10px; border-radius:999px; background:linear-gradient(to right,#ab61f5 var(--selection-fill),#57416c var(--selection-fill)); cursor:pointer; margin:14px 0; }
+.hand-selection-speed input::-webkit-slider-thumb { appearance:none; width:28px; height:28px; border-radius:50%; background:#f6e9ff; border:2px solid white; box-shadow:0 0 12px #be76e866; }
+.hand-selection-speed input::-moz-range-thumb { width:24px; height:24px; border-radius:50%; background:#f6e9ff; border:2px solid white; }
+.hand-selection-speed input:focus-visible { outline:2px solid #e9bcff; outline-offset:8px; }
+.hand-selection-speed-labels { display:flex; justify-content:space-between; font-size:12px; }
+.hand-selection-speed output { display:block; text-align:center; margin-top:12px; font-size:12px; }
 .hand-panel-help { flex-shrink: 0; margin: 14px 0 0; color: #9a8878; font-size: 10px; text-align: center; }
 .hand-mask-card { display: flex; flex-direction: column; align-items: center; gap: 7px; }
 .hand-mask-card svg { width: 38px; height: 38px; stroke: #806550; stroke-width: .9; stroke-linecap: round; stroke-linejoin: round; }
@@ -541,6 +548,15 @@ body.play-area-fullscreen { overflow: hidden; }
 #tutorial-copy { font-size:14px; line-height:1.6; margin:12px 0; }
 #tutorial-state { padding:12px; border-radius:10px; background:#e8efdf; font-size:12px; line-height:1.5; min-height:54px; }
 #tutorial-explore { margin-top:10px; }
+.studio-design-icon { display:inline-block; background:currentColor; mask:url('../assets/explore-new-design.png') center / contain no-repeat; mask-mode:alpha; }
+:root[data-studio-theme] #app #stage .studio-tutorial[data-lesson="done"] :is(#tutorial-next,#tutorial-explore) {
+ display:flex; align-items:center; justify-content:center; gap:12px; width:100%; padding:12px 16px; line-height:1.35;
+}
+.studio-tutorial[data-lesson="done"] .tutorial-actions { display:block; }
+#stage .studio-tutorial[data-lesson="done"] :is(#tutorial-next,#tutorial-explore) .studio-button-label {
+ position:static !important; width:auto !important; height:auto !important; padding:0 !important; margin:0 !important;
+ overflow:visible !important; clip-path:none !important; white-space:normal !important;
+}
 .studio-tutorial { width:300px; }
 @keyframes mission-pulse { 50% { transform:scale(1.15); opacity:.6; } }
 /* Arrow and hand travel share one rotated axis; hide the reset so it never teaches a reverse stroke. */
@@ -765,7 +781,7 @@ html[data-studio-theme] .stage-size-control input { accent-color:var(--selected-
 :root[data-studio-theme] #app #studio-tools-tab { position:absolute; z-index:8; left:12px; top:50%; transform:translateY(-50%); display:grid; justify-items:center; gap:5px; width:76px; min-height:96px; padding:12px 6px; }
 #studio-tools-tab svg { width:26px; height:26px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
 #studio-tools-tab small { font-size:11px; color:var(--muted); }
-.studio-history-dock { position:absolute; z-index:8; left:20px; bottom:22px; display:flex; gap:8px; padding:8px; }
+.studio-history-dock { position:absolute; z-index:8; left:50%; bottom:22px; transform:translateX(-50%); display:flex; gap:24px; padding:8px; }
 :root[data-studio-theme] #app .studio-history-dock button { display:flex; align-items:center; justify-content:center; gap:6px; min-height:44px; padding:9px 12px; font-size:12px; }
 .studio-history-dock svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
 :root[data-studio-theme] #app .hand-panel { left:132px; right:auto; top:50%; bottom:auto; width:min(382px,calc(100% - 165px)); max-height:calc(100dvh - 180px); transform:translateY(-50%); }
@@ -779,7 +795,7 @@ html[data-studio-theme] .stage-size-control input { accent-color:var(--selected-
  :root[data-studio-theme] #app .hand-toolbar { left:12px; width:82px; padding:7px; gap:7px; max-height:calc(100dvh - 245px); }
  :root[data-studio-theme] #app .hand-toolbar > button { min-height:54px; }.hand-toolbar svg { width:22px; height:22px; }
  :root[data-studio-theme] #app .hand-panel { left:102px; width:calc(100% - 114px); max-height:calc(100dvh - 235px); padding:10px; }
- .studio-history-dock { left:12px; bottom:14px; }.studio-history-dock .tool-label { font-size:11px; }
+ .studio-history-dock { bottom:14px; }.studio-history-dock .tool-label { font-size:11px; }
  :root[data-studio-theme] #app .paint-palette { right:12px; bottom:90px; width:calc(100% - 116px); max-height:calc(100dvh - 280px); }
  .studio-corner-art i { width:170px; height:190px; background-size:900px auto; }
 }
@@ -863,6 +879,14 @@ html[data-studio-theme] .stage-size-control input { accent-color:var(--selected-
  position:static !important; width:auto !important; height:auto !important; padding:0 !important; margin:0 !important;
  overflow:visible !important; clip-path:none !important; white-space:nowrap !important;
 }
+/* Name the two input choices explicitly during setup. */
+:root[data-studio-theme] #app #stage .comfort-setup button.studio-icon-button {
+ display:flex; gap:12px; justify-content:center; padding:12px 16px; line-height:1.35;
+}
+#stage .comfort-setup .studio-button-label {
+ position:static !important; width:auto !important; height:auto !important; padding:0 !important; margin:0 !important;
+ overflow:visible !important; clip-path:none !important; white-space:nowrap !important;
+}
 :root[data-studio-theme] #app .hand-toolbar { width:86px; gap:8px; padding:9px; }
 :root[data-studio-theme] #app .hand-toolbar > button.studio-icon-button { min-height:62px; padding:8px; }
 :root[data-studio-theme] #app #dock-pin.studio-icon-button { min-height:48px; margin-top:4px; }
@@ -935,3 +959,18 @@ html[data-studio-theme] .stage-size-control input { accent-color:var(--selected-
 #mask-unveiling footer > div { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 16px; }
 #mask-unveiling button { border: 1px solid #b6a0bd; border-radius: 24px; padding: 12px 22px; background: #fff0db; color: #30253b; cursor: pointer; font: inherit; }
 #mask-unveiling button:focus-visible { outline: 3px solid #e9be90; outline-offset: 4px; }
+.collection-mask-item { display:grid; gap:8px; }
+.collection-header-actions,.collection-selection-actions { display:flex; gap:8px; align-items:center; }
+.collection-header-actions { flex-shrink:0; }
+.collection-selection-actions { position:sticky; top:0; z-index:2; justify-content:center; padding:10px; background:var(--ui-panel); border:1px solid var(--line); border-radius:12px; }
+.collection-selection-actions[hidden] { display:none; }
+#app #mask-collection button.collection-icon-action { display:grid; place-items:center; width:46px; min-width:46px; height:46px; padding:10px; }
+.collection-icon-action svg { width:24px; height:24px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+@media(max-width:480px){.mask-collection-card header {flex-wrap:wrap;} .collection-header-actions{margin-left:auto;}}
+.collection-mask-item .collection-mask-card { width:100%; }
+.collection-delete-confirm { padding:14px; margin-bottom:16px; border:1px solid var(--line); border-radius:12px; }
+.collection-delete-confirm p { font-size:14px; line-height:1.5; }
+.collection-tabs { display:flex; gap:8px; margin:12px 0; }
+.collection-tabs button { flex:1; }
+.collection-tabs button[aria-pressed="true"] { outline:2px solid var(--ui-focus); }
+.collection-share p { font-size:12px; line-height:1.5; }

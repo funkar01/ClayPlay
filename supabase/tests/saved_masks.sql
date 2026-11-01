@@ -23,7 +23,8 @@ select is((select count(*) from public.saved_masks),0::bigint,'A different accou
 with changed as(update public.saved_masks set name='Intruder' returning *)
 select is((select count(*) from changed),0::bigint,'A different account cannot change saved masks');
 select throws_ok($$insert into public.saved_masks(id,owner_id,name,shape,color,payload,save_request)values('dddddddd-dddd-4ddd-8ddd-dddddddddddd','11111111-1111-4111-8111-111111111111','Foreign','full','#cd6e45','{"version":1,"codec":"gzip","data":"test"}','eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee')$$,'42501',null,'Another account cannot insert for the owner');
-select throws_ok('delete from public.saved_masks','42501',null,'Direct mask deletion is not granted');
+with removed as(delete from public.saved_masks returning *)
+select is((select count(*) from removed),0::bigint,'Another account cannot delete the owner’s masks');
 reset role;
 select * from finish();
 rollback;

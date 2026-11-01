@@ -4,8 +4,8 @@ import { validateSavedMask } from './savedMask.js';
 
 const emailKey=value=>(value ?? '').trim().toLowerCase();
 export class MaskCollection {
-  constructor({connect,pending=new PendingMask(),codec=maskCodec,onChange=()=>{},onSaved=()=>{},onSaveStarted=()=>{}}) {
-    Object.assign(this,{connect,storage:pending,codec,onChange,onSaved,onSaveStarted});
+  constructor({connect,pending=new PendingMask(),codec=maskCodec,onChange=()=>{},onSaved=()=>{},onSaveStarted=()=>{},onDeleted=()=>{}}) {
+    Object.assign(this,{connect,storage:pending,codec,onChange,onSaved,onSaveStarted,onDeleted});
     this.mode='register';this.rows=[];this.page=0;this.message='Save your mask to a collection you can open on any device.';
   }
   emit(){this.onChange(this);}
@@ -29,7 +29,7 @@ export class MaskCollection {
     this.conflict=error?.code==='40001';this.emit();}
   async sessionChanged(event,session){
     const changed=this.user?.id!==session?.user.id;this.user=session?.user ?? null;
-    if(changed){this.rows=[];this.page=0;this.mode=this.user?'collection':'login';}
+    if(changed){this.rows=[];this.page=0;this.category='own';this.mode=this.user?'collection':'login';}
     this.emit();
     if(event==='SIGNED_OUT')return;
     if(this.canResume() && !this.busy)await this.resume();
@@ -82,6 +82,7 @@ export class MaskCollection {
       }).abortSignal(AbortSignal.timeout(20000));
       if(error)throw error;
       await this.storage.clear(pending.requestId);this.pending=null;this.conflict=false;
+      this.category='own';this.page=0;
       this.onSaved(pending,data);this.mode='collection';this.message='Saved to your collection. Yours to keep creating.';this.emit();
       await this.refresh({keepMessage:true});return true;
     }catch(error){this.fail(error);return false;}
@@ -101,24 +102,58 @@ export class MaskCollection {
   }
   async refresh({keepMessage=false}={}){
     if(!this.user||this.mode==='name')return;const owner=this.user.id;
-    const{data,error}=await this.client.from('saved_masks').select('id,name,shape,color,revision,updated_at').eq('owner_id',owner)
+    const category=this.category;
+    let query=this.client.from(category==='shared'?'mask_shares':'saved_masks').select('id,name,shape,color,revision,updated_at');
+    if(category!=='shared')query=query.eq('owner_id',owner);
+    const{data,error}=await query
       .order('updated_at',{ascending:false}).range(this.page*12,this.page*12+11).abortSignal(AbortSignal.timeout(15000));
-    if(this.user?.id!==owner)return;
+    if(this.user?.id!==owner||this.category!==category)return;
     if(error){if(keepMessage)this.message='Your mask was saved, but the collection could not refresh. Choose Refresh to try again.';else this.fail(error);}
     else{this.rows=data;this.hasNext=data.length===12;if(!keepMessage)this.message=this.pending?'A mask is waiting to save.':data.length?'Choose a mask to keep creating.':'Your collection is ready for its first mask.';}
     this.emit();
   }
   async read(id){
     const owner=this.user?.id;if(!owner)throw new Error('Sign in to open your masks.');
+    if(this.category==='shared'){
+      const{data,error}=await this.client.from('mask_shares').select('id,sender_id,revision,payload').eq('id',id).single().abortSignal(AbortSignal.timeout(15000));
+      if(error)throw error;if(this.user?.id!==owner)throw new Error('Your account changed. Open the collection again.');
+      return {...data,owner_id:data.sender_id,record:await this.codec('unpack',data.payload)};
+    }
     const{data,error}=await this.client.from('saved_masks').select('id,owner_id,revision,payload').eq('id',id).eq('owner_id',owner).single().abortSignal(AbortSignal.timeout(15000));
     if(error)throw error;if(this.user?.id!==owner)throw new Error('Your account changed. Please open the collection again.');
     return {...data,record:await this.codec('unpack',data.payload)};
+  }
+  async remove(id,expectedRevision){
+    if(this.category==='shared')throw new Error('Only your own saved masks can be deleted here.');
+    if(this.busy)return false;
+    if(!this.user)throw new Error('Sign in to delete a mask.');
+    const row=this.rows.find(row=>row.id===id);if(!row)throw new Error('Refresh your collection and try again.');
+    if(this.pending?.id===id)throw new Error('Finish or discard the waiting save for this mask first.');
+    const owner=this.user.id;this.busy=true;this.message='Deleting mask…';this.emit();
+    try{
+      const{data,error}=await this.client.rpc('delete_collection_mask',{mask_id:id,expected_revision:expectedRevision??row.revision}).abortSignal(AbortSignal.timeout(15000));
+      if(error)throw error;
+      if(this.user?.id!==owner)return false;
+      this.rows=this.rows.filter(row=>row.id!==id);this.onDeleted(id,owner);this.message=data?'Mask deleted from your collection.':'This mask has already been deleted.';
+      this.emit();return true;
+    }catch(error){this.message=error.code==='40001'?'This mask changed on another device. Refresh before deleting it.':`Could not delete the mask. ${error.message}`;this.emit();return false;}
+    finally{this.busy=false;this.emit();}
   }
   async saveCopy(){
     if(!this.pending || this.busy)return;
     const previousRequestId=this.pending.requestId;
     const copy={...this.pending,id:crypto.randomUUID(),revision:0,requestId:crypto.randomUUID()};
     await this.storage.set(copy,{previousRequestId});this.pending=copy;this.conflict=false;return this.resume();
+  }
+  async share(id,email){
+    if(this.busy)return false;
+    if(!this.user||this.category==='shared')throw new Error('Save a copy in your own collection before sharing.');
+    const friend=emailKey(email);if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(friend)||friend.length>254)throw new Error('Enter a valid friend email address.');
+    if(friend===emailKey(this.user.email))throw new Error('Enter your friend’s email, rather than your own.');
+    const owner=this.user.id;this.busy=true;this.message='Sharing your mask…';this.emit();
+    try{const{error}=await this.client.rpc('share_collection_mask',{mask_id:id,friend_email:friend}).abortSignal(AbortSignal.timeout(20000));if(error)throw error;
+      if(this.user?.id!==owner)return false;this.message='Mask shared. Your friend can find it under Shared with you after signing in with that email.';this.emit();return true;
+    }catch(error){this.message=`Could not share the mask. ${error.message}`;this.emit();return false;}finally{this.busy=false;this.emit();}
   }
   async discard(){if(this.busy)return;await this.storage.clear(this.pending?.requestId);this.pending=null;this.conflict=false;this.message='Waiting save discarded. The mask on your stage is unchanged.';this.emit();}
   async signOut(){if(this.busy)return;const{error}=await this.client.auth.signOut({scope:'local'});if(error)throw error;this.user=null;this.rows=[];this.mode='login';this.message='Signed out. Sign in to see your collection.';this.emit();}

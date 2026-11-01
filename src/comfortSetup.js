@@ -11,8 +11,8 @@ export class ComfortSetup {
       <h2 id="comfort-title" tabindex="-1">Find your comfort space</h2>
       <p>Switch on your lights. Sit comfortably about 3 feet from the camera, with your shoulders relaxed.</p>
       <p class="comfort-status" role="status"></p>
-      <button type="button">I’m ready</button>
-      <button class="comfort-skip" type="button">Use cursor instead</button>`;
+      <button type="button">Use Hand Tracking</button>
+      <button class="comfort-skip" type="button">Use Mouse Cursor</button>`;
     stage.append(this.card);
     this.title = this.card.querySelector('h2');
     this.copy = this.card.querySelector('p');

@@ -88,9 +88,7 @@ export class HandUI {
     }
     this.historyDock=document.createElement('nav');this.historyDock.className='studio-history-dock';this.historyDock.setAttribute('aria-label','Undo and redo');
     for(const id of ['sculpt-undo','sculpt-redo'])this.historyDock.append(document.getElementById(id));stage.append(this.historyDock);
-    this.pinTools=button('Pinned','dock-pin');this.pinTools.id='dock-pin';this.dock.append(this.pinTools);
-    let pinned=true;try{pinned=localStorage.getItem('clayplay-tools-pinned')!=='false';}catch{}
-    this.dockVisibility=new DockVisibility({pinned,now:performance.now()});
+    this.dockVisibility=new DockVisibility({pinned:true,now:performance.now()});
     this.toolsTab=button('Tools','dock-open');this.toolsTab.id='studio-tools-tab';this.toolsTab.setAttribute('aria-controls','hand-toolbar');stage.append(this.toolsTab);
     const brand=document.createElement('div');brand.className='studio-brand';brand.setAttribute('aria-label','Mask Studio — Create, shape, express');
     brand.innerHTML='<svg viewBox="0 0 48 56" aria-hidden="true"><defs><linearGradient id="studio-brand-gradient" x2="1" y2="1"><stop stop-color="#794cff"/><stop offset=".55" stop-color="#ea19ee"/><stop offset="1" stop-color="#ffa15a"/></linearGradient></defs><path fill="url(#studio-brand-gradient)" d="M4 5Q24 13 44 5L41 36Q36 50 24 53Q12 50 7 36Z"/><path fill="#170b35" d="m10 20 12 4-3 6-8-3Zm28 0-12 4 3 6 8-3ZM18 39q6 4 12 0-6 9-12 0"/></svg><div><strong>Mask<span>Studio</span></strong><small>Create · Shape · Express</small></div>';
@@ -160,11 +158,6 @@ export class HandUI {
     const state = this.getState();
     if(action==='size-open') {this.sizeVisibility.reveal(performance.now());this.updateSizeControl(performance.now());return;}
     if(action==='dock-open') {this.dockVisibility.reveal(performance.now());this.updateDock(performance.now());return;}
-    if(action==='dock-pin') {
-      this.dockVisibility.pinned=!this.dockVisibility.pinned;this.dockVisibility.reveal(performance.now());
-      try{localStorage.setItem('clayplay-tools-pinned',String(this.dockVisibility.pinned));}catch{}
-      this.updateDock(performance.now());return;
-    }
     if(action === 'dwell') {this.selection.dwellMs=Number(value);this.selection.cancel();try{localStorage.setItem('clayplay-dwell',value);}catch{} this.signature=null;this.sync();return;}
     if (action === 'more') { if (this.isOpen) this.close(); else this.open(); return; }
     if (action === 'close') { this.close(); return; }
@@ -239,22 +232,36 @@ export class HandUI {
       }
       if(s.controlMode!=='mouse') {
         const timing=document.createElement('p');timing.className='hand-panel-caption';timing.textContent='Button selection speed';grid.append(timing);
-        for(const [ms,label] of [[500,'Quick · 0.5s'],[800,'Relaxed · 0.8s'],[1200,'Steady · 1.2s']]) {const option=button(label,'dwell',String(ms));option.setAttribute('aria-pressed',String((this.selection.dwellMs ?? 800)===ms));grid.append(option);}
+        const timingControl=document.createElement('div');timingControl.className='hand-selection-speed';
+        const slider=document.createElement('input');slider.type='range';slider.min='0';slider.max='2';slider.step='1';
+        slider.setAttribute('data-hand-range','');slider.setAttribute('aria-label','Button selection speed');
+        const times=[1200,800,500],names=['Slow','Medium','Fast'];
+        slider.value=String(Math.max(0,times.indexOf(this.selection.dwellMs ?? 800)));
+        const output=document.createElement('output');output.setAttribute('aria-live','polite');
+        const update=()=>{
+          const index=Number(slider.value),ms=times[index];
+          slider.setAttribute('aria-valuetext',`${names[index]} · ${ms/1000} seconds`);
+          slider.style.setProperty('--selection-fill',`${index*50}%`);
+          output.textContent=`${names[index]} · ${ms/1000}s`;
+        };
+        slider.addEventListener('input',()=>{
+          this.selection.dwellMs=times[Number(slider.value)];this.selection.cancel();
+          try{localStorage.setItem('clayplay-dwell',this.selection.dwellMs);}catch{}
+          update();
+        });
+        update();timingControl.append(slider);
+        const labels=document.createElement('div');labels.className='hand-selection-speed-labels';
+        for(const name of names){const label=document.createElement('span');label.textContent=name;labels.append(label);}
+        timingControl.append(labels,output);grid.append(timingControl);
       }
       const help=document.createElement('p');help.className='hand-panel-caption';
       help.textContent=s.controlMode==='mouse' ? 'Click a tool to select it. Click and drag on the mask to shape, paint or erase. Drag sliders to adjust them. Hand gestures are off in mouse mode.' : 'Palm: move your palm to aim, close gently to apply, open to release. Hover with an open hand to choose buttons; close and slide to adjust sliders. Keep your wrist visible. One closed hand applies a tool; two fists resize. Use Index control for the whole-mask move gesture.';grid.append(help);
     } else if (this.page === 'masks') {
-      const start = Math.max(0, Math.min(this.maskPage, Math.ceil(s.masks.length / 4) - 1)); this.maskPage = start;
-      for (const item of s.masks.slice(start * 4, start * 4 + 4)) {
+      for (const item of s.masks.filter(mask => mask.id === s.active)) {
         const card = button(item.label, 'select-mask', item.id); card.className = 'hand-mask-card'; card.disabled = s.busy;
         card.setAttribute('aria-pressed', String(item.id === s.active));
-        const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); icon.setAttribute('viewBox', '0 0 24 24'); icon.setAttribute('aria-hidden', 'true');
-        const path = document.createElementNS(icon.namespaceURI, 'path'); path.setAttribute('d', MASK_SHAPES[item.shape].icon); path.style.fill = item.color;
-        icon.append(path); card.prepend(icon); grid.append(card);
-      }
-      if (s.masks.length > 4) {
-        const prev = button('Previous', 'mask-page', '-1'), next = button('Next', 'mask-page', '1');
-        prev.disabled = start === 0; next.disabled = (start + 1) * 4 >= s.masks.length; grid.append(prev, next);
+        const preview = document.createElement('span'); preview.innerHTML = maskPreview(item.shape);
+        card.prepend(preview); grid.append(card);
       }
       const caption = document.createElement('p'); caption.textContent = 'Add a starter mask'; caption.className = 'hand-panel-caption'; grid.append(caption);
       for (const [shape, details] of Object.entries(MASK_SHAPES)) {
@@ -264,7 +271,6 @@ export class HandUI {
         add.prepend(preview);
         add.disabled = s.busy || s.masks.length >= 8; grid.append(add);
       }
-      const remove = button('Remove selected', 'remove'); remove.disabled = s.busy || s.masks.length < 2; grid.append(remove);
     } else if (this.page === 'eyes') {
       const caption = document.createElement('p'); caption.className = 'hand-panel-caption';
       caption.textContent = 'Choose openings for your selected mask. Undo brings the previous eyes back.';
@@ -310,10 +316,7 @@ export class HandUI {
         : this.confirm === 'remove' ? 'Remove the selected mask from your collection?' : 'Start this mask over? Undo can bring your previous shape back.';
       grid.append(copy, button('Cancel', 'page', 'more'), button('Confirm', 'confirm'));
     }
-    const scroll = document.createElement('div'); scroll.className = 'hand-panel-scroll';
-    scroll.append(button('↑ Up', 'scroll', '-1'), button('↓ Down', 'scroll', '1')); this.panel.append(scroll);
     const help = document.createElement('p'); help.className = 'hand-panel-help'; help.textContent = this.controlMode==='mouse' ? 'Click to choose · drag sliders to adjust' : this.controlMode === 'palm' ? 'Hold your open palm on a button until the ring fills' : 'Hold your index on a button until the ring fills'; this.panel.append(help);
-    scroll.hidden = this.body.scrollHeight <= this.body.clientHeight + 2;
   }
   syncFinish(value) {
     if (!this.finishControl) return;
@@ -412,11 +415,6 @@ export class HandUI {
     this.stage.classList.toggle('tools-collapsed',!expanded);
     this.dock.inert=!expanded;this.dock.setAttribute('aria-hidden',String(!expanded));
     this.toolsTab.setAttribute('aria-expanded',String(expanded));this.toolsTab.hidden=expanded;
-    if(this.pinTools.getAttribute('aria-pressed')!==String(this.dockVisibility.pinned))this.pinTools.setAttribute('aria-pressed',String(this.dockVisibility.pinned));
-    const pinLabel=this.dockVisibility.pinned?'Unpin tools':'Pin tools';
-    if(this.pinTools.textContent!==pinLabel)this.pinTools.textContent=pinLabel;
-    const pinDescription=this.dockVisibility.pinned?'Unpin tools to enable auto-hide':'Pin tools to keep them visible';
-    if(this.pinTools.getAttribute('aria-label')!==pinDescription)this.pinTools.setAttribute('aria-label',pinDescription);
     const active=this.dock.querySelector('[data-tool].is-active');
     if(active && this.toolsTab.dataset.tool!==active.dataset.tool) {
       this.toolsTab.dataset.tool=active.dataset.tool;
@@ -533,7 +531,7 @@ export class HandUI {
     this.highlight?.classList.remove('hand-hover', 'hand-selected');
     this.highlight = response.target ?? null;
     this.highlight?.classList.add('hand-hover');
-    if (response.phase === 'selected') this.highlight?.classList.add('hand-selected');
+    if (response.phase === 'selected' && !this.highlight?.matches?.('.hand-mask-card')) this.highlight?.classList.add('hand-selected');
     this.drawCursor(now);
     this.cursor.dataset.phase = response.phase;
     this.cursor.style.setProperty('--dwell-progress', `${response.progress * 360}deg`);

@@ -138,8 +138,9 @@ function setControlMode(mode) {
     trackingEpoch++;handFramePump?.stop();
     comfortSetup.card.hidden=true;dismissStudioMessage();
     setStatus('ready','CURSOR MODE');landmarkCount.textContent='MOUSE CURSOR';
-  } else if(stream && !tryOn.enabled) {
-    if(landmarker)scheduleHandTracking();else startTracking();
+  } else if(!tryOn.enabled) {
+    if(!stream)startCamera();
+    else if(landmarker)scheduleHandTracking();else startTracking();
   }
   try {localStorage.setItem('clayplay-control-mode',mode);}catch{}
   showToolInstructions();
@@ -2126,8 +2127,9 @@ sceneHost.addEventListener('pointerdown', (event) => {
   if (event.target !== renderer.domElement || event.button !== 0) return;
   if (mousePointerId !== null || cameraOpening) return;
   updateMouseTarget(event);
-  // Click another piece to select it; a subsequent drag sculpts that piece.
-  const hit = clayRaycaster.intersectObjects(clayObjects.items.map((item) => item.group), true)[0];
+  // Saved masks share the stage position but are hidden. Three.js raycasts
+  // hidden groups too; only visible pieces may take a selection click.
+  const hit = clayRaycaster.intersectObjects(clayObjects.items.filter(item => item.group.visible).map(item => item.group), true)[0];
   if (hit) {
     const item = clayObjects.items.find((item) => item.group === hit.object.parent);
     if (item && item !== clayObjects.active) {
@@ -2375,6 +2377,9 @@ maskCollection=new MaskCollection({
     const item=clayObjects.items.find(item=>item.saveToken===pending.sourceToken);
     if(item){item.collectionId=saved.id;item.collectionRevision=saved.revision;item.collectionOwner=pending.ownerId;item.label=pending.record.label;clayMenu?.refresh();}
     handUI.announce('Mask saved to your collection');
+  },
+  onDeleted:(id,owner)=>{
+    for(const item of clayObjects.items)if(item.collectionId===id&&item.collectionOwner===owner){delete item.collectionId;delete item.collectionOwner;delete item.collectionRevision;}
   },
 });
 maskCollectionUI=new MaskCollectionUI({stage:document.querySelector('#stage'),model:maskCollection,

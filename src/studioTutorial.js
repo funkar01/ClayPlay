@@ -20,7 +20,7 @@ export class StudioTutorial {
     this.card.innerHTML = `<div class="tutorial-heading"><span id="tutorial-step"></span><button id="tutorial-skip" type="button">Skip tutorial</button></div>
       <div class="tutorial-lesson" aria-live="polite" aria-atomic="true"><h2 id="tutorial-title" tabindex="-1"></h2><p id="tutorial-copy"></p></div>
       <div class="tutorial-actions"><button id="tutorial-next" type="button">Try it on!</button></div>
-      <button id="tutorial-explore" type="button" hidden>Try another recipe</button>`;
+      <button id="tutorial-explore" type="button" hidden>Explore new design</button>`;
     this.overlay = document.createElement('div');
     this.overlay.className = 'tutorial-overlay'; this.overlay.hidden = true;
     this.overlay.setAttribute('aria-hidden', 'true');
@@ -88,7 +88,7 @@ export class StudioTutorial {
     this.card.querySelector('#tutorial-copy').textContent = mission.copy;
     this.card.querySelector('#tutorial-explore').hidden = mission.id!=='done';
     this.nextButton.hidden = Boolean(mission.target);
-    this.nextButton.textContent = ['ui','shape','eyes'].includes(this.phase) ? 'Next' : 'Try it on!';
+    this.nextButton.textContent = ['ui','shape','eyes'].includes(this.phase) ? 'Next' : mission.id==='done' ? 'Try your mask' : 'Try it on!';
     this.overlay.dataset.motion = mission.motion ?? mission.id;
     this.onStep(mission.tool, mission);
     this.refreshControlGuidance();

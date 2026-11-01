@@ -15,6 +15,31 @@ class MemoryPending{
   async clear(id){if(this.value?.requestId===id)this.value=null;}
 }
 const owner={id:'owner',email:'mask@example.test'},other={id:'other',email:'other@example.test'};
+test('Sharing sends the saved mask ID and normalized friend email',async()=>{
+ const {m,client}=fixture({user:owner});await m.initialize();let call;
+ client.rpc=(name,args)=>({abortSignal:async()=>{call={name,args};return{data:'share-id'};}});
+ assert.equal(await m.share('saved-mask','  FRIEND@example.test  '),true);
+ assert.deepEqual(call,{name:'share_collection_mask',args:{mask_id:'saved-mask',friend_email:'friend@example.test'}});
+});
+test('Sharing rejects self, invalid addresses and resharing a received mask',async()=>{
+ const {m,saved}=fixture({user:owner});await m.initialize();
+ await assert.rejects(m.share('mask',owner.email));await assert.rejects(m.share('mask','invalid'));
+ m.category='shared';await assert.rejects(m.share('mask',other.email));assert.equal(saved.length,0);
+});
+test('Failed sharing reports failure without claiming delivery',async()=>{
+ const {m,client}=fixture({user:owner});await m.initialize();client.failure=new Error('Offline');
+ assert.equal(await m.share('mask',other.email),false);assert.match(m.message,/Could not share/);
+});
+test('Deletion removes the selected collection entry only after server confirmation',async()=>{
+  const {m,client}=fixture({user:owner});await m.initialize();m.rows=[{id:'one',revision:3},{id:'two',revision:1}];
+  client.rpc=(name,args)=>({abortSignal:async()=>{assert.equal(name,'delete_collection_mask');assert.deepEqual(args,{mask_id:'one',expected_revision:3});return{data:true};}});
+  assert.equal(await m.remove('one'),true);assert.deepEqual(m.rows.map(row=>row.id),['two']);
+});
+test('Failed deletion retains the mask and reports an error',async()=>{
+  const {m,client}=fixture({user:owner});await m.initialize();m.rows=[{id:'one',revision:3}];
+  client.rpc=()=>({abortSignal:async()=>({error:new Error('Offline')})});
+  assert.equal(await m.remove('one'),false);assert.equal(m.rows.length,1);assert.match(m.message,/Could not delete/);
+});
 function fixture({user=null,pending=new MemoryPending(),confirm=false}={}){
   const saved=[],authCalls=[],auth={
     getSession:async()=>({data:{session:user?{user}:null}}),onAuthStateChange:callback=>{auth.callback=callback;},

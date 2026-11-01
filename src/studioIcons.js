@@ -1,6 +1,6 @@
 // One small SVG vocabulary for studio actions. All color comes from the theme.
 const paths = {
-  paint: 'm15 4 5 5-8 8-5-5zM7 12l5 5M7 17c0 4-4 4-4 4s0-4 4-4',
+  paint: 'm9 12 8.5-8.5a2.12 2.12 0 0 1 3 3L12 15zM7 14a3 3 0 0 1 3 3c0 2.21-1.79 4-4 4H2c1-1 2-2.5 2-4a3 3 0 0 1 3-3Z',
   erase: 'm4 14 9-10 8 7-9 10H9zM8 10l8 7M12 21h9',
   mask: 'M5 4q7 3 14 0v10q-1 5-7 8-6-3-7-8zM8 10l3 1m5-1-3 1M9 16q3 2 6 0',
   bag: 'M5 7h14l1 14H4L5 7ZM8 9V6a4 4 0 0 1 8 0v3',
@@ -43,12 +43,15 @@ const paths = {
 };
 
 function iconKey(button, label) {
-  if (button.matches('.comfort-setup button:not(.comfort-skip)')) return 'camera';
+  if(button.id==='tutorial-explore')return 'design';
+  if(button.id==='tutorial-next' && /try your mask/i.test(label))return 'mask';
+  if (button.matches('.comfort-setup button:not(.comfort-skip)')) return 'hand';
   const { handAction: action, value, tool, selfie, adjust, paintScroll } = button.dataset;
   if (tool) return ({ pinch: 'pull', extrude: 'extrude', paint: 'paint', erase: 'erase' })[tool] || 'mask';
   if (button.id === 'sculpt-undo') return 'undo';
   if (button.id === 'sculpt-redo') return 'redo';
   if (button.id === 'mask-picker-continue' || /\bcontinue\b/i.test(label)) return 'play';
+  if (button.matches('.mask-picker-back')) return 'back';
   if (button.matches('.mask-picker-start') || /\bnext\b/i.test(label)) return 'next';
   if (action === 'dock-pin') return button.getAttribute('aria-pressed') === 'true' ? 'unpin' : 'pin';
   if (action === 'size-open') return 'size';
@@ -77,6 +80,10 @@ function iconKey(button, label) {
 }
 
 function makeIcon(document, key) {
+  if(key==='design') {
+    const icon=document.createElement('span');icon.className='studio-button-icon studio-design-icon';
+    icon.setAttribute('aria-hidden','true');return icon;
+  }
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.classList.add('studio-button-icon');
   svg.setAttribute('viewBox', key === 'pull' || key === 'extrude' ? '0 0 48 48' : '0 0 24 24');
@@ -98,7 +105,7 @@ function makeIcon(document, key) {
 
 // Keep real previews (eyes, masks, colors and theme palettes); hide their captions.
 const previewButton = '.studio-theme-card,.hand-mask-card,.hand-eye-card,.hand-color,.clay-swatch,.shape-option,[data-paint-color],[data-mask-base],[data-eye-base]';
-const previewNode = 'svg,.studio-theme-palette,.hand-eye-card > span:has(svg),[aria-hidden="true"][style*="paint-color"]';
+const previewNode = 'svg,.studio-theme-palette,.hand-eye-card > span:has(svg),.hand-mask-card > span:has(svg),[aria-hidden="true"][style*="paint-color"]';
 
 export class StudioIcons {
   constructor(stage) {
